@@ -217,58 +217,7 @@ export default function MitmToolCard({
               <p className="text-xs text-text-muted px-1">Model mappings will be available soon.</p>
             )}
 
-            {/* Token Swap Pool — show when tool supports token swap */}
-            {tool.supportsTokenSwap && (() => {
-              const tokenSwapAccounts = connections.filter(c =>
-                c.provider === tool.tokenSwapProvider && c.isActive !== false
-              );
-              const isNearExpiry = (expiresAt) => {
-                if (!expiresAt) return false;
-                return new Date(expiresAt).getTime() - Date.now() < 24 * 60 * 60 * 1000;
-              };
-              return (
-                <div className="flex flex-col gap-2 pt-3 border-t border-border/50">
-                  <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[14px] text-primary">key</span>
-                    <span className="text-xs font-semibold text-text-main">Token Swap Pool</span>
-                    <Badge variant={tokenSwapAccounts.length > 0 ? "success" : "warning"} size="sm">
-                      {tokenSwapAccounts.length > 0 ? `${tokenSwapAccounts.length} active` : "No accounts"}
-                    </Badge>
-                    {tokenSwapAccounts.length > 1 && (
-                      <span className="text-[10px] text-text-muted">round-robin</span>
-                    )}
-                  </div>
 
-                  {tokenSwapAccounts.length > 0 ? (
-                    <div className="flex flex-col gap-1 pl-5">
-                      {tokenSwapAccounts.map(acc => (
-                        <div key={acc.id} className="flex items-center gap-2 text-xs text-text-muted">
-                          <span className={`material-symbols-outlined text-[12px] ${isNearExpiry(acc.expiresAt) ? "text-amber-500" : "text-green-500"}`}>
-                            {isNearExpiry(acc.expiresAt) ? "warning" : "check_circle"}
-                          </span>
-                          <span className="flex-1 truncate">{acc.email || acc.name || acc.id.slice(0, 12)}</span>
-                          {isNearExpiry(acc.expiresAt) && (
-                            <span className="text-[10px] text-amber-500 shrink-0">expires soon</span>
-                          )}
-                        </div>
-                      ))}
-                      <a
-                        href="/dashboard/providers"
-                        className="text-[11px] text-primary hover:underline flex items-center gap-1 mt-1"
-                      >
-                        <span className="material-symbols-outlined text-[12px]">open_in_new</span>
-                        Manage accounts
-                      </a>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-text-muted px-1 pl-5">
-                      No active {tool.name} accounts.
-                      <a href="/dashboard/providers" className="text-primary hover:underline ml-1">Add account →</a>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
 
             {/* Start / Stop DNS button */}
             <div className="flex flex-col gap-2 items-start">

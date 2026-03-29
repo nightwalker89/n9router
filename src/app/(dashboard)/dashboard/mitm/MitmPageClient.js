@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { MITM_TOOLS } from "@/shared/constants/cliTools";
 import { getModelsByProviderId } from "@/shared/constants/models";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
-import { MitmServerCard, MitmToolCard } from "@/app/(dashboard)/dashboard/cli-tools/components";
+import { MitmServerCard, MitmToolCard, TokenSwapPoolCard } from "@/app/(dashboard)/dashboard/cli-tools/components";
 
 export default function MitmPageClient() {
   const [connections, setConnections] = useState([]);
@@ -86,22 +86,30 @@ export default function MitmPageClient() {
       {/* Tool Cards */}
       <div className="flex flex-col gap-2">
         {mitmTools.map(([toolId, tool]) => (
-          <MitmToolCard
-            key={toolId}
-            tool={tool}
-            isExpanded={expandedTool === toolId}
-            onToggle={() => setExpandedTool(expandedTool === toolId ? null : toolId)}
-            serverRunning={mitmStatus.running}
-            dnsActive={mitmStatus.dnsStatus?.[toolId] || false}
-            hasCachedPassword={mitmStatus.hasCachedPassword || false}
-            apiKeys={apiKeys}
-            activeProviders={getActiveProviders()}
-            hasActiveProviders={hasActiveProviders()}
-            modelAliases={modelAliases}
-            cloudEnabled={cloudEnabled}
-            connections={connections}
-            onDnsChange={(data) => setMitmStatus(prev => ({ ...prev, dnsStatus: data.dnsStatus ?? prev.dnsStatus }))}
-          />
+          <Fragment key={toolId}>
+            <MitmToolCard
+              key={toolId}
+              tool={tool}
+              isExpanded={expandedTool === toolId}
+              onToggle={() => setExpandedTool(expandedTool === toolId ? null : toolId)}
+              serverRunning={mitmStatus.running}
+              dnsActive={mitmStatus.dnsStatus?.[toolId] || false}
+              hasCachedPassword={mitmStatus.hasCachedPassword || false}
+              apiKeys={apiKeys}
+              activeProviders={getActiveProviders()}
+              hasActiveProviders={hasActiveProviders()}
+              modelAliases={modelAliases}
+              cloudEnabled={cloudEnabled}
+              onDnsChange={(data) => setMitmStatus(prev => ({ ...prev, dnsStatus: data.dnsStatus ?? prev.dnsStatus }))}
+            />
+            {tool.supportsTokenSwap && (
+              <TokenSwapPoolCard
+                tool={tool}
+                connections={connections}
+                serverRunning={mitmStatus.running}
+              />
+            )}
+          </Fragment>
         ))}
       </div>
     </div>
