@@ -99,6 +99,7 @@ export default function MitmPageClient() {
             hasActiveProviders={hasActiveProviders()}
             modelAliases={modelAliases}
             cloudEnabled={cloudEnabled}
+            connections={connections}
             onDnsChange={(data) => setMitmStatus(prev => ({ ...prev, dnsStatus: data.dnsStatus ?? prev.dnsStatus }))}
           />
         ))}

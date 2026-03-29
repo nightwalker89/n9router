@@ -6,6 +6,8 @@ const { promisify } = require("util");
 const { log, err } = require("./logger");
 const { TARGET_HOSTS, URL_PATTERNS, getToolForHost } = require("./config");
 const { DATA_DIR, MITM_DIR } = require("./paths");
+const { isTokenSwapEnabled, getAllActiveConnections, triggerRefreshIfNeeded,
+        setCooldown, parseQuotaCooldown } = require("./tokenPool");
 const { getCertForDomain } = require("./cert/generate");
 
 const DB_FILE = path.join(DATA_DIR, "db.json");
@@ -13,6 +15,13 @@ const LOCAL_PORT = 443;
 const ENABLE_FILE_LOG = false;
 const LOG_DIR = path.join(DATA_DIR, "logs", "mitm");
 const INTERNAL_REQUEST_HEADER = { name: "x-request-source", value: "local" };
+
+// Map MITM tool → provider name in providerConnections
+const TOOL_TO_PROVIDER = {
+  antigravity: "antigravity",
+  // copilot: "copilot",   // future
+  // kiro: "kiro",         // future
+};
 
 if (ENABLE_FILE_LOG && !fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 
@@ -166,6 +175,77 @@ async function passthrough(req, res, bodyBuffer, onResponse) {
   forwardReq.end();
 }
 
+// ── Token swap forward ────────────────────────────────────────
+// Unlike passthrough(), this checks upstream statusCode BEFORE
+// piping to client — enabling auto-retry on 429/503.
+
+async function tokenSwapForward(req, res, bodyBuffer, connections) {
+  const targetHost = (req.headers.host || TARGET_HOSTS[0]).split(":")[0];
+  const targetIP = await resolveTargetIP(targetHost);
+
+  for (const conn of connections) {
+    triggerRefreshIfNeeded(conn);
+
+    const label = conn.name || conn.email || conn.id.slice(0, 8);
+    log(`🔑 [token-swap] trying "${label}" ...`);
+
+    const swappedHeaders = {
+      ...req.headers,
+      host: targetHost,
+      authorization: `Bearer ${conn.accessToken}`
+    };
+
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const forwardReq = https.request({
+          hostname: targetIP,
+          port: 443,
+          path: req.url,
+          method: req.method,
+          headers: swappedHeaders,
+          servername: targetHost,
+          rejectUnauthorized: false
+        }, (forwardRes) => {
+          if (forwardRes.statusCode === 429 || forwardRes.statusCode === 503) {
+            // Buffer the short error body to parse cooldown duration
+            const chunks = [];
+            forwardRes.on("data", c => chunks.push(c));
+            forwardRes.on("end", () => {
+              const body = Buffer.concat(chunks).toString();
+              resolve({ retry: true, body, statusCode: forwardRes.statusCode });
+            });
+          } else {
+            // Success or non-quota error → pipe to client
+            resolve({ retry: false, response: forwardRes });
+          }
+        });
+        forwardReq.on("error", reject);
+        if (bodyBuffer.length > 0) forwardReq.write(bodyBuffer);
+        forwardReq.end();
+      });
+
+      if (result.retry) {
+        const cooldownMs = parseQuotaCooldown(result.body);
+        setCooldown(conn.id, cooldownMs);
+        const cdLabel = cooldownMs ? ` (cooldown ${Math.ceil(cooldownMs / 60000)}m)` : "";
+        log(`⚠️ [token-swap] "${label}" → ${result.statusCode} quota exhausted${cdLabel}, trying next...`);
+        continue;
+      }
+
+      log(`✅ [token-swap] "${label}" → ${result.response.statusCode}`);
+      res.writeHead(result.response.statusCode, result.response.headers);
+      result.response.pipe(res);
+      return true;
+    } catch (e) {
+      err(`[token-swap] error for "${label}": ${e.message}`);
+      continue;
+    }
+  }
+
+  // All accounts exhausted
+  return false;
+}
+
 // ── Request handler ───────────────────────────────────────────
 
 const server = https.createServer(sslOptions, async (req, res) => {
@@ -190,6 +270,18 @@ const server = https.createServer(sslOptions, async (req, res) => {
     const patterns = URL_PATTERNS[tool] || [];
     const isChat = patterns.some(p => req.url.includes(p));
     if (!isChat) return passthrough(req, res, bodyBuffer);
+
+    // ── TOKEN SWAP: rotate auth tokens before mitmAlias ──────
+    const swapProvider = TOOL_TO_PROVIDER[tool];
+    if (swapProvider && isTokenSwapEnabled(swapProvider)) {
+      const poolConns = getAllActiveConnections(swapProvider);
+      if (poolConns.length > 0) {
+        log(`🔑 [${tool}] token-swap: ${poolConns.length} account(s) available`);
+        const handled = await tokenSwapForward(req, res, bodyBuffer, poolConns);
+        if (handled) return;
+        log(`⚠️ [${tool}] token-swap: all accounts exhausted, falling through to original token`);
+      }
+    }
 
     log(`🔍 [${tool}] url=${req.url} | bodyLen=${bodyBuffer.length}`);
 
