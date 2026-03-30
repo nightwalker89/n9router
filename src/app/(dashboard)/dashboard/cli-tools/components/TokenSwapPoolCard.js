@@ -20,6 +20,7 @@ import Link from "next/link";
 export default function TokenSwapPoolCard({ tool, connections = [], serverRunning, dnsActive, onToggle }) {
   const [enabled, setEnabled] = useState(false);
   const [toggling, setToggling] = useState(false);
+  const [now] = useState(() => Date.now());
 
   const fetchEnabled = useCallback(async () => {
     try {
@@ -158,25 +159,29 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
             {activeCount > 0 ? (
               <>
                 {poolAccounts.map((acc) => {
-                  const nearExpiry = acc.expiresAt
-                    ? new Date(acc.expiresAt).getTime() - Date.now() < 24 * 60 * 60 * 1000
+                  // Only warn "expires soon" if token has no refreshToken (can't auto-renew)
+                  const hasRefresh = !!acc.refreshToken;
+                  const isExpired = acc.expiresAt && new Date(acc.expiresAt).getTime() < now;
+                  const nearExpiry = !hasRefresh && acc.expiresAt
+                    ? new Date(acc.expiresAt).getTime() - now < 60 * 60 * 1000 // 1h
                     : false;
+                  const showWarning = nearExpiry || (!hasRefresh && isExpired);
                   return (
                     <div key={acc.id} className="flex items-center gap-2 px-1 py-0.5">
                       <span
                         className={`material-symbols-outlined text-[14px] shrink-0 ${
-                          nearExpiry ? "text-amber-500" : "text-green-500"
+                          showWarning ? "text-amber-500" : "text-green-500"
                         }`}
                       >
-                        {nearExpiry ? "warning" : "check_circle"}
+                        {showWarning ? "warning" : "check_circle"}
                       </span>
                       <span className="flex-1 text-xs text-text-main truncate">
                         {acc.email || acc.name || acc.id.slice(0, 16)}
                       </span>
-                      {acc.priority != null && (
-                        <span className="text-[10px] text-text-muted shrink-0">p{acc.priority}</span>
+                      {hasRefresh && (
+                        <span className="text-[10px] text-green-500/70 shrink-0">auto-refresh</span>
                       )}
-                      {nearExpiry && (
+                      {showWarning && (
                         <span className="text-[10px] text-amber-500 shrink-0">expires soon</span>
                       )}
                     </div>
