@@ -23,7 +23,7 @@ export default function MitmToolCard({
   modelAliases = {},
   cloudEnabled,
   onDnsChange,
-  connections = [],
+  tokenSwapActive = false,
 }) {
   const [loading, setLoading] = useState(false);
   const [warning, setWarning] = useState(null);
@@ -145,15 +145,22 @@ export default function MitmToolCard({
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h3 className="font-medium text-sm">{tool.name}</h3>
+                {tool.supportsTokenSwap && (
+                  <span className="text-[9px] uppercase tracking-wider text-text-muted bg-surface border border-border px-1.5 py-0.5 rounded font-semibold">
+                    Mode A
+                  </span>
+                )}
                 {!serverRunning ? (
                   <Badge variant="default" size="sm">Server off</Badge>
+                ) : tokenSwapActive ? (
+                  <Badge variant="default" size="sm">Bypassed</Badge>
                 ) : dnsActive ? (
                   <Badge variant="success" size="sm">Active</Badge>
                 ) : (
                   <Badge variant="warning" size="sm">DNS off</Badge>
                 )}
               </div>
-              <p className="text-xs text-text-muted">Intercept {tool.name} requests via MITM proxy</p>
+              <p className="text-xs text-text-muted">Model routing — remap model IDs in intercepted requests</p>
             </div>
           </div>
           <span className={`material-symbols-outlined text-text-muted text-[20px] transition-transform ${isExpanded ? "rotate-180" : ""}`}>
@@ -163,6 +170,16 @@ export default function MitmToolCard({
 
         {isExpanded && (
           <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4">
+            {/* Token Swap bypass notice */}
+            {tokenSwapActive && (
+              <div className="flex items-start gap-2 px-2 py-2 rounded-lg bg-violet-500/5 border border-violet-500/15">
+                <span className="material-symbols-outlined text-[14px] text-violet-400 mt-0.5 shrink-0">info</span>
+                <p className="text-[11px] text-violet-400">
+                  Token Rotation (Mode B) is active — model routing is currently bypassed. Disable Token Rotation to use model routing.
+                </p>
+              </div>
+            )}
+
             {/* Info */}
             <div className="flex flex-col gap-0.5 text-[11px] text-text-muted px-1">
               <p>Toggle DNS to redirect {tool.name} traffic through 9Router via MITM.</p>

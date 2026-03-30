@@ -261,19 +261,48 @@ describe("isTokenSwapEnabled", () => {
   });
   afterEach(() => tmp.cleanup());
 
-  it("returns true when at least one active connection exists", () => {
-    fs.writeFileSync(tmp.dbPath, JSON.stringify({ providerConnections: [makeConn()] }));
+  it("returns true when settings.tokenSwapEnabled=true AND active connections exist", () => {
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({
+      providerConnections: [makeConn()],
+      settings: { tokenSwapEnabled: true },
+    }));
     expect(pool.isTokenSwapEnabled("antigravity")).toBe(true);
   });
 
-  it("returns false when no active connections", () => {
-    fs.writeFileSync(tmp.dbPath, JSON.stringify({ providerConnections: [] }));
+  it("returns false when settings.tokenSwapEnabled=true but no active connections", () => {
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({
+      providerConnections: [],
+      settings: { tokenSwapEnabled: true },
+    }));
     expect(pool.isTokenSwapEnabled("antigravity")).toBe(false);
   });
 
-  it("returns false for unknown provider", () => {
-    fs.writeFileSync(tmp.dbPath, JSON.stringify({ providerConnections: [makeConn()] }));
+  it("returns false when active connections exist but tokenSwapEnabled not set", () => {
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({
+      providerConnections: [makeConn()],
+    }));
+    expect(pool.isTokenSwapEnabled("antigravity")).toBe(false);
+  });
+
+  it("returns false when tokenSwapEnabled=false even with active connections", () => {
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({
+      providerConnections: [makeConn()],
+      settings: { tokenSwapEnabled: false },
+    }));
+    expect(pool.isTokenSwapEnabled("antigravity")).toBe(false);
+  });
+
+  it("returns false for unknown provider even when enabled", () => {
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({
+      providerConnections: [makeConn()],
+      settings: { tokenSwapEnabled: true },
+    }));
     expect(pool.isTokenSwapEnabled("github-copilot")).toBe(false);
+  });
+
+  it("returns false when db.json does not exist", () => {
+    fs.rmSync(tmp.dbPath);
+    expect(pool.isTokenSwapEnabled("antigravity")).toBe(false);
   });
 });
 

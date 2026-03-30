@@ -13,13 +13,7 @@ export default function MitmPageClient() {
   const [cloudEnabled, setCloudEnabled] = useState(false);
   const [expandedTool, setExpandedTool] = useState(null);
   const [mitmStatus, setMitmStatus] = useState({ running: false, certExists: false, dnsStatus: {}, hasCachedPassword: false });
-
-  useEffect(() => {
-    fetchConnections();
-    fetchApiKeys();
-    fetchAliases();
-    fetchCloudSettings();
-  }, []);
+  const [tokenSwapActive, setTokenSwapActive] = useState(false);
 
   const fetchConnections = async () => {
     try {
@@ -57,9 +51,17 @@ export default function MitmPageClient() {
       if (res.ok) {
         const data = await res.json();
         setCloudEnabled(data.cloudEnabled || false);
+        setTokenSwapActive(!!data.tokenSwapEnabled);
       }
     } catch { /* ignore */ }
   };
+
+  useEffect(() => {
+    fetchConnections();
+    fetchApiKeys();
+    fetchAliases();
+    fetchCloudSettings();
+  }, []);
 
   const getActiveProviders = () => connections.filter(c => c.isActive !== false);
 
@@ -88,7 +90,6 @@ export default function MitmPageClient() {
         {mitmTools.map(([toolId, tool]) => (
           <Fragment key={toolId}>
             <MitmToolCard
-              key={toolId}
               tool={tool}
               isExpanded={expandedTool === toolId}
               onToggle={() => setExpandedTool(expandedTool === toolId ? null : toolId)}
@@ -100,6 +101,7 @@ export default function MitmPageClient() {
               hasActiveProviders={hasActiveProviders()}
               modelAliases={modelAliases}
               cloudEnabled={cloudEnabled}
+              tokenSwapActive={tool.supportsTokenSwap && tokenSwapActive}
               onDnsChange={(data) => setMitmStatus(prev => ({ ...prev, dnsStatus: data.dnsStatus ?? prev.dnsStatus }))}
             />
             {tool.supportsTokenSwap && (
@@ -107,6 +109,8 @@ export default function MitmPageClient() {
                 tool={tool}
                 connections={connections}
                 serverRunning={mitmStatus.running}
+                dnsActive={mitmStatus.dnsStatus?.[toolId] || false}
+                onToggle={(val) => setTokenSwapActive(val)}
               />
             )}
           </Fragment>

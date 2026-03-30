@@ -75,7 +75,13 @@ function getActiveConnections(provider) {
 }
 
 function isTokenSwapEnabled(provider) {
-  return getActiveConnections(provider).length > 0;
+  try {
+    if (!fs.existsSync(DB_FILE)) return false;
+    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
+    // Explicit toggle — must be enabled in settings
+    if (!db.settings?.tokenSwapEnabled) return false;
+    return getActiveConnections(provider).length > 0;
+  } catch { return false; }
 }
 
 function getNextConnection(provider) {
