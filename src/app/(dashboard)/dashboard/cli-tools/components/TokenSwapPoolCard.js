@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, Badge } from "@/shared/components";
 import Link from "next/link";
 import { parseQuotaData } from "@/app/(dashboard)/dashboard/usage/components/ProviderLimits/utils";
 
 // Model to highlight in the quota summary
 const HIGHLIGHT_MODEL = "claude-sonnet-4-6";
+
+// Cache TTL: 2 minutes — avoid hammering the upstream API
+const QUOTA_CACHE_TTL_MS = 2 * 60 * 1000;
 
 /**
  * Get progress color based on remaining percentage
@@ -30,6 +33,7 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
   const [enabled, setEnabled] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [quotas, setQuotas] = useState({}); // { [connId]: { quotas: [], error: string|null, loading: bool } }
+  const quotaCacheRef = useRef({}); // { [connId]: { data: parsed, error, ts: number } }
 
   const fetchEnabled = useCallback(async () => {
     try {
@@ -45,37 +49,65 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
     fetchEnabled();
   }, [fetchEnabled]);
 
-  // Fetch quota for each pool account
-  const fetchQuotas = useCallback(async (accounts) => {
+  // Fetch quota for each pool account (with cache)
+  const fetchQuotas = useCallback(async (accounts, force = false) => {
     if (!accounts || accounts.length === 0) return;
 
-    // Mark all as loading
+    const now = Date.now();
+    const toFetch = [];
+    const cached = {};
+
+    // Check cache for each account
+    accounts.forEach(acc => {
+      const entry = quotaCacheRef.current[acc.id];
+      if (!force && entry && (now - entry.ts) < QUOTA_CACHE_TTL_MS) {
+        // Use cached data
+        cached[acc.id] = { quotas: entry.data, error: entry.error, loading: false };
+      } else {
+        toFetch.push(acc);
+      }
+    });
+
+    // Apply cached results immediately
+    if (Object.keys(cached).length > 0) {
+      setQuotas(prev => ({ ...prev, ...cached }));
+    }
+
+    // Nothing to fetch — all served from cache
+    if (toFetch.length === 0) return;
+
+    // Mark uncached as loading
     const loadingState = {};
-    accounts.forEach(acc => { loadingState[acc.id] = { quotas: [], error: null, loading: true }; });
+    toFetch.forEach(acc => { loadingState[acc.id] = { quotas: [], error: null, loading: true }; });
     setQuotas(prev => ({ ...prev, ...loadingState }));
 
     // Fetch in parallel
-    await Promise.all(accounts.map(async (acc) => {
+    await Promise.all(toFetch.map(async (acc) => {
       try {
         const res = await fetch(`/api/usage/${acc.id}`);
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
+          const error = errData.error || `HTTP ${res.status}`;
+          quotaCacheRef.current[acc.id] = { data: [], error, ts: Date.now() };
           setQuotas(prev => ({
             ...prev,
-            [acc.id]: { quotas: [], error: errData.error || `HTTP ${res.status}`, loading: false },
+            [acc.id]: { quotas: [], error, loading: false },
           }));
           return;
         }
         const data = await res.json();
         const parsed = parseQuotaData(tool.tokenSwapProvider || "antigravity", data);
+        quotaCacheRef.current[acc.id] = { data: parsed, error: null, ts: Date.now() };
         setQuotas(prev => ({
           ...prev,
           [acc.id]: { quotas: parsed, error: null, loading: false },
         }));
       } catch (err) {
+        const error = err.message || "Failed";
+        quotaCacheRef.current[acc.id] = { data: [], error, ts: Date.now() };
         setQuotas(prev => ({
           ...prev,
-          [acc.id]: { quotas: [], error: err.message || "Failed", loading: false },
+          [acc.id]: { quotas: [], error, loading: false },
         }));
       }
     }));
@@ -259,7 +291,7 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
               </div>
               {activeCount > 0 && (
                 <button
-                  onClick={() => fetchQuotas(poolAccounts)}
+                  onClick={() => fetchQuotas(poolAccounts, true)}
                   className="text-[10px] text-text-muted hover:text-primary flex items-center gap-0.5 transition-colors"
                   title="Refresh quotas"
                 >
