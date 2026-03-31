@@ -354,6 +354,7 @@ Default URLs:
 | 🔄 **Format Translation** | OpenAI ↔ Claude ↔ Gemini seamless | Works with any CLI tool |
 | 👥 **Multi-Account Support** | Multiple accounts per provider | Load balancing + redundancy |
 | 🔄 **Auto Token Refresh** | OAuth tokens refresh automatically | No manual re-login needed |
+| 🔀 **Token Swap Pool** | MITM-level Antigravity account rotation (round-robin or sticky) with live quota display | Bypass quota limits across multiple Antigravity accounts transparently |
 | 🎨 **Custom Combos** | Create unlimited model combinations | Tailor fallback to your needs |
 | 📝 **Request Logging** | Debug mode with full request/response logs | Troubleshoot issues easily |
 | 💾 **Cloud Sync** | Sync config across devices | Same setup everywhere |
@@ -401,6 +402,32 @@ Seamless translation between formats:
 - OAuth tokens automatically refresh before expiration
 - No manual re-authentication needed
 - Seamless experience across all providers
+
+### 🔀 Token Swap Pool (Antigravity MITM)
+
+Transparently rotate between multiple **Antigravity** accounts at the MITM proxy level — no changes needed in your CLI tool.
+
+**Two rotation strategies:**
+
+| Strategy | Behaviour |
+|----------|-----------|
+| **Round-Robin** | Distribute requests evenly across all accounts |
+| **Sticky** | Stay on one account until its model quota is exhausted, then rotate |
+
+**How it works:**
+- When the MITM proxy receives a **429 / quota error** from Antigravity, it automatically retries with the next available account
+- Per-account and per-model **cooldowns** are parsed from the error response and respected
+- Tokens near expiry trigger a **fire-and-forget refresh** in the background
+- Pool status, live quota bars, and a **strategy selector** are visible on the dashboard Token Swap Pool card
+
+**Enable it:**
+
+```
+Dashboard → CLI Tools → Token Swap Pool → Toggle ON
+Prerequisites: MITM Server running + DNS redirected
+```
+
+> **Mode A vs Mode B:** Model Routing (MITM alias) and Token Rotation are mutually exclusive. When Token Swap Pool is enabled (Mode B), the MITM alias pass-through is bypassed and shown as "Bypassed" in the UI.
 
 ### 🎨 Custom Combos
 
@@ -1124,6 +1151,13 @@ Notes:
 
 **No request logs under `logs/`**
 - Set `ENABLE_REQUEST_LOGS=true`
+
+**Antigravity quota exhausted / Token Swap Pool not rotating**
+- Ensure **MITM Server** and **DNS redirect** are active (both prerequisites shown in the Token Swap Pool card)
+- Add multiple Antigravity accounts: Dashboard → Providers → Connect Antigravity (repeat for each account)
+- Toggle **Token Swap Pool ON** in Dashboard → CLI Tools → Token Swap Pool
+- Check the pool card for accounts marked **⛔ bad account** (auth expired) and reconnect them
+- If using **sticky strategy** and all accounts are on cooldown for the same model, switch to **round-robin** temporarily
 
 ---
 
