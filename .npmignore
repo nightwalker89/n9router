@@ -1,60 +1,16 @@
-# Database files - NEVER publish
-data/
-**/data/
-**/db.json
-
-# Development
+# Source files — not needed in the published package
 src/
-docs/
-test/
-agents/
-scripts/
-worker/
-shared-sse/
-copilot-api/
-CLIProxyAPI/
+open-sse/
+cloud/
+tests/
+plans/
 
-# Config files
-*.md
-!README.md
-.gitignore
+# Config / dev files
 .env*
-jsconfig.json
-eslint.config.mjs
-postcss.config.mjs
-next.config.mjs
-tsconfig.json
-
-# Build artifacts that shouldn't be published
+.github/
 .next/cache/
-.next/standalone/data/
+node_modules/
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# Misc
+*.log
+.DS_Store

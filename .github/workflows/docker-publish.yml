@@ -1,4 +1,4 @@
-name: Build and Push Docker Image
+name: Build, Push Docker Image and Publish to npm
 
 on:
   push:
@@ -27,6 +27,40 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  publish-npm:
+    runs-on: ubuntu-latest
+    # Only publish to npm on version tags, not manual dispatch
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Next.js standalone
+        run: npm run build
+        env:
+          NODE_ENV: production
+          NEXT_PUBLIC_BASE_URL: http://localhost:20128
+          NEXT_PUBLIC_CLOUD_URL: https://9router.com
+
+      - name: Copy static assets into standalone
+        run: |
+          cp -r .next/static .next/standalone/.next/static
+          cp -r public .next/standalone/public
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
   build-and-push:
     runs-on: ubuntu-latest
     permissions:

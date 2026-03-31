@@ -1,15 +1,32 @@
 {
-  "name": "9router-app",
+  "name": "n9router",
   "version": "0.3.69",
-  "description": "9Router web dashboard",
-  "private": true,
+  "description": "Self-hosted AI routing gateway — local proxy for Claude, Gemini, OpenAI and 40+ providers",
+  "keywords": ["ai", "llm", "proxy", "router", "claude", "openai", "gemini", "cursor"],
+  "homepage": "https://github.com/cuongquach/9router",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cuongquach/9router.git"
+  },
+  "license": "MIT",
+  "bin": {
+    "n9router": "./bin/n9router.js"
+  },
+  "files": [
+    "bin/",
+    ".next/standalone/",
+    ".next/static/",
+    "public/"
+  ],
   "scripts": {
     "dev": "next dev --webpack --port 20128",
     "build": "cross-env NODE_ENV=production next build",
     "start": "cross-env NODE_ENV=production next start",
     "dev:bun": "bun --bun next dev --webpack --port 20128",
     "build:bun": "NODE_ENV=production bun --bun next build --webpack",
-    "start:bun": "NODE_ENV=production bun ./.next/standalone/server.js"
+    "start:bun": "NODE_ENV=production bun ./.next/standalone/server.js",
+    "publish:npm": "./scripts/publish-npm.sh",
+    "publish:npm:dry": "./scripts/publish-npm.sh --dry-run"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
