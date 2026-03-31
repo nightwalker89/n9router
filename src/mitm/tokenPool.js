@@ -16,8 +16,9 @@ const ROUTER_PORT = process.env.PORT || 20128;
 const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
 
 // ── In-memory state ──────────────────────────────────────────
-const cooldownMap = {};   // { [connectionId]: expiresTimestamp }
-const rrState = {};       // { [provider]: roundRobinIndex }
+const cooldownMap = {};        // { [connectionId]: expiresTimestamp }
+const modelCooldownMap = {};   // { [connectionId]: { [model]: expiresTimestamp } }
+const rrState = {};            // { [provider]: roundRobinIndex }
 
 // ── Cooldown management ──────────────────────────────────────
 
@@ -34,6 +35,41 @@ function isInCooldown(connId) {
     return false;
   }
   return true;
+}
+
+// ── Per-model cooldown management ────────────────────────────
+// Tracks which account+model combinations are quota-exhausted.
+// Used by "sticky" strategy: whole account stays available for other models.
+
+function setModelCooldown(connId, model, durationMs) {
+  const ms = durationMs || DEFAULT_COOLDOWN_MS;
+  const key = model || "__unknown__";
+  if (!modelCooldownMap[connId]) modelCooldownMap[connId] = {};
+  modelCooldownMap[connId][key] = Date.now() + ms;
+  log(`⏸ [token-pool] model-cooldown: ${connId.slice(0, 8)}… model="${key}" for ${Math.ceil(ms / 60000)}m`);
+}
+
+function isModelExhausted(connId, model) {
+  const key = model || "__unknown__";
+  const map = modelCooldownMap[connId];
+  if (!map) return false;
+  const expiry = map[key];
+  if (!expiry) return false;
+  if (Date.now() > expiry) {
+    delete map[key];
+    return false;
+  }
+  return true;
+}
+
+// ── Strategy reader ───────────────────────────────────────────
+
+function getTokenSwapStrategy() {
+  try {
+    if (!fs.existsSync(DB_FILE)) return "round-robin";
+    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
+    return db.settings?.tokenSwapStrategy || "round-robin";
+  } catch { return "round-robin"; }
 }
 
 // ── Quota cooldown parser ────────────────────────────────────
@@ -105,13 +141,33 @@ function getNextConnection(provider) {
   return selected;
 }
 
-function getAllActiveConnections(provider) {
+function getAllActiveConnections(provider, model) {
   const connections = getActiveConnections(provider);
   if (connections.length <= 1) return connections;
 
-  // Sticky round-robin: use the same logic as the main routing engine
-  // (src/sse/services/auth.js). Sort by lastUsedAt so the least-recently-used
-  // account is tried first, distributing load across all accounts.
+  const strategy = getTokenSwapStrategy();
+
+  if (strategy === "sticky") {
+    // Sticky strategy: filter out accounts exhausted for this specific model,
+    // then sort most-recently-used first so the same account sticks across requests.
+    const available = model
+      ? connections.filter(c => !isModelExhausted(c.id, model))
+      : connections;
+
+    // If all accounts exhausted for this model, fall back to full list
+    const pool = available.length > 0 ? available : connections;
+
+    // Most-recently-used first (sticky within session)
+    return [...pool].sort((a, b) => {
+      if (!a.lastUsedAt && !b.lastUsedAt) return (a.priority || 999) - (b.priority || 999);
+      if (!a.lastUsedAt) return 1;
+      if (!b.lastUsedAt) return -1;
+      return new Date(b.lastUsedAt) - new Date(a.lastUsedAt);
+    });
+  }
+
+  // Round-robin strategy: sticky round-robin matching the main routing engine
+  // (src/sse/services/auth.js). Least-recently-used account starts each request.
   const stickyLimit = getStickyLimit(provider);
 
   const byRecency = [...connections].sort((a, b) => {
@@ -206,6 +262,9 @@ module.exports = {
   getAllActiveConnections,
   triggerRefreshIfNeeded,
   setCooldown,
+  setModelCooldown,
+  isModelExhausted,
+  getTokenSwapStrategy,
   parseQuotaCooldown,
   markAccountUsed,
 };

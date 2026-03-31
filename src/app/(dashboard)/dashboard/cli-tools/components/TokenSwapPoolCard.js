@@ -32,6 +32,8 @@ function getQuotaBg(pct) {
 export default function TokenSwapPoolCard({ tool, connections = [], serverRunning, dnsActive, onToggle }) {
   const [enabled, setEnabled] = useState(false);
   const [toggling, setToggling] = useState(false);
+  const [strategy, setStrategy] = useState("round-robin"); // "round-robin" | "sticky"
+  const [togglingStrategy, setTogglingStrategy] = useState(false);
   const [quotas, setQuotas] = useState({}); // { [connId]: { quotas: [], error: string|null, loading: bool } }
   const quotaCacheRef = useRef({}); // { [connId]: { data: parsed, error, ts: number } }
 
@@ -41,6 +43,7 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
       if (res.ok) {
         const data = await res.json();
         setEnabled(!!data.tokenSwapEnabled);
+        setStrategy(data.tokenSwapStrategy || "round-robin");
       }
     } catch { /* ignore */ }
   }, []);
@@ -130,6 +133,20 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
       }
     } catch { /* ignore */ }
     setToggling(false);
+  };
+
+  const setStrategyValue = async (val) => {
+    if (val === strategy || togglingStrategy) return;
+    setTogglingStrategy(true);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tokenSwapStrategy: val }),
+      });
+      if (res.ok) setStrategy(val);
+    } catch { /* ignore */ }
+    setTogglingStrategy(false);
   };
 
   const poolAccounts = connections.filter(
@@ -253,6 +270,42 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
               <p>Intercepts Antigravity requests → swaps IDE&apos;s auth token with a pool account → auto-retries on 429 quota error with next account in pool.</p>
               <p className="mt-1 text-violet-400/80 font-medium">⚠ When active, Model Routing (Mode A) is bypassed.</p>
             </div>
+          </div>
+
+          {/* Strategy selector */}
+          <div className="flex flex-col gap-1.5 px-1">
+            <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Rotation Strategy</p>
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => setStrategyValue("round-robin")}
+                disabled={togglingStrategy}
+                className={`flex-1 flex flex-col items-center gap-0.5 px-2 py-2 rounded-lg border text-[11px] font-medium transition-colors ${
+                  strategy === "round-robin"
+                    ? "border-violet-500/50 bg-violet-500/10 text-violet-400"
+                    : "border-border bg-surface text-text-muted hover:border-border-alt"
+                } disabled:opacity-50`}
+              >
+                <span className="material-symbols-outlined text-[14px]">autorenew</span>
+                Round Robin
+              </button>
+              <button
+                onClick={() => setStrategyValue("sticky")}
+                disabled={togglingStrategy}
+                className={`flex-1 flex flex-col items-center gap-0.5 px-2 py-2 rounded-lg border text-[11px] font-medium transition-colors ${
+                  strategy === "sticky"
+                    ? "border-violet-500/50 bg-violet-500/10 text-violet-400"
+                    : "border-border bg-surface text-text-muted hover:border-border-alt"
+                } disabled:opacity-50`}
+              >
+                <span className="material-symbols-outlined text-[14px]">push_pin</span>
+                Sticky
+              </button>
+            </div>
+            <p className="text-[10px] text-text-muted px-0.5">
+              {strategy === "sticky"
+                ? "Stays on the same account until its quota is exhausted for the requested model, then switches. Optimizes session-level token cache."
+                : "Rotates accounts after each session (sticky round-robin). Distributes load evenly across the pool."}
+            </p>
           </div>
 
           {/* Prerequisites */}

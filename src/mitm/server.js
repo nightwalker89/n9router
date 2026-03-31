@@ -7,7 +7,8 @@ const { log, err } = require("./logger");
 const { TARGET_HOSTS, URL_PATTERNS, getToolForHost } = require("./config");
 const { DATA_DIR, MITM_DIR } = require("./paths");
 const { isTokenSwapEnabled, getAllActiveConnections, triggerRefreshIfNeeded,
-        setCooldown, parseQuotaCooldown, markAccountUsed } = require("./tokenPool");
+        setCooldown, setModelCooldown, getTokenSwapStrategy,
+        parseQuotaCooldown, markAccountUsed } = require("./tokenPool");
 const { getCertForDomain } = require("./cert/generate");
 
 const DB_FILE = path.join(DATA_DIR, "db.json");
@@ -179,15 +180,19 @@ async function passthrough(req, res, bodyBuffer, onResponse) {
 // Unlike passthrough(), this checks upstream statusCode BEFORE
 // piping to client — enabling auto-retry on 429/503.
 
-async function tokenSwapForward(req, res, bodyBuffer, connections) {
+async function tokenSwapForward(req, res, bodyBuffer, connections, model, strategy) {
   const targetHost = (req.headers.host || TARGET_HOSTS[0]).split(":")[0];
   const targetIP = await resolveTargetIP(targetHost);
 
-  for (const conn of connections) {
+  for (let i = 0; i < connections.length; i++) {
+    const conn = connections[i];
     triggerRefreshIfNeeded(conn);
 
     const label = conn.name && conn.email ? `${conn.name} <${conn.email}>` : conn.name || conn.email || conn.id.slice(0, 8);
-    log(`🔑 [token-swap] trying "${label}" ...`);
+    const modelTag = model ? ` model=${model}` : "";
+    const posTag = connections.length > 1 ? ` [${i + 1}/${connections.length}]` : "";
+    const useTag = conn.consecutiveUseCount > 1 ? ` uses=${conn.consecutiveUseCount}` : "";
+    log(`🔑 [token-swap]${posTag} trying "${label}"${modelTag}${useTag}`);
 
     const swappedHeaders = {
       ...req.headers,
@@ -226,13 +231,23 @@ async function tokenSwapForward(req, res, bodyBuffer, connections) {
 
       if (result.retry) {
         const cooldownMs = parseQuotaCooldown(result.body);
-        setCooldown(conn.id, cooldownMs);
-        const cdLabel = cooldownMs ? ` (cooldown ${Math.ceil(cooldownMs / 60000)}m)` : "";
-        log(`⚠️ [token-swap] "${label}" → ${result.statusCode} quota exhausted${cdLabel}, trying next...`);
+        const cdLabel = cooldownMs ? ` cooldown=${Math.ceil(cooldownMs / 60000)}m` : "";
+        if (strategy === "sticky" && model) {
+          // Sticky: mark only this account+model as exhausted, not the whole account
+          setModelCooldown(conn.id, model, cooldownMs);
+          log(`⚠️ [token-swap] "${label}" → ${result.statusCode} model=${model} quota exhausted${cdLabel}, trying next...`);
+        } else {
+          // Round-robin: put whole account on cooldown
+          setCooldown(conn.id, cooldownMs);
+          log(`⚠️ [token-swap] "${label}" → ${result.statusCode} account quota exhausted${cdLabel}, trying next...`);
+        }
         continue;
       }
 
-      log(`✅ [token-swap] "${label}" → ${result.response.statusCode}`);
+      const newCount = (conn.consecutiveUseCount || 0) + 1;
+      const successModelTag = model ? ` model=${model}` : "";
+      const successStrategyTag = strategy === "sticky" ? ` sticky(use #${newCount})` : ` rr`;
+      log(`✅ [token-swap] "${label}" → ${result.response.statusCode}${successModelTag}${successStrategyTag}`);
       markAccountUsed(conn.id);
       res.writeHead(result.response.statusCode, result.response.headers);
       result.response.pipe(res);
@@ -272,13 +287,18 @@ const server = https.createServer(sslOptions, async (req, res) => {
     const isChat = patterns.some(p => req.url.includes(p));
     if (!isChat) return passthrough(req, res, bodyBuffer);
 
+    // Extract model early — needed for sticky token-swap strategy and mitmAlias.
+    // Cursor uses binary proto so model extraction is deferred to its handler.
+    const model = tool !== "cursor" ? extractModel(req.url, bodyBuffer) : null;
+
     // ── TOKEN SWAP: rotate auth tokens before mitmAlias ──────
     const swapProvider = TOOL_TO_PROVIDER[tool];
     if (swapProvider && isTokenSwapEnabled(swapProvider)) {
-      const poolConns = getAllActiveConnections(swapProvider);
+      const strategy = getTokenSwapStrategy();
+      const poolConns = getAllActiveConnections(swapProvider, model);
       if (poolConns.length > 0) {
-        log(`🔑 [${tool}] token-swap: ${poolConns.length} account(s) available`);
-        const handled = await tokenSwapForward(req, res, bodyBuffer, poolConns);
+        log(`🔑 [${tool}] token-swap: ${poolConns.length} account(s) available (strategy=${strategy}${model ? `, model=${model}` : ""})`);
+        const handled = await tokenSwapForward(req, res, bodyBuffer, poolConns, model, strategy);
         if (handled) return;
         log(`⚠️ [${tool}] token-swap: all accounts exhausted, falling through to original token`);
       }
@@ -293,7 +313,6 @@ const server = https.createServer(sslOptions, async (req, res) => {
       return handlers[tool].intercept(req, res, bodyBuffer, null, passthrough);
     }
 
-    const model = extractModel(req.url, bodyBuffer);
     log(`🔍 [${tool}] model="${model}"`);
 
     const mappedModel = getMappedModel(tool, model);
