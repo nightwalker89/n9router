@@ -324,12 +324,12 @@ export default function MitmToolCard({
 }
 
 /**
- * Sub-component: Re-Launch Antigravity IDE
+ * Sub-component: Close Antigravity IDE
  */
 function IdeLaunchAction() {
-  const [status, setStatus] = useState(null); // { installed, running, pids }
-  const [launching, setLaunching] = useState(false);
-  const [result, setResult] = useState(null); // { success, message } | { error }
+  const [status, setStatus] = useState(null);
+  const [closing, setClosing] = useState(false);
+  const [result, setResult] = useState(null);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -349,37 +349,36 @@ function IdeLaunchAction() {
     return () => { mounted = false; };
   }, []);
 
-  const handleRelaunch = async () => {
-    setLaunching(true);
+  const handleClose = async () => {
+    setClosing(true);
     setResult(null);
     try {
       const res = await fetch("/api/antigravity-ide", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "relaunch" }),
+        body: JSON.stringify({ action: "close" }),
       });
       const data = await res.json();
       setResult(data);
-      // Re-check status after launch
-      setTimeout(fetchStatus, 3000);
+      setTimeout(fetchStatus, 1000);
     } catch (err) {
       setResult({ success: false, error: err.message });
     }
-    setLaunching(false);
+    setClosing(false);
   };
 
   return (
     <div className="flex items-center gap-2 px-1">
       <button
-        onClick={handleRelaunch}
-        disabled={launching || status?.installed === false}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-border hover:bg-surface-alt transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        title={status?.installed === false ? "Antigravity IDE not found" : "Kill & relaunch Antigravity IDE"}
+        onClick={handleClose}
+        disabled={closing || !status?.running}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-red-500/30 text-red-500 bg-red-500/5 hover:bg-red-500/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        title={!status?.running ? "Antigravity IDE is not running" : "Close all Antigravity IDE processes"}
       >
-        <span className={`material-symbols-outlined text-[14px] ${launching ? "animate-spin" : ""}`}>
-          {launching ? "progress_activity" : "refresh"}
+        <span className={`material-symbols-outlined text-[14px] ${closing ? "animate-spin" : ""}`}>
+          {closing ? "progress_activity" : "close"}
         </span>
-        {launching ? "Launching…" : "Re-Launch IDE"}
+        {closing ? "Closing…" : "Close IDE"}
       </button>
 
       {/* Status indicator */}
@@ -393,7 +392,7 @@ function IdeLaunchAction() {
       )}
 
       {/* Result feedback */}
-      {result && !launching && (
+      {result && !closing && (
         <span className={`text-[10px] ${result.success ? "text-green-500" : "text-red-400"}`}>
           {result.success ? "✓" : "✗"} {result.message || result.error}
         </span>

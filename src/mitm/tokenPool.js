@@ -106,7 +106,78 @@ function getNextConnection(provider) {
 }
 
 function getAllActiveConnections(provider) {
-  return getActiveConnections(provider);
+  const connections = getActiveConnections(provider);
+  if (connections.length <= 1) return connections;
+
+  // Sticky round-robin: use the same logic as the main routing engine
+  // (src/sse/services/auth.js). Sort by lastUsedAt so the least-recently-used
+  // account is tried first, distributing load across all accounts.
+  const stickyLimit = getStickyLimit(provider);
+
+  const byRecency = [...connections].sort((a, b) => {
+    if (!a.lastUsedAt && !b.lastUsedAt) return (a.priority || 999) - (b.priority || 999);
+    if (!a.lastUsedAt) return 1;
+    if (!b.lastUsedAt) return -1;
+    return new Date(b.lastUsedAt) - new Date(a.lastUsedAt);
+  });
+  const current = byRecency[0];
+  const currentCount = current?.consecutiveUseCount || 0;
+
+  if (current?.lastUsedAt && currentCount < stickyLimit) {
+    // Keep current account first, rest sorted oldest-first for fallback
+    const rest = connections.filter(c => c.id !== current.id).sort((a, b) => {
+      if (!a.lastUsedAt && !b.lastUsedAt) return (a.priority || 999) - (b.priority || 999);
+      if (!a.lastUsedAt) return -1;
+      if (!b.lastUsedAt) return 1;
+      return new Date(a.lastUsedAt) - new Date(b.lastUsedAt);
+    });
+    return [current, ...rest];
+  }
+
+  // Rotate: least-recently-used first
+  return [...connections].sort((a, b) => {
+    if (!a.lastUsedAt && !b.lastUsedAt) return (a.priority || 999) - (b.priority || 999);
+    if (!a.lastUsedAt) return -1;
+    if (!b.lastUsedAt) return 1;
+    return new Date(a.lastUsedAt) - new Date(b.lastUsedAt);
+  });
+}
+
+function getStickyLimit(provider) {
+  try {
+    if (!fs.existsSync(DB_FILE)) return 3;
+    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
+    const settings = db.settings || {};
+    const providerOverride = (settings.providerStrategies || {})[provider] || {};
+    return providerOverride.stickyRoundRobinLimit || settings.stickyRoundRobinLimit || 3;
+  } catch { return 3; }
+}
+
+// ── Mark account as used (update lastUsedAt + consecutiveUseCount in db.json) ──
+// This drives the sticky round-robin: after stickyLimit consecutive uses,
+// getAllActiveConnections will rotate to the next least-recently-used account.
+
+function markAccountUsed(connId) {
+  try {
+    if (!fs.existsSync(DB_FILE)) return;
+    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
+    const connections = db.providerConnections || [];
+    const conn = connections.find(c => c.id === connId);
+    if (!conn) return;
+
+    const now = new Date().toISOString();
+    const wasAlreadyCurrent = conn.lastUsedAt &&
+      (Date.now() - new Date(conn.lastUsedAt).getTime()) < 60000;
+
+    conn.lastUsedAt = now;
+    conn.consecutiveUseCount = wasAlreadyCurrent
+      ? (conn.consecutiveUseCount || 0) + 1
+      : 1;
+
+    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+  } catch (e) {
+    log(`⚠️ [token-pool] markAccountUsed error: ${e.message}`);
+  }
 }
 
 // ── Token refresh trigger (fire-and-forget via HTTP) ─────────
@@ -136,4 +207,5 @@ module.exports = {
   triggerRefreshIfNeeded,
   setCooldown,
   parseQuotaCooldown,
+  markAccountUsed,
 };

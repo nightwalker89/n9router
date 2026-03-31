@@ -7,7 +7,7 @@ const { log, err } = require("./logger");
 const { TARGET_HOSTS, URL_PATTERNS, getToolForHost } = require("./config");
 const { DATA_DIR, MITM_DIR } = require("./paths");
 const { isTokenSwapEnabled, getAllActiveConnections, triggerRefreshIfNeeded,
-        setCooldown, parseQuotaCooldown } = require("./tokenPool");
+        setCooldown, parseQuotaCooldown, markAccountUsed } = require("./tokenPool");
 const { getCertForDomain } = require("./cert/generate");
 
 const DB_FILE = path.join(DATA_DIR, "db.json");
@@ -186,7 +186,7 @@ async function tokenSwapForward(req, res, bodyBuffer, connections) {
   for (const conn of connections) {
     triggerRefreshIfNeeded(conn);
 
-    const label = conn.name || conn.email || conn.id.slice(0, 8);
+    const label = conn.name && conn.email ? `${conn.name} <${conn.email}>` : conn.name || conn.email || conn.id.slice(0, 8);
     log(`🔑 [token-swap] trying "${label}" ...`);
 
     const swappedHeaders = {
@@ -233,6 +233,7 @@ async function tokenSwapForward(req, res, bodyBuffer, connections) {
       }
 
       log(`✅ [token-swap] "${label}" → ${result.response.statusCode}`);
+      markAccountUsed(conn.id);
       res.writeHead(result.response.statusCode, result.response.headers);
       result.response.pipe(res);
       return true;
