@@ -119,7 +119,7 @@ export default function MitmToolCard({
   };
 
   const handleConfirmPassword = () => {
-    if (!sudoPassword.trim()) {
+    if (!sudoPassword) {
       setModalError("Sudo password is required");
       return;
     }

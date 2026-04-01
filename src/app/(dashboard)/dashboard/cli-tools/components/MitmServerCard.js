@@ -87,7 +87,7 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
   };
 
   const handleConfirmPassword = () => {
-    if (!sudoPassword.trim()) {
+    if (!sudoPassword) {
       setModalError("Sudo password is required");
       return;
     }

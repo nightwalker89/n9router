@@ -171,7 +171,7 @@ export default function AntigravityToolCard({
   };
 
   const handleConfirmPassword = () => {
-    if (!sudoPassword.trim()) {
+    if (!sudoPassword) {
       setMessage({ type: "error", text: "Sudo password is required" });
       return;
     }
