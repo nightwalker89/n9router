@@ -1,0 +1,4 @@
+# This file intentionally left empty.
+# Its presence prevents npm from falling back to .gitignore (which excludes
+# .next/ and would strip .next/standalone/.next/ from the package).
+# The package.json "files" allowlist is the sole inclusion gatekeeper.

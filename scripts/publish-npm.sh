@@ -56,10 +56,24 @@ cp -r .next/static   .next/standalone/.next/static
 cp -r public         .next/standalone/public
 
 info "Copying MITM server (child-process — not traced by Next.js)..."
-# Copy to mitm/ (NOT src/mitm/) so .npmignore's src/ rule doesn't strip it.
-# bin/n9router.js sets MITM_SERVER_PATH pointing here at startup.
+# Copy to mitm/ (NOT src/mitm/) — bin/n9router.js sets MITM_SERVER_PATH here.
 mkdir -p .next/standalone/mitm
 cp -r src/mitm/. .next/standalone/mitm/
+
+info "Cleaning standalone — removing sensitive and packaging-breaking files..."
+# .gitignore traced here by Next.js causes npm's recursive ignore-walk to
+# exclude .next/standalone/.next/ (it sees /.next/ and strips compiled output).
+# .env contains real local credentials — must never ship.
+rm -f  .next/standalone/.gitignore
+rm -f  .next/standalone/.env
+# Extra noise: not needed by end users
+rm -f  .next/standalone/.env.example
+rm -f  .next/standalone/.dockerignore
+rm -f  .next/standalone/.gitmodules
+rm -f  .next/standalone/.DS_Store
+rm -rf .next/standalone/.git
+rm -rf .next/standalone/.github
+rm -rf .next/standalone/.vscode
 
 ok "Build complete"
 
