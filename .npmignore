@@ -1,15 +1,17 @@
 # Source files — not needed in the published package
-src/
-open-sse/
-cloud/
-tests/
-plans/
+# Leading slash anchors patterns to the package root only,
+# so .next/standalone/src/mitm/ is NOT excluded.
+/src/
+/open-sse/
+/cloud/
+/tests/
+/plans/
 
 # Config / dev files
 .env*
-.github/
+/.github/
 .next/cache/
-node_modules/
+/node_modules/
 
 # Misc
 *.log

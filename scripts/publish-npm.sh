@@ -56,8 +56,10 @@ cp -r .next/static   .next/standalone/.next/static
 cp -r public         .next/standalone/public
 
 info "Copying MITM server (child-process — not traced by Next.js)..."
-mkdir -p .next/standalone/src/mitm
-cp -r src/mitm/. .next/standalone/src/mitm/
+# Copy to mitm/ (NOT src/mitm/) so .npmignore's src/ rule doesn't strip it.
+# bin/n9router.js sets MITM_SERVER_PATH pointing here at startup.
+mkdir -p .next/standalone/mitm
+cp -r src/mitm/. .next/standalone/mitm/
 
 ok "Build complete"
 
