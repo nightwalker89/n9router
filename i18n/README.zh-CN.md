@@ -953,7 +953,7 @@ npm run build
 # Configure
 export JWT_SECRET="your-secure-secret-change-this"
 export INITIAL_PASSWORD="your-password"
-export DATA_DIR="/var/lib/9router"
+export DATA_DIR="/var/lib/n9router"
 export PORT="20128"
 export HOSTNAME="0.0.0.0"
 export NODE_ENV="production"
@@ -981,9 +981,9 @@ docker build -t 9router .
 # Run container (command used in current setup)
 docker run -d \
   --name 9router  -p 20128:20128 \
-  --env-file /root/dev/9router/.env \
+  --env-file /root/dev/n9router/.env \
   -v 9router-data:/app/data \
-  -v 9router-usage:/root/.9router \
+  -v n9router-usage:/root/.n9router \
   9router
 ```
 
@@ -995,7 +995,7 @@ docker run -d \
   -p 20128:20128 \
   --env-file ./.env \
   -v 9router-data:/app/data \
-  -v 9router-usage:/root/.9router \
+  -v n9router-usage:/root/.n9router \
   9
 ```
 
@@ -1017,7 +1017,7 @@ docker stop 9router && docker rm 9router
 |----------|---------|-------------|
 | `JWT_SECRET` | `9router-default-secret-change-me` | 仪表板认证 cookie 的 JWT 签名密钥（**生产环境中请更改**） |
 | `INITIAL_PASSWORD | `123456` | 当没有保存的哈希时的首次登录密码 |
-| `DATA_DIR` | `~/.9router` | 主应用数据库位置（`db.json`） |
+| `DATA_DIR` | `~/.n9router` | 主应用数据库位置（`db.json`） |
 | `PORT` | 框架默认值 | 服务端口（示例中为 `20128`） |
 | `HOSTNAME` | 框架默认值 | 绑定主机（Docker 默认为 `0.0.0.0`） |
 | `NODE_ENV` | 运行时默认值 | 部署时设置 `production` |
@@ -1041,9 +1041,9 @@ docker stop 9router && docker rm 9router
 ### 运行时文件和存储
 
 - 主应用状态：`${DATA_DIR}/db.json`（提供商、组合、别名、密钥、设置），由 `src/lib/localDb.js` 管理。
-- 使用历史和日志：`~/.9router/usage.json` 和 `~/.9router/log.txt`，由 `src/lib/usageDb.js` 管理。
+- 使用历史和日志：`~/.n9router/usage.json` 和 `~/.n9router/log.txt`，由 `src/lib/usageDb.js` 管理。
 - 可选请求/转换器日志：当 `ENABLE_REQUEST_LOGS=true` 时为 `<repo>/logs/...`。
-- 使用存储当前遵循 `~/.9` 路径逻辑，独立于 `DATA_DIR`。
+- 使用存储当前遵循 `~/.n9router` 路径逻辑，独立于 `DATA_DIR`。
 
 </details>
 

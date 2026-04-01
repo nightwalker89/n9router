@@ -138,13 +138,13 @@ Main flow modules:
 Primary state DB:
 
 - `src/lib/localDb.js`
-- file: `${DATA_DIR}/db.json` (or `~/.9router/db.json` when `DATA_DIR` is unset)
+- file: `${DATA_DIR}/db.json` (or `~/.n9router/db.json` when `DATA_DIR` is unset)
 - entities: providerConnections, providerNodes, modelAliases, combos, apiKeys, settings, pricing
 
 Usage DB:
 
 - `src/lib/usageDb.js`
-- files: `~/.9router/usage.json`, `~/.9router/log.txt`
+- files: `~/.n9router/usage.json`, `~/.n9router/log.txt`
 - note: currently independent from `DATA_DIR`
 
 ## 4) Auth + Security Surfaces
@@ -377,9 +377,9 @@ erDiagram
 
 Physical storage files:
 
-- main state: `${DATA_DIR}/db.json` (or `~/.9router/db.json`)
-- usage stats: `~/.9router/usage.json`
-- request log lines: `~/.9router/log.txt`
+- main state: `${DATA_DIR}/db.json` (or `~/.n9router/db.json`)
+- usage stats: `~/.n9router/usage.json`
+- request log lines: `~/.n9router/log.txt`
 - optional translator/request debug sessions: `<repo>/logs/...`
 
 ## Deployment Topology
@@ -542,7 +542,7 @@ Environment variables actively used by code:
 
 ## Known Architectural Notes
 
-1. `usageDb` currently stores under `~/.9router` and does not follow `DATA_DIR`.
+1. `usageDb` currently stores under `~/.n9router` and does not follow `DATA_DIR`.
 2. `/api/v1/route.js` returns a static model list and is not the main models source used by `/v1/models`.
 3. Request logger writes full headers/body when enabled; treat log directory as sensitive.
 4. Cloud behavior depends on correct `NEXT_PUBLIC_BASE_URL` and cloud endpoint reachability.

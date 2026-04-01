@@ -1,15 +1,17 @@
 <div align="center">
   <img src="./images/9router.png?1" alt="9Router Dashboard" width="800"/>
   
-  # 9Router - Free AI Router
-  
+  # n9router
+
+  > **n9router** is a fork of [9Router - Free AI Router](https://github.com/decolua/9router) with added **Token Rotate** — automatic multi-account rotation for Antigravity at the MITM proxy level.
+
   **Never stop coding. Auto-route to FREE & cheap AI models with smart fallback.**
   
   **Connect All AI Code Tools (Claude Code, Cursor, Antigravity, Copilot, Codex, Gemini, OpenCode, Cline, OpenClaw...) to 40+ AI Providers & 100+ Models.**
   
-  [![npm](https://img.shields.io/npm/v/9router.svg)](https://www.npmjs.com/package/9router)
-  [![Downloads](https://img.shields.io/npm/dm/9router.svg)](https://www.npmjs.com/package/9router)
-  [![License](https://img.shields.io/npm/l/9router.svg)](https://github.com/decolua/9router/blob/main/LICENSE)
+  [![npm](https://img.shields.io/npm/v/n9router.svg)](https://www.npmjs.com/package/n9router)
+  [![Downloads](https://img.shields.io/npm/dm/n9router.svg)](https://www.npmjs.com/package/n9router)
+  [![License](https://img.shields.io/npm/l/n9router.svg)](https://github.com/nightwalker89/n9router/blob/main/LICENSE)
   
   [🚀 Quick Start](#-quick-start) • [💡 Features](#-key-features) • [📖 Setup](#-setup-guide) • [🌐 Website](https://9router.com)
 
@@ -68,8 +70,8 @@ Result: Never stop coding, minimal cost
 **1. Install globally:**
 
 ```bash
-npm install -g 9router
-9router
+npm install -g n9router
+n9router
 ```
 
 🎉 Dashboard opens at `http://localhost:20128`
@@ -89,9 +91,13 @@ Claude Code/Codex/Gemini CLI/OpenClaw/Cursor/Cline Settings:
 
 **That's it!** Start coding with FREE AI models.
 
-**Alternative: run from source (this repository):**
+**Custom port:**
 
-This repository package is private (`9router-app`), so source/Docker execution is the expected local development path.
+```bash
+PORT=3000 n9router
+```
+
+**Alternative: run from source (this repository):**
 
 ```bash
 cp .env.example .env
@@ -345,16 +351,59 @@ Default URLs:
 
 ---
 
+## 🔀 Token Rotate — Bypass Quota Limits Automatically
+
+> **The headline feature that sets n9router apart.**
+
+If you use **Antigravity**, you know the pain: one account hits quota mid-session and everything stops. Token Rotate solves this at the proxy level — completely transparent to your CLI tool.
+
+```
+Your CLI tool  →  n9router MITM proxy  →  Antigravity Account A
+                                       ↓ (429 / quota hit)
+                                       →  Antigravity Account B
+                                       ↓ (quota hit)
+                                       →  Antigravity Account C
+                                       ↓ (all rotated, cooldown respected)
+                                       → waits + retries automatically
+```
+
+**Two rotation strategies:**
+
+| Strategy | Behaviour | Best For |
+|----------|-----------|----------|
+| **Round-Robin** | Distribute every request evenly across all accounts | Spreading load, many accounts |
+| **Sticky** | Stay on one account until its quota is exhausted, then rotate | Fewer accounts, maximize each one fully |
+
+**How it works under the hood:**
+- When the MITM proxy receives a **429 / quota error**, it automatically retries with the next account
+- Per-account, per-model **cooldown timers** are parsed from error responses and respected
+- Tokens nearing expiry trigger a **background refresh** — zero interruptions
+- Live **pool status dashboard**: quota bars, cooldown countdowns, per-account health
+
+**Enable it in 3 steps:**
+
+```
+1. Dashboard → CLI Tools → MITM Server → Start
+2. Dashboard → CLI Tools → DNS Redirect → Enable
+3. Dashboard → CLI Tools → Token Swap Pool → Toggle ON
+```
+
+Add as many Antigravity accounts as you want — each one extends your effective quota linearly.
+
+> **Note:** Token Swap Pool (Mode B) and MITM Model Routing (Mode A) are mutually exclusive. Enabling Token Swap Pool bypasses the alias pass-through, shown as "Bypassed" in the UI.
+
+---
+
 ## 💡 Key Features
 
 | Feature | What It Does | Why It Matters |
 |---------|--------------|----------------|
+| 🔀 **Token Rotate** | MITM-level Antigravity account rotation (round-robin or sticky) | Bypass quota limits across accounts transparently |
 | 🎯 **Smart 3-Tier Fallback** | Auto-route: Subscription → Cheap → Free | Never stop coding, zero downtime |
 | 📊 **Real-Time Quota Tracking** | Live token count + reset countdown | Maximize subscription value |
 | 🔄 **Format Translation** | OpenAI ↔ Claude ↔ Gemini seamless | Works with any CLI tool |
 | 👥 **Multi-Account Support** | Multiple accounts per provider | Load balancing + redundancy |
 | 🔄 **Auto Token Refresh** | OAuth tokens refresh automatically | No manual re-login needed |
-| 🔀 **Token Swap Pool** | MITM-level Antigravity account rotation (round-robin or sticky) with live quota display | Bypass quota limits across multiple Antigravity accounts transparently |
 | 🎨 **Custom Combos** | Create unlimited model combinations | Tailor fallback to your needs |
 | 📝 **Request Logging** | Debug mode with full request/response logs | Troubleshoot issues easily |
 | 💾 **Cloud Sync** | Sync config across devices | Same setup everywhere |
@@ -981,7 +1030,7 @@ npm run build
 # Configure
 export JWT_SECRET="your-secure-secret-change-this"
 export INITIAL_PASSWORD="your-password"
-export DATA_DIR="/var/lib/9router"
+export DATA_DIR="/var/lib/n9router"
 export PORT="20128"
 export HOSTNAME="0.0.0.0"
 export NODE_ENV="production"
@@ -1010,9 +1059,9 @@ docker build -t 9router .
 docker run -d \
   --name 9router \
   -p 20128:20128 \
-  --env-file /root/dev/9router/.env \
+  --env-file /root/dev/n9router/.env \
   -v 9router-data:/app/data \
-  -v 9router-usage:/root/.9router \
+  -v n9router-usage:/root/.n9router \
   9router
 ```
 
@@ -1024,7 +1073,7 @@ docker run -d \
   -p 20128:20128 \
   --env-file ./.env \
   -v 9router-data:/app/data \
-  -v 9router-usage:/root/.9router \
+  -v n9router-usage:/root/.n9router \
   9router
 ```
 
@@ -1046,7 +1095,7 @@ docker stop 9router && docker rm 9router
 |----------|---------|-------------|
 | `JWT_SECRET` | `9router-default-secret-change-me` | JWT signing secret for dashboard auth cookie (**change in production**) |
 | `INITIAL_PASSWORD` | `123456` | First login password when no saved hash exists |
-| `DATA_DIR` | `~/.9router` | Main app database location (`db.json`) |
+| `DATA_DIR` | `~/.n9router` | Main app database location (`db.json`) |
 | `PORT` | framework default | Service port (`20128` in examples) |
 | `HOSTNAME` | framework default | Bind host (Docker defaults to `0.0.0.0`) |
 | `NODE_ENV` | runtime default | Set `production` for deploy |
@@ -1070,9 +1119,9 @@ Notes:
 ### Runtime Files and Storage
 
 - Main app state: `${DATA_DIR}/db.json` (providers, combos, aliases, keys, settings), managed by `src/lib/localDb.js`.
-- Usage history and logs: `~/.9router/usage.json` and `~/.9router/log.txt`, managed by `src/lib/usageDb.js`.
+- Usage history and logs: `~/.n9router/usage.json` and `~/.n9router/log.txt`, managed by `src/lib/usageDb.js`.
 - Optional request/translator logs: `<repo>/logs/...` when `ENABLE_REQUEST_LOGS=true`.
-- Usage storage currently follows `~/.9router` path logic and is independent from `DATA_DIR`.
+- Usage storage currently follows `~/.n9router` path logic and is independent from `DATA_DIR`.
 
 </details>
 
@@ -1201,9 +1250,10 @@ Authorization: Bearer your-api-key
 
 ## 📧 Support
 
+- **npm**: [npmjs.com/package/n9router](https://www.npmjs.com/package/n9router)
 - **Website**: [9router.com](https://9router.com)
-- **GitHub**: [github.com/decolua/9router](https://github.com/decolua/9router)
-- **Issues**: [github.com/decolua/9router/issues](https://github.com/decolua/9router/issues)
+- **GitHub**: [github.com/nightwalker89/n9router](https://github.com/nightwalker89/n9router)
+- **Issues**: [github.com/nightwalker89/n9router/issues](https://github.com/nightwalker89/n9router/issues)
 
 ---
 
@@ -1229,7 +1279,9 @@ Thanks to all contributors who helped make 9Router better!
 
 ## 🙏 Acknowledgments
 
-Special thanks to **CLIProxyAPI** - the original Go implementation that inspired this JavaScript port.
+**n9router** is a fork of [9Router](https://github.com/decolua/9router) by [@decolua](https://github.com/decolua). All original features, architecture, and providers are their work. This fork adds Token Rotate on top.
+
+Special thanks to **CLIProxyAPI** - the original Go implementation that inspired the original JavaScript port.
 
 ---
 

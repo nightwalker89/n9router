@@ -91,8 +91,8 @@ Each executor handles a specific provider's auth, API endpoint construction, and
 
 ### Persistence
 
-- **State DB**: `src/lib/localDb.js` → `${DATA_DIR}/db.json` (or `~/.9router/db.json`). Uses lowdb. Stores provider connections, nodes, aliases, combos, API keys, settings, pricing.
-- **Usage DB**: `src/lib/usageDb.js` → `~/.9router/usage.json` + `~/.9router/log.txt`. Independent from `DATA_DIR`.
+- **State DB**: `src/lib/localDb.js` → `${DATA_DIR}/db.json` (or `~/.n9router/db.json`). Uses lowdb. Stores provider connections, nodes, aliases, combos, API keys, settings, pricing.
+- **Usage DB**: `src/lib/usageDb.js` → `~/.n9router/usage.json` + `~/.n9router/log.txt`. Independent from `DATA_DIR`.
 
 ### Frontend
 
@@ -115,7 +115,7 @@ Cloudflare Workers deployment for optional cloud sync relay. Has its own `wrangl
 |----------|---------|
 | `JWT_SECRET` | Required. Signs dashboard auth tokens |
 | `INITIAL_PASSWORD` | Required. Dashboard login password |
-| `DATA_DIR` | Persistent storage directory (default: `~/.9router`) |
+| `DATA_DIR` | Persistent storage directory (default: `~/.n9router`) |
 | `PORT` | Server port (default: 20128) |
 | `NEXT_PUBLIC_BASE_URL` | Public URL for the instance |
 | `REQUIRE_API_KEY` | Enforce API key on `/v1/*` routes |

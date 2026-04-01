@@ -5,7 +5,7 @@ import os from "os";
 import { execSync, spawn } from "child_process";
 import { savePid, loadPid, clearPid } from "./state.js";
 
-const BIN_DIR = path.join(os.homedir(), ".9router", "bin");
+const BIN_DIR = path.join(os.homedir(), ".n9router", "bin");
 const BINARY_NAME = "cloudflared";
 const IS_WINDOWS = os.platform() === "win32";
 const BIN_NAME = IS_WINDOWS ? `${BINARY_NAME}.exe` : BINARY_NAME;

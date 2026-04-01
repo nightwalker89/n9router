@@ -953,7 +953,7 @@ npm run build
 # 設定
 export JWT_SECRET="your-secure-secret-change-this"
 export INITIAL_PASSWORD="your-password"
-export DATA_DIR="/var/lib/9router"
+export DATA_DIR="/var/lib/n9router"
 export PORT="20128"
 export HOSTNAME="0.0.0.0"
 export NODE_ENV="production"
@@ -982,9 +982,9 @@ docker build -t 9router .
 docker run -d \
   --name 9router \
   -p 20128:20128 \
-  --env-file /root/dev/9router/.env \
+  --env-file /root/dev/n9router/.env \
   -v 9router-data:/app/data \
-  -v 9router-usage:/root/.9router \
+  -v n9router-usage:/root/.n9router \
   9router
 ```
 
@@ -996,7 +996,7 @@ docker run -d \
   -p 20128:20128 \
   --env-file ./.env \
   -v 9router-data:/app/data \
-  -v 9router-usage:/root/.9router \
+  -v n9router-usage:/root/.n9router \
   9router
 ```
 
@@ -1018,7 +1018,7 @@ docker stop 9router && docker rm 9router
 |------|-----------|------|
 | `JWT_SECRET` | `9router-default-secret-change-me` | ダッシュボード認証クッキーのJWT署名シークレット（**本番環境では変更必須**） |
 | `INITIAL_PASSWORD` | `123456` | 保存されたハッシュがない場合の初回ログインパスワード |
-| `DATA_DIR` | `~/.9router` | メインアプリのデータベース格納場所（`db.json`） |
+| `DATA_DIR` | `~/.n9router` | メインアプリのデータベース格納場所（`db.json`） |
 | `PORT` | フレームワークデフォルト | サービスポート（例では`20128`） |
 | `HOSTNAME` | フレームワークデフォルト | バインドホスト（Dockerデフォルトは`0.0.0.0`） |
 | `NODE_ENV` | ランタイムデフォルト | デプロイ時は`production`に設定 |
@@ -1042,9 +1042,9 @@ docker stop 9router && docker rm 9router
 ### ランタイムファイルとストレージ
 
 - メインアプリ状態: `${DATA_DIR}/db.json`（プロバイダー、コンボ、エイリアス、キー、設定）、`src/lib/localDb.js` で管理。
-- 使用履歴とログ: `~/.9router/usage.json` と `~/.9router/log.txt`、`src/lib/usageDb.js` で管理。
+- 使用履歴とログ: `~/.n9router/usage.json` と `~/.n9router/log.txt`、`src/lib/usageDb.js` で管理。
 - オプションのリクエスト/トランスレーターログ: `ENABLE_REQUEST_LOGS=true` 時に `<repo>/logs/...`。
-- 使用状況ストレージは現在 `~/.9router` パスロジックに従い、`DATA_DIR` とは独立しています。
+- 使用状況ストレージは現在 `~/.n9router` パスロジックに従い、`DATA_DIR` とは独立しています。
 
 </details>
 

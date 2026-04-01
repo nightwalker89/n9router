@@ -14,7 +14,7 @@ const CONFIG_CACHE_TTL_MS = 5000;
 const MAX_TOTAL_DB_SIZE = 50 * 1024 * 1024; // 50MB hard limit for total DB file
 
 function getAppName() {
-  return "9router";
+  return "n9router";
 }
 
 function getUserDataDir() {
