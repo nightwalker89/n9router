@@ -1,8 +1,17 @@
 {
   "name": "n9router",
-  "version": "0.3.73",
+  "version": "0.3.74",
   "description": "Self-hosted AI routing gateway — local proxy for Claude, Gemini, OpenAI and 40+ providers",
-  "keywords": ["ai", "llm", "proxy", "router", "claude", "openai", "gemini", "cursor"],
+  "keywords": [
+    "ai",
+    "llm",
+    "proxy",
+    "router",
+    "claude",
+    "openai",
+    "gemini",
+    "cursor"
+  ],
   "homepage": "https://github.com/nightwalker89/n9router",
   "repository": {
     "type": "git",
