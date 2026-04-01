@@ -9,6 +9,11 @@ const nextConfig = {
       "**/node_modules/.cache/**",
     ],
   },
+  outputFileTracingIncludes: {
+    // server.js is spawned as a child process so the tracer misses it —
+    // explicitly include the entire MITM subtree in the standalone output
+    "*": ["./src/mitm/**/*"],
+  },
   images: {
     unoptimized: true
   },

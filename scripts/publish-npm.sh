@@ -55,6 +55,10 @@ info "Copying static assets into standalone..."
 cp -r .next/static   .next/standalone/.next/static
 cp -r public         .next/standalone/public
 
+info "Copying MITM server (child-process — not traced by Next.js)..."
+mkdir -p .next/standalone/src/mitm
+cp -r src/mitm/. .next/standalone/src/mitm/
+
 ok "Build complete"
 
 # ── Dry-run preview ───────────────────────────────────────────────────────────
