@@ -10,7 +10,7 @@ const { addDNSEntry, removeDNSEntry, removeAllDNSEntries, checkAllDNSStatus, TOO
 const IS_WIN = process.platform === "win32";
 const IS_MAC = process.platform === "darwin";
 const { generateCert } = require("./cert/generate");
-const { installCert, uninstallCert } = require("./cert/install");
+const { installCert, uninstallCert, checkCertInstalled, isWSL } = require("./cert/install");
 const { isCertExpired } = require("./cert/rootCA");
 const { MITM_DIR } = require("./paths");
 const { log, err } = require("./logger");
@@ -289,7 +289,6 @@ async function getMitmStatus() {
   const dnsStatus = checkAllDNSStatus();
   const rootCACertPath = path.join(MITM_DIR, "rootCA.crt");
   const certExists = fs.existsSync(rootCACertPath);
-  const { checkCertInstalled } = require("./cert/install");
   const certTrusted = certExists ? await checkCertInstalled(rootCACertPath) : false;
 
   return { running, pid, certExists, certTrusted, dnsStatus };
@@ -403,16 +402,15 @@ async function startServer(apiKey, sudoPassword) {
   }
 
   // Step 1.5: Auto-install Root CA if not trusted yet
-  const { checkCertInstalled } = require("./cert/install");
   const rootCATrusted = await checkCertInstalled(rootCACertPath);
-  const linuxNoSystemTrust = !IS_WIN && !IS_MAC && !isSudoAvailable();
+  const linuxNoSystemTrust = !IS_WIN && !IS_MAC && !isSudoAvailable() && !isWSL();
   if (!rootCATrusted) {
     log("🔐 Cert: not trusted → installing...");
     const password = sudoPassword || getCachedPassword() || await loadEncryptedPassword();
     if (linuxNoSystemTrust) {
       log(`🔐 Cert: skipping system trust (no sudo). Install ${rootCACertPath} as a trusted CA on machines that use this proxy.`);
     } else {
-      if (!password && !IS_WIN) {
+      if (!password && !IS_WIN && !isWSL()) {
         throw new Error("Sudo password required to install Root CA certificate");
       }
       try {
@@ -601,13 +599,12 @@ async function disableToolDNS(tool, sudoPassword) {
 async function trustCert(sudoPassword) {
   const rootCACertPath = path.join(MITM_DIR, "rootCA.crt");
   if (!fs.existsSync(rootCACertPath)) throw new Error("Root CA not found. Start server first to generate it.");
-  const { installCert } = require("./cert/install");
-  if (!IS_WIN && !IS_MAC && !isSudoAvailable()) {
+  if (!IS_WIN && !IS_MAC && !isSudoAvailable() && !isWSL()) {
     log(`🔐 Cert: system trust unavailable (no sudo). Use file: ${rootCACertPath}`);
     return;
   }
   const password = sudoPassword || getCachedPassword() || await loadEncryptedPassword();
-  if (!password && !IS_WIN) throw new Error("Sudo password required to trust certificate");
+  if (!password && !IS_WIN && !isWSL()) throw new Error("Sudo password required to trust certificate");
   await installCert(password, rootCACertPath);
   if (password) setCachedPassword(password);
 }

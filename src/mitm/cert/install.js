@@ -1,12 +1,52 @@
 const fs = require("fs");
 const crypto = require("crypto");
-const { exec } = require("child_process");
+const { exec, execFileSync } = require("child_process");
 const { execWithPassword, isSudoAvailable } = require("../dns/dnsConfig.js");
 const { log, err } = require("../logger");
 
 const IS_WIN = process.platform === "win32";
 const IS_MAC = process.platform === "darwin";
 const LINUX_CERT_DIR = "/usr/local/share/ca-certificates";
+
+/** macOS Keychain CLI — always use absolute path (sudo/sh often has a minimal PATH). */
+const SECURITY = "/usr/bin/security";
+
+/**
+ * True when Node runs inside WSL (Linux kernel reporting Microsoft/WSL).
+ * Browsers on the Windows host use the Windows cert store, not Linux — use certutil.exe + wslpath.
+ */
+function isWSL() {
+  if (process.platform !== "linux") return false;
+  try {
+    const v = fs.readFileSync("/proc/version", "utf8").toLowerCase();
+    return v.includes("microsoft") || v.includes("wsl");
+  } catch {
+    return false;
+  }
+}
+
+function useWindowsCertStore() {
+  return IS_WIN || isWSL();
+}
+
+function certutilExecutable() {
+  if (IS_WIN) return "certutil";
+  if (isWSL()) return "/mnt/c/Windows/System32/certutil.exe";
+  return "certutil";
+}
+
+/** Path passed to Windows certutil / PowerShell (native Windows, or wslpath -w from WSL). */
+function pathForWindowsCertutil(certPath) {
+  if (IS_WIN) return certPath;
+  if (isWSL()) {
+    try {
+      return execFileSync("wslpath", ["-w", certPath], { encoding: "utf8" }).trim();
+    } catch (e) {
+      throw new Error(`Failed to map certificate path for Windows trust: ${e.message}`);
+    }
+  }
+  return certPath;
+}
 
 // Get SHA1 fingerprint from cert file using Node.js crypto
 function getCertFingerprint(certPath) {
@@ -19,7 +59,7 @@ function getCertFingerprint(certPath) {
  * Check if certificate is already installed in system store
  */
 async function checkCertInstalled(certPath) {
-  if (IS_WIN) return checkCertInstalledWindows(certPath);
+  if (useWindowsCertStore()) return checkCertInstalledWindows(certPath);
   if (IS_MAC) return checkCertInstalledMac(certPath);
   return checkCertInstalledLinux();
 }
@@ -27,12 +67,13 @@ async function checkCertInstalled(certPath) {
 function checkCertInstalledMac(certPath) {
   return new Promise((resolve) => {
     try {
+      if (!fs.existsSync(SECURITY)) return resolve(false);
       const fingerprint = getCertFingerprint(certPath).replace(/:/g, "");
       // security verify-cert returns 0 only if cert is trusted by system policy
-      exec(`security verify-cert -c "${certPath}" -p ssl -k /Library/Keychains/System.keychain 2>/dev/null`, (error) => {
+      exec(`${SECURITY} verify-cert -c "${certPath}" -p ssl -k /Library/Keychains/System.keychain 2>/dev/null`, (error) => {
         if (!error) return resolve(true);
         // Fallback: check if fingerprint appears in System keychain with trust
-        exec(`security dump-trust-settings -d 2>/dev/null | grep -i "${fingerprint}"`, (err2, stdout2) => {
+        exec(`${SECURITY} dump-trust-settings -d 2>/dev/null | grep -i "${fingerprint}"`, (err2, stdout2) => {
           resolve(!err2 && !!stdout2?.trim());
         });
       });
@@ -43,18 +84,20 @@ function checkCertInstalledMac(certPath) {
 }
 
 function checkCertInstalledWindows(certPath) {
+  const cu = certutilExecutable();
   return new Promise((resolve) => {
     // Consider trusted if installed in LocalMachine OR CurrentUser Root store.
-    exec("certutil -store Root \"9Router MITM Root CA\"", { windowsHide: true }, (machineError) => {
+    exec(`${cu} -store Root "9Router MITM Root CA"`, { windowsHide: true }, (machineError) => {
       if (!machineError) return resolve(true);
-      exec("certutil -user -store Root \"9Router MITM Root CA\"", { windowsHide: true }, (userError) => {
+      exec(`${cu} -user -store Root "9Router MITM Root CA"`, { windowsHide: true }, (userError) => {
         if (!userError) return resolve(true);
         const ps = [
           "$m = Get-ChildItem -Path Cert:\\LocalMachine\\Root -ErrorAction SilentlyContinue | Where-Object { $_.Subject -like '*CN=9Router MITM Root CA*' } | Select-Object -First 1",
           "$u = Get-ChildItem -Path Cert:\\CurrentUser\\Root -ErrorAction SilentlyContinue | Where-Object { $_.Subject -like '*CN=9Router MITM Root CA*' } | Select-Object -First 1",
           "if ($m -or $u) { exit 0 } else { exit 1 }",
         ].join("; ");
-        exec(`powershell -NoProfile -NonInteractive -Command "${ps}"`, { windowsHide: true }, (psError) => {
+        const psExe = isWSL() ? "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" : "powershell";
+        exec(`${psExe} -NoProfile -NonInteractive -Command "${ps}"`, { windowsHide: true }, (psError) => {
           resolve(!psError);
         });
       });
@@ -76,7 +119,7 @@ async function installCert(sudoPassword, certPath) {
     return;
   }
 
-  if (IS_WIN) {
+  if (useWindowsCertStore()) {
     await installCertWindows(certPath);
   } else if (IS_MAC) {
     await installCertMac(sudoPassword, certPath);
@@ -86,9 +129,15 @@ async function installCert(sudoPassword, certPath) {
 }
 
 async function installCertMac(sudoPassword, certPath) {
+  if (!fs.existsSync(SECURITY)) {
+    throw new Error(
+      "Certificate install failed: macOS Keychain tools not found at /usr/bin/security. " +
+        "Trust the PEM manually or use a full macOS environment."
+    );
+  }
   // Remove all old certs with same name first to avoid duplicate/stale cert conflict
-  const deleteOld = `security delete-certificate -c "9Router MITM Root CA" /Library/Keychains/System.keychain 2>/dev/null || true`;
-  const install = `security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "${certPath}"`;
+  const deleteOld = `${SECURITY} delete-certificate -c "9Router MITM Root CA" /Library/Keychains/System.keychain 2>/dev/null || true`;
+  const install = `${SECURITY} add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "${certPath}"`;
   try {
     await execWithPassword(`${deleteOld} && ${install}`, sudoPassword);
     log("🔐 Cert: ✅ installed to system keychain");
@@ -101,20 +150,23 @@ async function installCertMac(sudoPassword, certPath) {
 }
 
 async function installCertWindows(certPath) {
+  const cu = certutilExecutable();
+  const winPath = pathForWindowsCertutil(certPath);
+  const psExe = isWSL() ? "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" : "powershell";
   // Prefer LocalMachine Root (admin). Fallback to CurrentUser Root for non-admin sessions.
   return new Promise((resolve, reject) => {
-    exec(`certutil -addstore Root "${certPath}"`, { windowsHide: true }, (machineError, _out, machineStderr) => {
+    exec(`${cu} -addstore Root "${winPath}"`, { windowsHide: true }, (machineError, _out, machineStderr) => {
       if (!machineError) {
         log("🔐 Cert: ✅ installed to Windows LocalMachine Root store");
         return resolve();
       }
-      exec(`certutil -user -addstore Root "${certPath}"`, { windowsHide: true }, (userError, _out2, userStderr) => {
+      exec(`${cu} -user -addstore Root "${winPath}"`, { windowsHide: true }, (userError, _out2, userStderr) => {
         if (!userError) {
           log("🔐 Cert: ✅ installed to Windows CurrentUser Root store");
           return resolve();
         }
-        const ps = `Import-Certificate -FilePath '${certPath.replace(/'/g, "''")}' -CertStoreLocation 'Cert:\\CurrentUser\\Root' | Out-Null`;
-        exec(`powershell -NoProfile -NonInteractive -Command "${ps}"`, { windowsHide: true }, (psError, _out3, psStderr) => {
+        const ps = `Import-Certificate -FilePath '${winPath.replace(/'/g, "''")}' -CertStoreLocation 'Cert:\\CurrentUser\\Root' | Out-Null`;
+        exec(`${psExe} -NoProfile -NonInteractive -Command "${ps}"`, { windowsHide: true }, (psError, _out3, psStderr) => {
           if (!psError) {
             log("🔐 Cert: ✅ installed to Windows CurrentUser Root store (PowerShell)");
             return resolve();
@@ -137,7 +189,7 @@ async function uninstallCert(sudoPassword, certPath) {
     return;
   }
 
-  if (IS_WIN) {
+  if (useWindowsCertStore()) {
     await uninstallCertWindows();
   } else if (IS_MAC) {
     await uninstallCertMac(sudoPassword, certPath);
@@ -148,7 +200,7 @@ async function uninstallCert(sudoPassword, certPath) {
 
 async function uninstallCertMac(sudoPassword, certPath) {
   const fingerprint = getCertFingerprint(certPath).replace(/:/g, "");
-  const command = `security delete-certificate -Z "${fingerprint}" /Library/Keychains/System.keychain`;
+  const command = `${SECURITY} delete-certificate -Z "${fingerprint}" /Library/Keychains/System.keychain`;
   try {
     await execWithPassword(command, sudoPassword);
     log("🔐 Cert: ✅ uninstalled from system keychain");
@@ -158,17 +210,19 @@ async function uninstallCertMac(sudoPassword, certPath) {
 }
 
 async function uninstallCertWindows() {
+  const cu = certutilExecutable();
+  const psExe = isWSL() ? "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" : "powershell";
   // Remove from both machine and user stores; "not found" is treated as success.
   return new Promise((resolve, reject) => {
-    exec(`certutil -delstore Root "9Router MITM Root CA"`, { windowsHide: true }, () => {
-      exec(`certutil -user -delstore Root "9Router MITM Root CA"`, { windowsHide: true }, () => {
+    exec(`${cu} -delstore Root "9Router MITM Root CA"`, { windowsHide: true }, () => {
+      exec(`${cu} -user -delstore Root "9Router MITM Root CA"`, { windowsHide: true }, () => {
         const ps = [
           "$m = Get-ChildItem -Path Cert:\\LocalMachine\\Root -ErrorAction SilentlyContinue | Where-Object { $_.Subject -like '*CN=9Router MITM Root CA*' }",
           "$u = Get-ChildItem -Path Cert:\\CurrentUser\\Root -ErrorAction SilentlyContinue | Where-Object { $_.Subject -like '*CN=9Router MITM Root CA*' }",
           "$m | Remove-Item -ErrorAction SilentlyContinue",
           "$u | Remove-Item -ErrorAction SilentlyContinue",
         ].join("; ");
-        exec(`powershell -NoProfile -NonInteractive -Command "${ps}"`, { windowsHide: true }, (psError) => {
+        exec(`${psExe} -NoProfile -NonInteractive -Command "${ps}"`, { windowsHide: true }, (psError) => {
           if (psError) return reject(new Error(`Failed to uninstall certificate: ${psError.message}`));
           log("🔐 Cert: ✅ uninstalled from Windows Root store(s)");
           resolve();
@@ -213,4 +267,4 @@ async function uninstallCertLinux(sudoPassword) {
   }
 }
 
-module.exports = { installCert, uninstallCert, checkCertInstalled };
+module.exports = { installCert, uninstallCert, checkCertInstalled, isWSL };

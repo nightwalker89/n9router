@@ -1,4 +1,6 @@
-# This file intentionally left empty.
-# Its presence prevents npm from falling back to .gitignore (which excludes
+# This file exists so npm does not fall back to .gitignore (which excludes
 # .next/ and would strip .next/standalone/.next/ from the package).
-# The package.json "files" allowlist is the sole inclusion gatekeeper.
+# package.json "files" is the main allowlist; we only exclude dangerous paths here.
+
+# Next.js may copy project-root .npmrc into standalone — never publish tokens.
+.next/standalone/.npmrc

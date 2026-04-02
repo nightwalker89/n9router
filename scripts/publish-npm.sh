@@ -64,8 +64,10 @@ info "Cleaning standalone — removing sensitive and packaging-breaking files...
 # .gitignore traced here by Next.js causes npm's recursive ignore-walk to
 # exclude .next/standalone/.next/ (it sees /.next/ and strips compiled output).
 # .env contains real local credentials — must never ship.
+# .npmrc may contain //registry.npmjs.org/:_authToken — Next copies it into standalone; never ship.
 rm -f  .next/standalone/.gitignore
 rm -f  .next/standalone/.env
+rm -f  .next/standalone/.npmrc
 # Extra noise: not needed by end users
 rm -f  .next/standalone/.env.example
 rm -f  .next/standalone/.dockerignore
