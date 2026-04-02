@@ -44,9 +44,20 @@ function checkCertInstalledMac(certPath) {
 
 function checkCertInstalledWindows(certPath) {
   return new Promise((resolve) => {
-    // Check Root store for our Root CA by common name
-    exec("certutil -store Root \"9Router MITM Root CA\"", { windowsHide: true }, (error) => {
-      resolve(!error);
+    // Consider trusted if installed in LocalMachine OR CurrentUser Root store.
+    exec("certutil -store Root \"9Router MITM Root CA\"", { windowsHide: true }, (machineError) => {
+      if (!machineError) return resolve(true);
+      exec("certutil -user -store Root \"9Router MITM Root CA\"", { windowsHide: true }, (userError) => {
+        if (!userError) return resolve(true);
+        const ps = [
+          "$m = Get-ChildItem -Path Cert:\\LocalMachine\\Root -ErrorAction SilentlyContinue | Where-Object { $_.Subject -like '*CN=9Router MITM Root CA*' } | Select-Object -First 1",
+          "$u = Get-ChildItem -Path Cert:\\CurrentUser\\Root -ErrorAction SilentlyContinue | Where-Object { $_.Subject -like '*CN=9Router MITM Root CA*' } | Select-Object -First 1",
+          "if ($m -or $u) { exit 0 } else { exit 1 }",
+        ].join("; ");
+        exec(`powershell -NoProfile -NonInteractive -Command "${ps}"`, { windowsHide: true }, (psError) => {
+          resolve(!psError);
+        });
+      });
     });
   });
 }
@@ -82,22 +93,37 @@ async function installCertMac(sudoPassword, certPath) {
     await execWithPassword(`${deleteOld} && ${install}`, sudoPassword);
     log("🔐 Cert: ✅ installed to system keychain");
   } catch (error) {
-    const msg = error.message?.includes("canceled") ? "User canceled authorization" : "Certificate install failed";
+    const msg = error.message?.includes("canceled")
+      ? "User canceled authorization"
+      : `Certificate install failed: ${error.message || "unknown error"}`;
     throw new Error(msg);
   }
 }
 
 async function installCertWindows(certPath) {
-  // Process already has admin rights — run certutil directly, no UAC needed
+  // Prefer LocalMachine Root (admin). Fallback to CurrentUser Root for non-admin sessions.
   return new Promise((resolve, reject) => {
-    exec(
-      `certutil -addstore Root "${certPath}"`,
-      { windowsHide: true },
-      (error) => {
-        if (error) reject(new Error(`Failed to install certificate: ${error.message}`));
-        else { log("🔐 Cert: ✅ installed to Windows Root store"); resolve(); }
+    exec(`certutil -addstore Root "${certPath}"`, { windowsHide: true }, (machineError, _out, machineStderr) => {
+      if (!machineError) {
+        log("🔐 Cert: ✅ installed to Windows LocalMachine Root store");
+        return resolve();
       }
-    );
+      exec(`certutil -user -addstore Root "${certPath}"`, { windowsHide: true }, (userError, _out2, userStderr) => {
+        if (!userError) {
+          log("🔐 Cert: ✅ installed to Windows CurrentUser Root store");
+          return resolve();
+        }
+        const ps = `Import-Certificate -FilePath '${certPath.replace(/'/g, "''")}' -CertStoreLocation 'Cert:\\CurrentUser\\Root' | Out-Null`;
+        exec(`powershell -NoProfile -NonInteractive -Command "${ps}"`, { windowsHide: true }, (psError, _out3, psStderr) => {
+          if (!psError) {
+            log("🔐 Cert: ✅ installed to Windows CurrentUser Root store (PowerShell)");
+            return resolve();
+          }
+          const detail = [machineStderr, userStderr, psStderr].filter(Boolean).join(" | ").trim();
+          reject(new Error(`Failed to install certificate on Windows Root store(s)${detail ? `: ${detail}` : ""}`));
+        });
+      });
+    });
   });
 }
 
@@ -132,16 +158,23 @@ async function uninstallCertMac(sudoPassword, certPath) {
 }
 
 async function uninstallCertWindows() {
-  // Process already has admin rights — run certutil directly, no UAC needed
+  // Remove from both machine and user stores; "not found" is treated as success.
   return new Promise((resolve, reject) => {
-    exec(
-      `certutil -delstore Root "9Router MITM Root CA"`,
-      { windowsHide: true },
-      (error) => {
-        if (error) reject(new Error(`Failed to uninstall certificate: ${error.message}`));
-        else { log("🔐 Cert: ✅ uninstalled from Windows Root store"); resolve(); }
-      }
-    );
+    exec(`certutil -delstore Root "9Router MITM Root CA"`, { windowsHide: true }, () => {
+      exec(`certutil -user -delstore Root "9Router MITM Root CA"`, { windowsHide: true }, () => {
+        const ps = [
+          "$m = Get-ChildItem -Path Cert:\\LocalMachine\\Root -ErrorAction SilentlyContinue | Where-Object { $_.Subject -like '*CN=9Router MITM Root CA*' }",
+          "$u = Get-ChildItem -Path Cert:\\CurrentUser\\Root -ErrorAction SilentlyContinue | Where-Object { $_.Subject -like '*CN=9Router MITM Root CA*' }",
+          "$m | Remove-Item -ErrorAction SilentlyContinue",
+          "$u | Remove-Item -ErrorAction SilentlyContinue",
+        ].join("; ");
+        exec(`powershell -NoProfile -NonInteractive -Command "${ps}"`, { windowsHide: true }, (psError) => {
+          if (psError) return reject(new Error(`Failed to uninstall certificate: ${psError.message}`));
+          log("🔐 Cert: ✅ uninstalled from Windows Root store(s)");
+          resolve();
+        });
+      });
+    });
   });
 }
 
@@ -162,7 +195,7 @@ async function installCertLinux(sudoPassword, certPath) {
     await execWithPassword(cmd, sudoPassword);
     log("🔐 Cert: ✅ installed to Linux trust store");
   } catch (error) {
-    throw new Error("Certificate install failed");
+    throw new Error(`Certificate install failed: ${error.message || "unknown error"}`);
   }
 }
 

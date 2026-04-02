@@ -15,6 +15,7 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
   const [selectedApiKey, setSelectedApiKey] = useState("");
   const [pendingAction, setPendingAction] = useState(null);
   const [modalError, setModalError] = useState(null);
+  const [actionError, setActionError] = useState(null);
 
   const isWindows = typeof navigator !== "undefined" && navigator.userAgent?.includes("Windows");
   const isAdmin = status?.isAdmin !== false;
@@ -54,9 +55,11 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
 
   const doAction = async (action, password) => {
     setLoading(true);
+    setActionError(null);
     try {
+      let res;
       if (action === "trust-cert") {
-        await fetch("/api/cli-tools/antigravity-mitm", {
+        res = await fetch("/api/cli-tools/antigravity-mitm", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "trust-cert", sudoPassword: password }),
@@ -65,22 +68,31 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
         const keyToUse = selectedApiKey?.trim()
           || (apiKeys?.length > 0 ? apiKeys[0].key : null)
           || (!cloudEnabled ? "sk_9router" : null);
-        await fetch("/api/cli-tools/antigravity-mitm", {
+        res = await fetch("/api/cli-tools/antigravity-mitm", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ apiKey: keyToUse, sudoPassword: password }),
         });
       } else {
-        await fetch("/api/cli-tools/antigravity-mitm", {
+        res = await fetch("/api/cli-tools/antigravity-mitm", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sudoPassword: password }),
         });
       }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "MITM action failed");
+      }
       setShowPasswordModal(false);
       setSudoPassword("");
+      setModalError(null);
       await fetchStatus();
-    } catch { /* ignore */ } finally {
+    } catch (error) {
+      const msg = error?.message || "MITM action failed";
+      setActionError(msg);
+      if (showPasswordModal) setModalError(msg);
+    } finally {
       setLoading(false);
       setPendingAction(null);
     }
@@ -192,6 +204,13 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
               <p className="text-xs text-text-muted">Enable DNS per tool below to activate interception</p>
             )}
           </div>
+
+          {actionError && (
+            <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-red-500/10 text-red-600 border border-red-500/20">
+              <span className="material-symbols-outlined text-[14px]">error</span>
+              <span>{actionError}</span>
+            </div>
+          )}
 
           {/* Windows admin warning */}
           {isWindows && !isAdmin && (

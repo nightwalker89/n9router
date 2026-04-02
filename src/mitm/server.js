@@ -272,24 +272,38 @@ const server = https.createServer(sslOptions, async (req, res) => {
       return;
     }
 
+    const host = (req.headers.host || "").split(":")[0];
+    log(`📥 [request] ${req.method} ${host}${req.url}`);
+
+    const bodyCollectStart = Date.now();
     const bodyBuffer = await collectBodyRaw(req);
+    log(`📦 [request] body collected: ${bodyBuffer.length}B in ${Date.now() - bodyCollectStart}ms from ${host}`);
+
     if (bodyBuffer.length > 0) saveRequestLog(req.url, bodyBuffer);
 
     // Anti-loop: skip requests from 9Router
     if (req.headers[INTERNAL_REQUEST_HEADER.name] === INTERNAL_REQUEST_HEADER.value) {
+      log(`🔁 [request] anti-loop skip: ${host}${req.url}`);
       return passthrough(req, res, bodyBuffer);
     }
 
     const tool = getToolForHost(req.headers.host);
-    if (!tool) return passthrough(req, res, bodyBuffer);
+    if (!tool) {
+      log(`⏩ [request] no tool for host="${host}", passthrough`);
+      return passthrough(req, res, bodyBuffer);
+    }
 
     const patterns = URL_PATTERNS[tool] || [];
     const isChat = patterns.some(p => req.url.includes(p));
-    if (!isChat) return passthrough(req, res, bodyBuffer);
+    if (!isChat) {
+      log(`⏩ [request] url="${req.url}" not a chat pattern for tool=${tool}, passthrough`);
+      return passthrough(req, res, bodyBuffer);
+    }
 
     // Extract model early — needed for sticky token-swap strategy and mitmAlias.
     // Cursor uses binary proto so model extraction is deferred to its handler.
     const model = tool !== "cursor" ? extractModel(req.url, bodyBuffer) : null;
+    log(`🧩 [request] tool=${tool} model="${model || "unknown"}" url=${req.url}`);
 
     // ── TOKEN SWAP: rotate auth tokens before mitmAlias ──────
     const swapProvider = TOOL_TO_PROVIDER[tool];
@@ -301,6 +315,8 @@ const server = https.createServer(sslOptions, async (req, res) => {
         const handled = await tokenSwapForward(req, res, bodyBuffer, poolConns, model, strategy);
         if (handled) return;
         log(`⚠️ [${tool}] token-swap: all accounts exhausted, falling through to original token`);
+      } else {
+        log(`⚠️ [token-swap] 0 active connections for provider=${swapProvider} model="${model || "any"}" — all on cooldown?`);
       }
     }
 
