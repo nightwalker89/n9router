@@ -5,11 +5,17 @@ import PropTypes from "prop-types";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { Card, Button, Badge, Input, Modal, CardSkeleton, OAuthModal, KiroOAuthWrapper, CursorAuthModal, IFlowCookieModal, GitLabAuthModal, Toggle, Select } from "@/shared/components";
+import { Card, Button, Badge, Input, Modal, CardSkeleton, OAuthModal, KiroOAuthWrapper, CursorAuthModal, IFlowCookieModal, GitLabAuthModal, Toggle, Select, Tooltip } from "@/shared/components";
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS, FREE_PROVIDERS, FREE_TIER_PROVIDERS, getProviderAlias, isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 import { getModelsByProviderId } from "@/shared/constants/models";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { fetchSuggestedModels } from "@/shared/utils/providerModelsFetcher";
+
+const ANTIGRAVITY_TOOLTIP_IMPORT_AGT =
+  "Imports accounts from ~/.antigravity_tools on this machine (Antigravity IDE local data). Requires that folder to exist and contain signed-in accounts.";
+
+const ANTIGRAVITY_TOOLTIP_IMPORT_REFRESH =
+  "Paste Google OAuth refresh tokens: one per line (1//…), a JSON array with refresh_token, or any text containing \"refresh_token\": \"…\". Each token is refreshed and accounts are added or updated by Google email.";
 
 export default function ProviderDetailPage() {
   const params = useParams();
@@ -26,6 +32,9 @@ export default function ProviderDetailPage() {
   const [showEditNodeModal, setShowEditNodeModal] = useState(false);
   const [showBulkProxyModal, setShowBulkProxyModal] = useState(false);
   const [importingAgt, setImportingAgt] = useState(false);
+  const [importingAgtRefresh, setImportingAgtRefresh] = useState(false);
+  const [showAgtRefreshModal, setShowAgtRefreshModal] = useState(false);
+  const [agtRefreshTokenInput, setAgtRefreshTokenInput] = useState("");
   const [importResult, setImportResult] = useState(null);
   const [selectedConnection, setSelectedConnection] = useState(null);
   const [modelAliases, setModelAliases] = useState({});
@@ -425,6 +434,8 @@ export default function ProviderDetailPage() {
   };
 
 
+  const agtImportBusy = importingAgt || importingAgtRefresh;
+
   const handleImportFromAgt = async () => {
     setImportingAgt(true);
     setImportResult(null);
@@ -441,6 +452,36 @@ export default function ProviderDetailPage() {
       setImportResult({ error: err.message });
     }
     setImportingAgt(false);
+  };
+
+  const handleImportFromRefreshTokens = async () => {
+    if (!agtRefreshTokenInput.trim()) return;
+    setImportingAgtRefresh(true);
+    setImportResult(null);
+    try {
+      const res = await fetch("/api/antigravity-tools/import-refresh-tokens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: agtRefreshTokenInput }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setImportResult(data);
+        await fetchConnections();
+        setShowAgtRefreshModal(false);
+        setAgtRefreshTokenInput("");
+      } else {
+        setImportResult({ error: data.error || "Import failed" });
+      }
+    } catch (err) {
+      setImportResult({ error: err.message });
+    }
+    setImportingAgtRefresh(false);
+  };
+
+  const closeAgtRefreshModal = () => {
+    if (importingAgtRefresh) return;
+    setShowAgtRefreshModal(false);
   };
 
   const isSelected = (connectionId) => selectedConnectionIds.includes(connectionId);
@@ -863,7 +904,15 @@ export default function ProviderDetailPage() {
             <span>
               {importResult.error
                 ? `✗ ${importResult.error}`
-                : `✓ Imported ${importResult.imported}, updated ${importResult.updated}, skipped ${importResult.skipped}`}
+                : (() => {
+                    const parts = [
+                      `imported ${importResult.imported}`,
+                      `updated ${importResult.updated}`,
+                    ];
+                    if (importResult.skipped > 0) parts.push(`skipped ${importResult.skipped}`);
+                    if (importResult.failed > 0) parts.push(`failed ${importResult.failed}`);
+                    return `✓ ${parts.join(", ")}`;
+                  })()}
             </span>
             <button onClick={() => setImportResult(null)} className="text-current opacity-60 hover:opacity-100">✕</button>
           </div>
@@ -887,9 +936,23 @@ export default function ProviderDetailPage() {
                   {providerId === "iflow" ? "OAuth" : "Add Connection"}
                 </Button>
                 {providerId === "antigravity" && (
-                  <Button icon="download" variant="secondary" onClick={handleImportFromAgt} disabled={importingAgt}>
-                    {importingAgt ? "Importing…" : "Import from AGT"}
-                  </Button>
+                  <>
+                    <Tooltip text={ANTIGRAVITY_TOOLTIP_IMPORT_AGT} position="bottom">
+                      <Button icon="download" variant="secondary" onClick={handleImportFromAgt} disabled={agtImportBusy}>
+                        {importingAgt ? "Importing…" : "Import from AGT"}
+                      </Button>
+                    </Tooltip>
+                    <Tooltip text={ANTIGRAVITY_TOOLTIP_IMPORT_REFRESH} position="bottom">
+                      <Button
+                        icon="key"
+                        variant="secondary"
+                        onClick={() => setShowAgtRefreshModal(true)}
+                        disabled={agtImportBusy}
+                      >
+                        Import refresh tokens
+                      </Button>
+                    </Tooltip>
+                  </>
                 )}
               </div>
             )}
@@ -918,9 +981,24 @@ export default function ProviderDetailPage() {
                   Add
                 </Button>
                 {providerId === "antigravity" && (
-                  <Button size="sm" icon="download" variant="secondary" onClick={handleImportFromAgt} disabled={importingAgt}>
-                    {importingAgt ? "Importing…" : "Import from AGT"}
-                  </Button>
+                  <>
+                    <Tooltip text={ANTIGRAVITY_TOOLTIP_IMPORT_AGT} position="bottom">
+                      <Button size="sm" icon="download" variant="secondary" onClick={handleImportFromAgt} disabled={agtImportBusy}>
+                        {importingAgt ? "Importing…" : "Import from AGT"}
+                      </Button>
+                    </Tooltip>
+                    <Tooltip text={ANTIGRAVITY_TOOLTIP_IMPORT_REFRESH} position="bottom">
+                      <Button
+                        size="sm"
+                        icon="key"
+                        variant="secondary"
+                        onClick={() => setShowAgtRefreshModal(true)}
+                        disabled={agtImportBusy}
+                      >
+                        Refresh tokens
+                      </Button>
+                    </Tooltip>
+                  </>
                 )}
               </div>
             )}
@@ -942,6 +1020,43 @@ export default function ProviderDetailPage() {
       </Card>
 
       {bulkActionModal}
+
+      {providerId === "antigravity" && (
+        <Modal isOpen={showAgtRefreshModal} onClose={closeAgtRefreshModal} title="Import accounts (refresh tokens)">
+          <div className="flex flex-col gap-4">
+            <p className="text-sm text-text-muted">
+              Paste one or more Google OAuth refresh tokens. Supported formats: a single token (lines starting with{" "}
+              <code className="text-xs bg-surface-secondary px-1 rounded">1//…</code>
+              ), a JSON array with{" "}
+              <code className="text-xs bg-surface-secondary px-1 rounded">refresh_token</code>
+              , or any text containing{" "}
+              <code className="text-xs bg-surface-secondary px-1 rounded">&quot;refresh_token&quot;: &quot;…&quot;</code>{" "}
+              (values are extracted automatically).
+            </p>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-text-primary">Refresh tokens</label>
+              <textarea
+                value={agtRefreshTokenInput}
+                onChange={(e) => setAgtRefreshTokenInput(e.target.value)}
+                placeholder={`Paste your refresh token(s) here (batch supported)\n\nExample:\n"refresh_token": "example_refresh_token"`}
+                className="w-full min-h-[160px] px-3 py-2 bg-surface-secondary border border-border rounded-lg text-sm text-text-primary placeholder:text-text-muted/80 focus:outline-none focus:ring-2 focus:ring-primary resize-y font-mono"
+                disabled={importingAgtRefresh}
+              />
+              <p className="text-xs text-text-muted">
+                Tip: You can paste multiple tokens or a JSON array to import in batch.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="secondary" fullWidth onClick={closeAgtRefreshModal} disabled={importingAgtRefresh}>
+                Cancel
+              </Button>
+              <Button fullWidth onClick={handleImportFromRefreshTokens} disabled={importingAgtRefresh || !agtRefreshTokenInput.trim()}>
+                {importingAgtRefresh ? "Importing…" : "Import"}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Modals */}
       {providerId === "kiro" ? (
