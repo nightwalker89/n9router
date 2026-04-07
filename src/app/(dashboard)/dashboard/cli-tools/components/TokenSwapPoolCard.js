@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Card, Badge } from "@/shared/components";
+import { Card, Badge, Toggle } from "@/shared/components";
 import Link from "next/link";
-import { parseQuotaData } from "@/app/(dashboard)/dashboard/usage/components/ProviderLimits/utils";
+import { parseQuotaData, formatResetTime } from "@/app/(dashboard)/dashboard/usage/components/ProviderLimits/utils";
 
 // Model to highlight in the quota summary
 const HIGHLIGHT_MODEL = "claude-sonnet-4-6";
@@ -24,6 +24,36 @@ function getQuotaBg(pct) {
   if (pct > 70) return "bg-green-500";
   if (pct >= 30) return "bg-yellow-500";
   return "bg-red-500";
+}
+
+function formatResetTimeDisplay(resetTime) {
+  if (!resetTime) return null;
+
+  try {
+    const resetDate = new Date(resetTime);
+    const now = new Date();
+    const isToday = resetDate.toDateString() === now.toDateString();
+    const isTomorrow = resetDate.toDateString() === new Date(now.getTime() + 86400000).toDateString();
+
+    const timeStr = resetDate.toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+
+    if (isToday) return `Today, ${timeStr}`;
+    if (isTomorrow) return `Tomorrow, ${timeStr}`;
+
+    return resetDate.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  } catch {
+    return null;
+  }
 }
 
 function maskEmail(email) {
@@ -90,6 +120,7 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
   const [togglingStrategy, setTogglingStrategy] = useState(false);
   const [maskEmails, setMaskEmails] = useState(false);
   const [togglingMaskEmails, setTogglingMaskEmails] = useState(false);
+  const [togglingAccountId, setTogglingAccountId] = useState(null);
   const [resettingAccountId, setResettingAccountId] = useState(null);
   const [resettingAll, setResettingAll] = useState(false);
   const [quotas, setQuotas] = useState({}); // { [connId]: { quotas: [], error: string|null, loading: bool } }
@@ -223,20 +254,24 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
     setTogglingMaskEmails(false);
   };
 
-  const poolAccounts = connections.filter(
-    (c) => c.provider === tool.tokenSwapProvider && c.isActive !== false
+  const providerAccounts = connections.filter(
+    (c) => c.provider === tool.tokenSwapProvider
   );
-  const activeCount = poolAccounts.length;
+  const activeAccounts = providerAccounts.filter(
+    (c) => c.isActive !== false
+  );
+  const activeCount = activeAccounts.length;
+  const activeAccountsKey = activeAccounts.map((acc) => acc.id).join("|");
   const stickyLimit = getStickyLimitForTool(tool);
-  const preferredAccountId = getPreferredAccountId(poolAccounts, strategy, stickyLimit);
+  const preferredAccountId = getPreferredAccountId(activeAccounts, strategy, stickyLimit);
 
   // Auto-fetch quotas when enabled and accounts available
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     if (enabled && activeCount > 0) {
-      fetchQuotas(poolAccounts);
+      fetchQuotas(activeAccounts);
     }
-  }, [enabled, activeCount]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [enabled, activeCount, activeAccountsKey, fetchQuotas]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Prerequisites check
   const prereqsMet = serverRunning && dnsActive;
@@ -245,31 +280,19 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
   /**
    * Render inline quota info for a single account
    */
-  const renderAccountQuota = (accId) => {
+  const getAccountQuotaMeta = (accId) => {
     const q = quotas[accId];
-    if (!q) return null;
-    if (q.loading) {
-      return (
-        <span className="text-[10px] text-text-muted animate-pulse shrink-0">loading…</span>
-      );
-    }
-    if (q.error) {
-      return (
-        <span className="text-[10px] text-red-400 shrink-0" title={q.error}>⛔ bad account</span>
-      );
-    }
-    if (!q.quotas || q.quotas.length === 0) {
-      return (
-        <span className="text-[10px] text-text-muted shrink-0">no quota data</span>
-      );
-    }
+    if (!q) return { state: "empty" };
+    if (q.loading) return { state: "loading" };
+    if (q.error) return { state: "error", error: q.error };
+    if (!q.quotas || q.quotas.length === 0) return { state: "no-data" };
 
     // Find highlight model, fallback to first quota with data
     const highlight = q.quotas.find(m =>
       m.modelKey?.includes(HIGHLIGHT_MODEL) || m.name?.toLowerCase().includes("opus")
     ) || q.quotas[0];
 
-    if (!highlight) return null;
+    if (!highlight) return { state: "no-data" };
 
     const pct = highlight.remainingPercentage !== undefined
       ? Math.round(highlight.remainingPercentage)
@@ -277,21 +300,77 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
         ? Math.round(((highlight.total - highlight.used) / highlight.total) * 100)
         : null;
 
-    if (pct === null) return null;
+    const nextResetAt = [...q.quotas]
+      .map((quota) => quota.resetAt)
+      .filter(Boolean)
+      .filter((resetAt) => new Date(resetAt).getTime() > Date.now())
+      .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0] || highlight.resetAt || null;
 
+    return {
+      state: pct === null ? "no-data" : "ready",
+      highlight,
+      pct,
+      nextResetAt,
+      resetCountdown: formatResetTime(nextResetAt),
+      resetDisplay: formatResetTimeDisplay(nextResetAt),
+    };
+  };
+
+  const renderAccountQuota = (accId) => {
+    const meta = getAccountQuotaMeta(accId);
+    if (!meta || meta.state === "empty") {
+      return <span className="text-[10px] text-text-muted">Enable to load quota data</span>;
+    }
+    if (meta.state === "loading") {
+      return <span className="text-[10px] text-text-muted animate-pulse">Loading quota…</span>;
+    }
+    if (meta.state === "error") {
+      return <span className="text-[10px] text-red-400" title={meta.error}>Quota unavailable</span>;
+    }
+    if (meta.state === "no-data") {
+      return <span className="text-[10px] text-text-muted">No quota data</span>;
+    }
+
+    const { highlight, pct, resetCountdown, resetDisplay } = meta;
     return (
-      <div className="flex items-center gap-1.5 shrink-0">
-        <span className="text-[10px] text-text-muted truncate max-w-[80px]">{highlight.name}</span>
-        <div className="w-12 h-1.5 rounded-full bg-surface-alt overflow-hidden shrink-0">
-          <div className={`h-full rounded-full ${getQuotaBg(pct)}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+      <div className="flex flex-col gap-1.5 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[10px] text-text-muted truncate">{highlight.name}</span>
+          <div className="flex-1 h-1.5 rounded-full bg-surface-alt overflow-hidden min-w-[56px]">
+            <div className={`h-full rounded-full ${getQuotaBg(pct)}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+          </div>
+          <span className={`text-[10px] font-medium shrink-0 ${getQuotaColor(pct)}`}>{pct}%</span>
         </div>
-        <span className={`text-[10px] font-medium shrink-0 ${getQuotaColor(pct)}`}>{pct}%</span>
+        {resetCountdown !== "-" && resetDisplay ? (
+          <div className="text-[10px] text-text-muted">
+            Reset in <span className="text-text-main">{resetCountdown}</span>
+            <span className="text-text-muted/70"> • {resetDisplay}</span>
+          </div>
+        ) : (
+          <div className="text-[10px] text-text-muted">Reset time unavailable</div>
+        )}
       </div>
     );
   };
 
+  const toggleAccountActive = async (accountId, nextActive) => {
+    if (!accountId || togglingAccountId || resettingAll || resettingAccountId) return;
+    setTogglingAccountId(accountId);
+    try {
+      const res = await fetch(`/api/providers/${accountId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: nextActive }),
+      });
+      if (res.ok) {
+        await onRefreshConnections?.();
+      }
+    } catch { /* ignore */ }
+    setTogglingAccountId(null);
+  };
+
   const resetAccountStreak = async (accountId) => {
-    if (!accountId || resettingAccountId || resettingAll) return;
+    if (!accountId || resettingAccountId || resettingAll || togglingAccountId) return;
     setResettingAccountId(accountId);
     try {
       const res = await fetch(`/api/providers/${accountId}`, {
@@ -310,10 +389,10 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
   };
 
   const resetAllStreaks = async () => {
-    if (resettingAll || resettingAccountId || poolAccounts.length === 0) return;
+    if (resettingAll || resettingAccountId || togglingAccountId || providerAccounts.length === 0) return;
     setResettingAll(true);
     try {
-      await Promise.all(poolAccounts.map((acc) => (
+      await Promise.all(providerAccounts.map((acc) => (
         fetch(`/api/providers/${acc.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -422,30 +501,6 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
             </p>
           </div>
 
-          {/* Privacy */}
-          <div className="flex items-center justify-between gap-3 px-2 py-2 rounded-lg border border-border bg-surface-alt/40">
-            <div className="min-w-0">
-              <p className="text-[11px] font-medium text-text-main">Mask account emails</p>
-              <p className="text-[10px] text-text-muted">
-                Hide pool account emails in token swap logs and this panel. Example: {maskEmail("email@gmail.com")}
-              </p>
-            </div>
-            <button
-              onClick={toggleMaskEmails}
-              disabled={togglingMaskEmails}
-              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ${
-                maskEmails ? "bg-violet-500" : "bg-surface border border-border"
-              } ${togglingMaskEmails ? "opacity-50" : "cursor-pointer"}`}
-              title={maskEmails ? "Disable email masking" : "Enable email masking"}
-            >
-              <span
-                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow-sm ${
-                  maskEmails ? "translate-x-4" : "translate-x-0.5"
-                }`}
-              />
-            </button>
-          </div>
-
           {/* Prerequisites */}
           <div className="flex flex-col gap-1 px-1">
             <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-0.5">Prerequisites</p>
@@ -472,7 +527,7 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
               <div className="flex items-center gap-2">
                 <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold">Pool Accounts</p>
                 <span className="text-[10px] text-text-muted">
-                  {activeCount > 0 ? `${activeCount} active` : "none"}
+                  {providerAccounts.length > 0 ? `${activeCount}/${providerAccounts.length} active` : "none"}
                 </span>
                 {activeCount > 1 && (
                   <span className="text-[9px] text-text-muted bg-surface border border-border px-1 py-0.5 rounded">
@@ -483,14 +538,14 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
               <div className="flex items-center gap-2">
                 {activeCount > 0 && (
                   <button
-                    onClick={() => fetchQuotas(poolAccounts, true)}
+                    onClick={() => fetchQuotas(activeAccounts, true)}
                     className="text-[10px] text-text-muted hover:text-primary flex items-center gap-0.5 transition-colors"
                     title="Refresh quotas"
                   >
                     <span className="material-symbols-outlined text-[12px]">refresh</span>
                   </button>
                 )}
-                {activeCount > 0 && (
+                {providerAccounts.length > 0 && (
                   <button
                     onClick={resetAllStreaks}
                     disabled={resettingAll || !!resettingAccountId}
@@ -506,34 +561,88 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
             <p className="text-[10px] text-text-muted px-0.5">
               Sticky round robin keeps the current account until its streak reaches {stickyLimit}, then rotates to the least recently used account.
             </p>
+            <div className="flex items-center justify-between gap-3 px-2 py-2 rounded-lg border border-border bg-surface-alt/40">
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium text-text-main">Mask account emails</p>
+                <p className="text-[10px] text-text-muted">
+                  Hide pool account emails in token swap logs and this panel. Example: {maskEmail("email@gmail.com")}
+                </p>
+              </div>
+              <button
+                onClick={toggleMaskEmails}
+                disabled={togglingMaskEmails}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ${
+                  maskEmails ? "bg-violet-500" : "bg-surface border border-border"
+                } ${togglingMaskEmails ? "opacity-50" : "cursor-pointer"}`}
+                title={maskEmails ? "Disable email masking" : "Enable email masking"}
+              >
+                <span
+                  className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow-sm ${
+                    maskEmails ? "translate-x-4" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+            </div>
 
-            {activeCount > 0 ? (
+            {providerAccounts.length > 0 ? (
               <>
-                {poolAccounts.map((acc) => (
-                  <div key={acc.id} className="flex items-center gap-2 px-1 py-1 rounded hover:bg-surface-alt/50 transition-colors">
-                    <span className="material-symbols-outlined text-[14px] shrink-0 text-green-500">check_circle</span>
-                    <div className="flex-1 min-w-0 flex items-center gap-2">
-                      <span className="text-xs text-text-main truncate min-w-0">
-                        {getAccountDisplay(acc, maskEmails)}
-                      </span>
-                      {preferredAccountId === acc.id && (
-                        <span className="text-[9px] text-violet-300 bg-violet-500/10 border border-violet-500/20 px-1 py-0.5 rounded shrink-0">
-                          next
-                        </span>
+                {providerAccounts.map((acc) => (
+                  <div
+                    key={acc.id}
+                    className={`rounded-xl border border-border bg-surface-alt/30 px-3 py-2.5 transition-colors ${
+                      acc.isActive === false ? "opacity-65" : "hover:bg-surface-alt/50"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={`material-symbols-outlined text-[14px] shrink-0 ${acc.isActive === false ? "text-text-muted" : "text-green-500"}`}>
+                            {acc.isActive === false ? "pause_circle" : "check_circle"}
+                          </span>
+                          <span className="text-xs font-medium text-text-main truncate">
+                            {getAccountDisplay(acc, maskEmails)}
+                          </span>
+                          {preferredAccountId === acc.id && acc.isActive !== false && (
+                            <span className="text-[9px] text-violet-300 bg-violet-500/10 border border-violet-500/20 px-1 py-0.5 rounded shrink-0">
+                              next
+                            </span>
+                          )}
+                          <Badge variant={acc.isActive === false ? "default" : "success"} size="sm">
+                            {acc.isActive === false ? "disabled" : "active"}
+                          </Badge>
+                        </div>
+                        <div className="mt-1 flex items-center gap-2 flex-wrap text-[10px] text-text-muted">
+                          <span>Priority #{acc.priority ?? "-"}</span>
+                          <span>Streak {acc.consecutiveUseCount || 0}/{stickyLimit}</span>
+                          {acc.lastUsedAt && <span>Last used {new Date(acc.lastUsedAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <button
+                          onClick={() => resetAccountStreak(acc.id)}
+                          disabled={resettingAll || togglingAccountId === acc.id || resettingAccountId === acc.id}
+                          className="text-[10px] text-text-muted hover:text-primary disabled:opacity-50 transition-colors"
+                          title="Reset this account streak"
+                        >
+                          {resettingAccountId === acc.id ? "..." : "Reset Streak"}
+                        </button>
+                        <Toggle
+                          size="sm"
+                          checked={acc.isActive !== false}
+                          disabled={resettingAll || resettingAccountId === acc.id || togglingAccountId === acc.id}
+                          onChange={(nextChecked) => toggleAccountActive(acc.id, nextChecked)}
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-2 pl-6">
+                      {acc.isActive === false ? (
+                        <div className="text-[10px] text-text-muted">
+                          Enable this account to include it in token rotation and load quota reset info.
+                        </div>
+                      ) : (
+                        renderAccountQuota(acc.id)
                       )}
                     </div>
-                    <span className="text-[10px] text-text-muted shrink-0">
-                      {(acc.consecutiveUseCount || 0)}/{stickyLimit}
-                    </span>
-                    <button
-                      onClick={() => resetAccountStreak(acc.id)}
-                      disabled={resettingAll || resettingAccountId === acc.id}
-                      className="text-[10px] text-text-muted hover:text-primary disabled:opacity-50 shrink-0 transition-colors"
-                      title="Reset this account streak"
-                    >
-                      {resettingAccountId === acc.id ? "..." : "Reset"}
-                    </button>
-                    {renderAccountQuota(acc.id)}
                   </div>
                 ))}
                 <Link
