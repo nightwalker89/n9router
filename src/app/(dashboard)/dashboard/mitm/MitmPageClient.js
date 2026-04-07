@@ -111,6 +111,7 @@ export default function MitmPageClient() {
                 serverRunning={mitmStatus.running}
                 dnsActive={mitmStatus.dnsStatus?.[toolId] || false}
                 onToggle={(val) => setTokenSwapActive(val)}
+                onRefreshConnections={fetchConnections}
               />
             )}
           </Fragment>

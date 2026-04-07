@@ -45,16 +45,53 @@ function getAccountDisplay(acc, maskEmails) {
   return acc.name || acc.id.slice(0, 16);
 }
 
+function getStickyLimitForTool(tool) {
+  return tool?.stickyRoundRobinLimit || 3;
+}
+
+function getPreferredAccountId(accounts, strategy, stickyLimit) {
+  if (!accounts || accounts.length === 0) return null;
+  if (accounts.length === 1) return accounts[0].id;
+
+  const byNewest = [...accounts].sort((a, b) => {
+    if (!a.lastUsedAt && !b.lastUsedAt) return (a.priority || 999) - (b.priority || 999);
+    if (!a.lastUsedAt) return 1;
+    if (!b.lastUsedAt) return -1;
+    return new Date(b.lastUsedAt) - new Date(a.lastUsedAt);
+  });
+
+  if (strategy === "sticky") {
+    return byNewest[0]?.id || null;
+  }
+
+  const current = byNewest[0];
+  const currentCount = current?.consecutiveUseCount || 0;
+  if (current?.lastUsedAt && currentCount < stickyLimit) {
+    return current.id;
+  }
+
+  const byOldest = [...accounts].sort((a, b) => {
+    if (!a.lastUsedAt && !b.lastUsedAt) return (a.priority || 999) - (b.priority || 999);
+    if (!a.lastUsedAt) return -1;
+    if (!b.lastUsedAt) return 1;
+    return new Date(a.lastUsedAt) - new Date(b.lastUsedAt);
+  });
+
+  return byOldest[0]?.id || null;
+}
+
 /**
  * Token Swap Pool Card — standalone card for token rotation mode.
  */
-export default function TokenSwapPoolCard({ tool, connections = [], serverRunning, dnsActive, onToggle }) {
+export default function TokenSwapPoolCard({ tool, connections = [], serverRunning, dnsActive, onToggle, onRefreshConnections }) {
   const [enabled, setEnabled] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [strategy, setStrategy] = useState("round-robin"); // "round-robin" | "sticky"
   const [togglingStrategy, setTogglingStrategy] = useState(false);
   const [maskEmails, setMaskEmails] = useState(false);
   const [togglingMaskEmails, setTogglingMaskEmails] = useState(false);
+  const [resettingAccountId, setResettingAccountId] = useState(null);
+  const [resettingAll, setResettingAll] = useState(false);
   const [quotas, setQuotas] = useState({}); // { [connId]: { quotas: [], error: string|null, loading: bool } }
   const quotaCacheRef = useRef({}); // { [connId]: { data: parsed, error, ts: number } }
 
@@ -190,6 +227,8 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
     (c) => c.provider === tool.tokenSwapProvider && c.isActive !== false
   );
   const activeCount = poolAccounts.length;
+  const stickyLimit = getStickyLimitForTool(tool);
+  const preferredAccountId = getPreferredAccountId(poolAccounts, strategy, stickyLimit);
 
   // Auto-fetch quotas when enabled and accounts available
   // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -249,6 +288,44 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
         <span className={`text-[10px] font-medium shrink-0 ${getQuotaColor(pct)}`}>{pct}%</span>
       </div>
     );
+  };
+
+  const resetAccountStreak = async (accountId) => {
+    if (!accountId || resettingAccountId || resettingAll) return;
+    setResettingAccountId(accountId);
+    try {
+      const res = await fetch(`/api/providers/${accountId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lastUsedAt: null,
+          consecutiveUseCount: 0,
+        }),
+      });
+      if (res.ok) {
+        await onRefreshConnections?.();
+      }
+    } catch { /* ignore */ }
+    setResettingAccountId(null);
+  };
+
+  const resetAllStreaks = async () => {
+    if (resettingAll || resettingAccountId || poolAccounts.length === 0) return;
+    setResettingAll(true);
+    try {
+      await Promise.all(poolAccounts.map((acc) => (
+        fetch(`/api/providers/${acc.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lastUsedAt: null,
+            consecutiveUseCount: 0,
+          }),
+        })
+      )));
+      await onRefreshConnections?.();
+    } catch { /* ignore */ }
+    setResettingAll(false);
   };
 
   return (
@@ -403,25 +480,59 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
                   </span>
                 )}
               </div>
-              {activeCount > 0 && (
-                <button
-                  onClick={() => fetchQuotas(poolAccounts, true)}
-                  className="text-[10px] text-text-muted hover:text-primary flex items-center gap-0.5 transition-colors"
-                  title="Refresh quotas"
-                >
-                  <span className="material-symbols-outlined text-[12px]">refresh</span>
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {activeCount > 0 && (
+                  <button
+                    onClick={() => fetchQuotas(poolAccounts, true)}
+                    className="text-[10px] text-text-muted hover:text-primary flex items-center gap-0.5 transition-colors"
+                    title="Refresh quotas"
+                  >
+                    <span className="material-symbols-outlined text-[12px]">refresh</span>
+                  </button>
+                )}
+                {activeCount > 0 && (
+                  <button
+                    onClick={resetAllStreaks}
+                    disabled={resettingAll || !!resettingAccountId}
+                    className="text-[10px] text-text-muted hover:text-primary disabled:opacity-50 flex items-center gap-0.5 transition-colors"
+                    title="Reset all streak counts"
+                  >
+                    <span className="material-symbols-outlined text-[12px]">restart_alt</span>
+                    Reset all
+                  </button>
+                )}
+              </div>
             </div>
+            <p className="text-[10px] text-text-muted px-0.5">
+              Sticky round robin keeps the current account until its streak reaches {stickyLimit}, then rotates to the least recently used account.
+            </p>
 
             {activeCount > 0 ? (
               <>
                 {poolAccounts.map((acc) => (
                   <div key={acc.id} className="flex items-center gap-2 px-1 py-1 rounded hover:bg-surface-alt/50 transition-colors">
                     <span className="material-symbols-outlined text-[14px] shrink-0 text-green-500">check_circle</span>
-                    <span className="flex-1 text-xs text-text-main truncate min-w-0">
-                      {getAccountDisplay(acc, maskEmails)}
+                    <div className="flex-1 min-w-0 flex items-center gap-2">
+                      <span className="text-xs text-text-main truncate min-w-0">
+                        {getAccountDisplay(acc, maskEmails)}
+                      </span>
+                      {preferredAccountId === acc.id && (
+                        <span className="text-[9px] text-violet-300 bg-violet-500/10 border border-violet-500/20 px-1 py-0.5 rounded shrink-0">
+                          next
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-text-muted shrink-0">
+                      {(acc.consecutiveUseCount || 0)}/{stickyLimit}
                     </span>
+                    <button
+                      onClick={() => resetAccountStreak(acc.id)}
+                      disabled={resettingAll || resettingAccountId === acc.id}
+                      className="text-[10px] text-text-muted hover:text-primary disabled:opacity-50 shrink-0 transition-colors"
+                      title="Reset this account streak"
+                    >
+                      {resettingAccountId === acc.id ? "..." : "Reset"}
+                    </button>
                     {renderAccountQuota(acc.id)}
                   </div>
                 ))}
