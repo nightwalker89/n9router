@@ -162,6 +162,17 @@ export default function RequestDetailsTab() {
     setFilters({ provider: "", startDate: "", endDate: "" });
   };
 
+  const getStatusClassName = (status) => {
+    if (status === "success") return "text-green-600";
+    if (status === "input_only" || status === "partial") return "text-amber-600";
+    return "text-red-600";
+  };
+
+  const getStatusLabel = (status) => {
+    if (status === "input_only") return "input only";
+    return status;
+  };
+
   return (
     <div className="flex flex-col gap-6">
       <Card padding="md">
@@ -345,9 +356,9 @@ export default function RequestDetailsTab() {
                 <span className="text-text-muted">Status:</span>{" "}
                 <span className={cn(
                   "font-medium",
-                  selectedDetail.status === "success" ? "text-green-600" : "text-red-600"
+                  getStatusClassName(selectedDetail.status)
                 )}>
-                  {selectedDetail.status}
+                  {getStatusLabel(selectedDetail.status)}
                 </span>
               </div>
               <div>

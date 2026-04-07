@@ -10,6 +10,7 @@ const { isTokenSwapEnabled, getAllActiveConnections, triggerRefreshIfNeeded,
         setCooldown, setModelCooldown, getTokenSwapStrategy,
         parseQuotaCooldown, markAccountUsed, getConnectionLabel } = require("./tokenPool");
 const { getCertForDomain } = require("./cert/generate");
+const { buildInputOnlyRequestDetail, createTokenSwapUsageObserver, generateDetailId } = require("./usageTracker");
 
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const LOCAL_PORT = 443;
@@ -180,7 +181,7 @@ async function passthrough(req, res, bodyBuffer, onResponse) {
 // Unlike passthrough(), this checks upstream statusCode BEFORE
 // piping to client — enabling auto-retry on 429/503.
 
-async function tokenSwapForward(req, res, bodyBuffer, connections, model, strategy) {
+async function tokenSwapForward(req, res, bodyBuffer, connections, model, strategy, provider, requestStartTime) {
   const targetHost = (req.headers.host || TARGET_HOSTS[0]).split(":")[0];
   const targetIP = await resolveTargetIP(targetHost);
 
@@ -245,12 +246,57 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
       }
 
       const newCount = (conn.consecutiveUseCount || 0) + 1;
+      const statusCode = result.response.statusCode || 0;
       const successModelTag = model ? ` model=${model}` : "";
       const successStrategyTag = strategy === "sticky" ? ` sticky(use #${newCount})` : ` rr`;
-      log(`✅ [token-swap] "${label}" → ${result.response.statusCode}${successModelTag}${successStrategyTag}`);
+      log(`✅ [token-swap] "${label}" → ${statusCode}${successModelTag}${successStrategyTag}`);
       markAccountUsed(conn.id);
-      res.writeHead(result.response.statusCode, result.response.headers);
-      result.response.pipe(res);
+      res.writeHead(statusCode, result.response.headers);
+
+      const detailId = generateDetailId(model);
+      const inputOnlyDetail = buildInputOnlyRequestDetail({
+        detailId,
+        provider,
+        model,
+        connectionId: conn.id,
+        bodyBuffer
+      });
+      fetch("http://127.0.0.1:20128/api/internal/request-detail", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          [INTERNAL_REQUEST_HEADER.name]: INTERNAL_REQUEST_HEADER.value
+        },
+        body: JSON.stringify(inputOnlyDetail)
+      }).catch((detailError) => {
+        err(`[token-swap] failed to create request detail for "${label}": ${detailError.message}`);
+      });
+
+      const usageObserver = createTokenSwapUsageObserver({
+        provider,
+        model,
+        connectionId: conn.id,
+        accountLabel: label,
+        bodyBuffer,
+        contentType: result.response.headers["content-type"] || "",
+        contentEncoding: result.response.headers["content-encoding"] || "",
+        statusCode,
+        detailRecord: inputOnlyDetail,
+        requestStartTime
+      });
+
+      result.response.on("data", (chunk) => {
+        usageObserver.onChunk(chunk);
+        res.write(chunk);
+      });
+      result.response.on("end", () => {
+        res.end();
+        usageObserver.onEnd().catch(() => {});
+      });
+      result.response.on("error", (streamError) => {
+        err(`[token-swap] upstream stream error for "${label}": ${streamError.message}`);
+        if (!res.writableEnded) res.end();
+      });
       return true;
     } catch (e) {
       err(`[token-swap] error for "${label}": ${e.message}`);
@@ -312,7 +358,7 @@ const server = https.createServer(sslOptions, async (req, res) => {
       const poolConns = getAllActiveConnections(swapProvider, model);
       if (poolConns.length > 0) {
         log(`🔑 [${tool}] token-swap: ${poolConns.length} account(s) available (strategy=${strategy}${model ? `, model=${model}` : ""})`);
-        const handled = await tokenSwapForward(req, res, bodyBuffer, poolConns, model, strategy);
+        const handled = await tokenSwapForward(req, res, bodyBuffer, poolConns, model, strategy, swapProvider, bodyCollectStart);
         if (handled) return;
         log(`⚠️ [${tool}] token-swap: all accounts exhausted, falling through to original token`);
       } else {
