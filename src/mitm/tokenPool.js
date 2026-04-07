@@ -14,9 +14,11 @@ const DB_FILE = path.join(DATA_DIR, "db.json");
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000; // refresh 5min before expiry
 const ROUTER_PORT = process.env.PORT || 20128;
 const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
+const DEFAULT_AUTH_COOLDOWN_MS = 10 * 60 * 1000;
 
 // ── In-memory state ──────────────────────────────────────────
-const cooldownMap = {};        // { [connectionId]: expiresTimestamp }
+const cooldownMap = {};        // { [connectionId]: expiresTimestamp } quota/general cooldown
+const authCooldownMap = {};    // { [connectionId]: expiresTimestamp } invalid_token/auth cooldown
 const modelCooldownMap = {};   // { [connectionId]: { [model]: expiresTimestamp } }
 const rrState = {};            // { [provider]: roundRobinIndex }
 
@@ -28,13 +30,33 @@ function setCooldown(connId, durationMs) {
   log(`⏸ [token-pool] cooldown: ${connId.slice(0, 8)}… for ${Math.ceil(ms / 60000)}m`);
 }
 
-function isInCooldown(connId) {
-  if (!cooldownMap[connId]) return false;
-  if (Date.now() > cooldownMap[connId]) {
-    delete cooldownMap[connId];
-    return false;
+function setAuthCooldown(connId, durationMs) {
+  const ms = durationMs || DEFAULT_AUTH_COOLDOWN_MS;
+  authCooldownMap[connId] = Date.now() + ms;
+  log(`🔒 [token-pool] auth-cooldown: ${connId.slice(0, 8)}… for ${Math.ceil(ms / 60000)}m`);
+}
+
+function getMapExpiry(map, connId) {
+  if (!map[connId]) return 0;
+  if (Date.now() > map[connId]) {
+    delete map[connId];
+    return 0;
   }
-  return true;
+  return map[connId];
+}
+
+function getCooldownState(connId) {
+  const authExpiry = getMapExpiry(authCooldownMap, connId);
+  if (authExpiry) return { type: "auth", expiresAt: authExpiry };
+
+  const quotaExpiry = getMapExpiry(cooldownMap, connId);
+  if (quotaExpiry) return { type: "quota", expiresAt: quotaExpiry };
+
+  return null;
+}
+
+function isInCooldown(connId) {
+  return !!getCooldownState(connId);
 }
 
 // ── Per-model cooldown management ────────────────────────────
@@ -108,6 +130,90 @@ function getActiveConnections(provider) {
       )
       .sort((a, b) => (a.priority || 999) - (b.priority || 999));
   } catch { return []; }
+}
+
+function getTokenSwapAvailabilitySummary(provider, model) {
+  try {
+    if (!fs.existsSync(DB_FILE)) {
+      return {
+        total: 0,
+        eligible: 0,
+        skipped: 0,
+        reasons: {},
+        summaryText: "0/0 account(s) eligible"
+      };
+    }
+
+    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
+    const connections = (db.providerConnections || []).filter(c => c.provider === provider);
+    const now = Date.now();
+    const strategy = getTokenSwapStrategy();
+    const reasons = {
+      inactive: 0,
+      noToken: 0,
+      expiredNoRefresh: 0,
+      quotaCooldown: 0,
+      authCooldown: 0,
+      modelCooldown: 0,
+    };
+
+    let eligible = 0;
+
+    for (const connection of connections) {
+      if (connection.isActive === false) {
+        reasons.inactive += 1;
+        continue;
+      }
+      if (!connection.accessToken) {
+        reasons.noToken += 1;
+        continue;
+      }
+      if (connection.expiresAt && new Date(connection.expiresAt).getTime() < now && !connection.refreshToken) {
+        reasons.expiredNoRefresh += 1;
+        continue;
+      }
+
+      const cooldownState = getCooldownState(connection.id);
+      if (cooldownState?.type === "auth") {
+        reasons.authCooldown += 1;
+        continue;
+      }
+      if (cooldownState?.type === "quota") {
+        reasons.quotaCooldown += 1;
+        continue;
+      }
+
+      if (strategy === "sticky" && model && isModelExhausted(connection.id, model)) {
+        reasons.modelCooldown += 1;
+        continue;
+      }
+
+      eligible += 1;
+    }
+
+    const skipped = connections.length - eligible;
+    const reasonParts = [];
+    if (reasons.quotaCooldown) reasonParts.push(`${reasons.quotaCooldown} quota cooldown`);
+    if (reasons.authCooldown) reasonParts.push(`${reasons.authCooldown} auth cooldown`);
+    if (reasons.modelCooldown) reasonParts.push(`${reasons.modelCooldown} model cooldown`);
+    if (reasons.inactive) reasonParts.push(`${reasons.inactive} inactive`);
+    if (reasons.noToken) reasonParts.push(`${reasons.noToken} missing token`);
+    if (reasons.expiredNoRefresh) reasonParts.push(`${reasons.expiredNoRefresh} expired-no-refresh`);
+
+    const summaryText = skipped > 0
+      ? `${eligible}/${connections.length} account(s) eligible, skipped ${skipped} (${reasonParts.join(", ")})`
+      : `${eligible}/${connections.length} account(s) eligible`;
+
+    return { total: connections.length, eligible, skipped, reasons, summaryText };
+  } catch {
+    return {
+      total: 0,
+      eligible: 0,
+      skipped: 0,
+      reasons: {},
+      summaryText: "0/0 account(s) eligible"
+    };
+  }
 }
 
 function getConnectionById(connId) {
@@ -287,33 +393,72 @@ function markAccountUsed(connId) {
 // checks expiry, refreshes token automatically, then returns the
 // latest persisted connection snapshot for the current request.
 
+async function runConnectionTest(connection) {
+  return await new Promise((resolve) => {
+    if (!connection?.id) {
+      resolve({ connection, refreshed: false, valid: false });
+      return;
+    }
+
+    let responseBody = "";
+
+    try {
+      const req = http.request(
+        { hostname: "127.0.0.1", port: ROUTER_PORT, path: `/api/providers/${connection.id}/test`, method: "POST" },
+        (res) => {
+          res.on("data", (chunk) => {
+            responseBody += chunk.toString();
+          });
+          res.on("end", () => {
+            let payload = {};
+            try {
+              payload = JSON.parse(responseBody || "{}");
+            } catch {
+              payload = {};
+            }
+
+            const refreshedConnection = getConnectionById(connection.id);
+            const tokenChanged = !!(refreshedConnection?.accessToken && refreshedConnection.accessToken !== connection.accessToken);
+            resolve({
+              connection: refreshedConnection || connection,
+              refreshed: !!payload.refreshed || tokenChanged,
+              valid: !!payload.valid,
+            });
+          });
+        }
+      );
+      req.on("error", () => resolve({ connection, refreshed: false, valid: false }));
+      req.end();
+    } catch {
+      resolve({ connection, refreshed: false, valid: false });
+    }
+  });
+}
+
 async function triggerRefreshIfNeeded(connection) {
   if (!connection?.expiresAt || !connection?.refreshToken) return connection;
   const expiresAt = new Date(connection.expiresAt).getTime();
   if (Date.now() + TOKEN_EXPIRY_BUFFER_MS < expiresAt) return connection;
 
   log(`🔄 [token-pool] near-expiry refresh → ${getConnectionLabel(connection).slice(0, 20)}`);
-  return await new Promise((resolve) => {
-    try {
-      const req = http.request(
-        { hostname: "127.0.0.1", port: ROUTER_PORT, path: `/api/providers/${connection.id}/test`, method: "POST" },
-        (res) => {
-          res.on("data", () => {});
-          res.on("end", () => {
-            const refreshed = getConnectionById(connection.id);
-            if (refreshed?.accessToken && refreshed.accessToken !== connection.accessToken) {
-              log(`♻️ [token-pool] refreshed token applied → ${getConnectionLabel(connection).slice(0, 20)}`);
-            }
-            resolve(refreshed || connection);
-          });
-        }
-      );
-      req.on("error", () => resolve(connection));
-      req.end();
-    } catch {
-      resolve(connection);
-    }
-  });
+  const result = await runConnectionTest(connection);
+  if (result.refreshed) {
+    log(`♻️ [token-pool] refreshed token applied → ${getConnectionLabel(connection).slice(0, 20)}`);
+  }
+  return result.connection || connection;
+}
+
+async function forceRefreshConnection(connection) {
+  if (!connection?.refreshToken) {
+    return { connection, refreshed: false, valid: false };
+  }
+
+  log(`🔄 [token-pool] auth refresh → ${getConnectionLabel(connection).slice(0, 20)}`);
+  const result = await runConnectionTest(connection);
+  if (result.refreshed) {
+    log(`♻️ [token-pool] refreshed token applied → ${getConnectionLabel(connection).slice(0, 20)}`);
+  }
+  return result;
 }
 
 module.exports = {
@@ -321,7 +466,9 @@ module.exports = {
   getNextConnection,
   getAllActiveConnections,
   triggerRefreshIfNeeded,
+  forceRefreshConnection,
   setCooldown,
+  setAuthCooldown,
   setModelCooldown,
   isModelExhausted,
   getTokenSwapStrategy,
@@ -329,4 +476,5 @@ module.exports = {
   markAccountUsed,
   getConnectionLabel,
   maskEmail,
+  getTokenSwapAvailabilitySummary,
 };

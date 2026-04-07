@@ -7,8 +7,8 @@ const { log, err } = require("./logger");
 const { TARGET_HOSTS, URL_PATTERNS, getToolForHost } = require("./config");
 const { DATA_DIR, MITM_DIR } = require("./paths");
 const { isTokenSwapEnabled, getAllActiveConnections, triggerRefreshIfNeeded,
-        setCooldown, setModelCooldown, getTokenSwapStrategy,
-        parseQuotaCooldown, markAccountUsed, getConnectionLabel } = require("./tokenPool");
+        forceRefreshConnection, setCooldown, setAuthCooldown, setModelCooldown, getTokenSwapStrategy,
+        parseQuotaCooldown, markAccountUsed, getConnectionLabel, getTokenSwapAvailabilitySummary } = require("./tokenPool");
 const { getCertForDomain } = require("./cert/generate");
 const { buildInputOnlyRequestDetail, createTokenSwapUsageObserver, generateDetailId } = require("./usageTracker");
 
@@ -187,124 +187,178 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
 
   for (let i = 0; i < connections.length; i++) {
     const originalConn = connections[i];
-    const conn = await triggerRefreshIfNeeded(originalConn);
+    let conn = await triggerRefreshIfNeeded(originalConn);
+    let authRefreshAttempted = false;
 
-    const label = getConnectionLabel(conn);
-    const modelTag = model ? ` model=${model}` : "";
-    const posTag = connections.length > 1 ? ` [${i + 1}/${connections.length}]` : "";
-    const useTag = conn.consecutiveUseCount > 1 ? ` uses=${conn.consecutiveUseCount}` : "";
-    log(`🔑 [token-swap]${posTag} trying "${label}"${modelTag}${useTag}`);
+    while (true) {
+      const label = getConnectionLabel(conn);
+      const modelTag = model ? ` model=${model}` : "";
+      const posTag = connections.length > 1 ? ` [${i + 1}/${connections.length}]` : "";
+      const useTag = conn.consecutiveUseCount > 1 ? ` uses=${conn.consecutiveUseCount}` : "";
+      log(`🔑 [token-swap]${posTag} trying "${label}"${modelTag}${useTag}`);
 
-    const swappedHeaders = {
-      ...req.headers,
-      host: targetHost,
-      authorization: `Bearer ${conn.accessToken}`
-    };
+      const swappedHeaders = {
+        ...req.headers,
+        host: targetHost,
+        authorization: `Bearer ${conn.accessToken}`
+      };
 
-    try {
-      const result = await new Promise((resolve, reject) => {
-        const forwardReq = https.request({
-          hostname: targetIP,
-          port: 443,
-          path: req.url,
-          method: req.method,
-          headers: swappedHeaders,
-          servername: targetHost,
-          rejectUnauthorized: false
-        }, (forwardRes) => {
-          if (forwardRes.statusCode === 429 || forwardRes.statusCode === 503) {
-            // Buffer the short error body to parse cooldown duration
-            const chunks = [];
-            forwardRes.on("data", c => chunks.push(c));
-            forwardRes.on("end", () => {
-              const body = Buffer.concat(chunks).toString();
-              resolve({ retry: true, body, statusCode: forwardRes.statusCode });
-            });
-          } else {
-            // Success or non-quota error → pipe to client
-            resolve({ retry: false, response: forwardRes });
-          }
+      try {
+        const result = await new Promise((resolve, reject) => {
+          const forwardReq = https.request({
+            hostname: targetIP,
+            port: 443,
+            path: req.url,
+            method: req.method,
+            headers: swappedHeaders,
+            servername: targetHost,
+            rejectUnauthorized: false
+          }, (forwardRes) => {
+            if (forwardRes.statusCode === 429 || forwardRes.statusCode === 503 || forwardRes.statusCode === 401) {
+              const chunks = [];
+              forwardRes.on("data", c => chunks.push(c));
+              forwardRes.on("end", () => {
+                const body = Buffer.concat(chunks).toString();
+                const retryType = forwardRes.statusCode === 401 ? "auth" : "quota";
+                resolve({ retry: true, retryType, body, headers: forwardRes.headers, statusCode: forwardRes.statusCode });
+              });
+            } else {
+              resolve({ retry: false, response: forwardRes });
+            }
+          });
+          forwardReq.on("error", reject);
+          if (bodyBuffer.length > 0) forwardReq.write(bodyBuffer);
+          forwardReq.end();
         });
-        forwardReq.on("error", reject);
-        if (bodyBuffer.length > 0) forwardReq.write(bodyBuffer);
-        forwardReq.end();
-      });
 
-      if (result.retry) {
-        const cooldownMs = parseQuotaCooldown(result.body);
-        const cdLabel = cooldownMs ? ` cooldown=${Math.ceil(cooldownMs / 60000)}m` : "";
-        if (strategy === "sticky" && model) {
-          // Sticky: mark only this account+model as exhausted, not the whole account
-          setModelCooldown(conn.id, model, cooldownMs);
-          log(`⚠️ [token-swap] "${label}" → ${result.statusCode} model=${model} quota exhausted${cdLabel}, trying next...`);
-        } else {
-          // Round-robin: put whole account on cooldown
-          setCooldown(conn.id, cooldownMs);
-          log(`⚠️ [token-swap] "${label}" → ${result.statusCode} account quota exhausted${cdLabel}, trying next...`);
+        if (result.retry && result.retryType === "quota") {
+          const cooldownMs = parseQuotaCooldown(result.body);
+          const cdLabel = cooldownMs ? ` cooldown=${Math.ceil(cooldownMs / 60000)}m` : "";
+          if (strategy === "sticky" && model) {
+            setModelCooldown(conn.id, model, cooldownMs);
+            log(`⚠️ [token-swap] "${label}" → ${result.statusCode} model=${model} quota exhausted${cdLabel}, trying next...`);
+          } else {
+            setCooldown(conn.id, cooldownMs);
+            log(`⚠️ [token-swap] "${label}" → ${result.statusCode} account quota exhausted${cdLabel}, trying next...`);
+          }
+          break;
         }
-        continue;
+
+        if (result.retry && result.retryType === "auth") {
+          const retryableAuth = isRetryableAuthFailure(result.statusCode, result.headers, result.body);
+          if (!retryableAuth) {
+            res.writeHead(result.statusCode, result.headers);
+            res.end(result.body);
+            return true;
+          }
+
+          if (!authRefreshAttempted && conn.refreshToken) {
+            authRefreshAttempted = true;
+            log(`⚠️ [token-swap] "${label}" → 401 invalid_token, forcing refresh...`);
+            const refreshResult = await forceRefreshConnection(conn);
+            conn = refreshResult.connection || conn;
+            if (refreshResult.refreshed) {
+              log(`↻ [token-swap] "${label}" refreshed, retrying same account...`);
+              continue;
+            }
+          }
+
+          setAuthCooldown(conn.id);
+          log(`⚠️ [token-swap] "${label}" → 401 invalid_token, trying next...`);
+          break;
+        }
+
+        const newCount = (conn.consecutiveUseCount || 0) + 1;
+        const statusCode = result.response.statusCode || 0;
+        const successModelTag = model ? ` model=${model}` : "";
+        const successStrategyTag = strategy === "sticky" ? ` sticky(use #${newCount})` : ` rr`;
+        log(`✅ [token-swap] "${label}" → ${statusCode}${successModelTag}${successStrategyTag}`);
+        markAccountUsed(conn.id);
+        res.writeHead(statusCode, result.response.headers);
+
+        const detailId = generateDetailId(model);
+        const inputOnlyDetail = buildInputOnlyRequestDetail({
+          detailId,
+          provider,
+          model,
+          connectionId: conn.id,
+          bodyBuffer
+        });
+        fetch("http://127.0.0.1:20128/api/internal/request-detail", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            [INTERNAL_REQUEST_HEADER.name]: INTERNAL_REQUEST_HEADER.value
+          },
+          body: JSON.stringify(inputOnlyDetail)
+        }).catch((detailError) => {
+          err(`[token-swap] failed to create request detail for "${label}": ${detailError.message}`);
+        });
+
+        const usageObserver = createTokenSwapUsageObserver({
+          provider,
+          model,
+          connectionId: conn.id,
+          accountLabel: label,
+          bodyBuffer,
+          contentType: result.response.headers["content-type"] || "",
+          contentEncoding: result.response.headers["content-encoding"] || "",
+          statusCode,
+          detailRecord: inputOnlyDetail,
+          requestStartTime
+        });
+
+        result.response.on("data", (chunk) => {
+          usageObserver.onChunk(chunk);
+          res.write(chunk);
+        });
+        result.response.on("end", () => {
+          res.end();
+          usageObserver.onEnd().catch(() => {});
+        });
+        result.response.on("error", (streamError) => {
+          err(`[token-swap] upstream stream error for "${label}": ${streamError.message}`);
+          if (!res.writableEnded) res.end();
+        });
+        return true;
+      } catch (e) {
+        err(`[token-swap] error for "${label}": ${e.message}`);
+        break;
       }
-
-      const newCount = (conn.consecutiveUseCount || 0) + 1;
-      const statusCode = result.response.statusCode || 0;
-      const successModelTag = model ? ` model=${model}` : "";
-      const successStrategyTag = strategy === "sticky" ? ` sticky(use #${newCount})` : ` rr`;
-      log(`✅ [token-swap] "${label}" → ${statusCode}${successModelTag}${successStrategyTag}`);
-      markAccountUsed(conn.id);
-      res.writeHead(statusCode, result.response.headers);
-
-      const detailId = generateDetailId(model);
-      const inputOnlyDetail = buildInputOnlyRequestDetail({
-        detailId,
-        provider,
-        model,
-        connectionId: conn.id,
-        bodyBuffer
-      });
-      fetch("http://127.0.0.1:20128/api/internal/request-detail", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          [INTERNAL_REQUEST_HEADER.name]: INTERNAL_REQUEST_HEADER.value
-        },
-        body: JSON.stringify(inputOnlyDetail)
-      }).catch((detailError) => {
-        err(`[token-swap] failed to create request detail for "${label}": ${detailError.message}`);
-      });
-
-      const usageObserver = createTokenSwapUsageObserver({
-        provider,
-        model,
-        connectionId: conn.id,
-        accountLabel: label,
-        bodyBuffer,
-        contentType: result.response.headers["content-type"] || "",
-        contentEncoding: result.response.headers["content-encoding"] || "",
-        statusCode,
-        detailRecord: inputOnlyDetail,
-        requestStartTime
-      });
-
-      result.response.on("data", (chunk) => {
-        usageObserver.onChunk(chunk);
-        res.write(chunk);
-      });
-      result.response.on("end", () => {
-        res.end();
-        usageObserver.onEnd().catch(() => {});
-      });
-      result.response.on("error", (streamError) => {
-        err(`[token-swap] upstream stream error for "${label}": ${streamError.message}`);
-        if (!res.writableEnded) res.end();
-      });
-      return true;
-    } catch (e) {
-      err(`[token-swap] error for "${label}": ${e.message}`);
-      continue;
     }
   }
 
   // All accounts exhausted
+  return false;
+}
+
+function getHeaderValue(headers, name) {
+  const value = headers?.[String(name).toLowerCase()];
+  if (Array.isArray(value)) return value.join(", ");
+  return typeof value === "string" ? value : "";
+}
+
+function isRetryableAuthFailure(statusCode, headers, body) {
+  if (statusCode !== 401) return false;
+
+  const authHeader = getHeaderValue(headers, "www-authenticate").toLowerCase();
+  if (authHeader.includes("invalid_token")) return true;
+
+  try {
+    const parsed = JSON.parse(body || "{}");
+    const status = String(parsed?.error?.status || parsed?.status || "").toUpperCase();
+    const message = String(parsed?.error?.message || parsed?.message || "").toLowerCase();
+    if (status === "UNAUTHENTICATED") return true;
+    if (message.includes("invalid authentication credentials")) return true;
+    if (message.includes("invalid token")) return true;
+    if (message.includes("unauthenticated")) return true;
+  } catch {
+    const fallback = String(body || "").toLowerCase();
+    if (fallback.includes("invalid authentication credentials")) return true;
+    if (fallback.includes("invalid token")) return true;
+    if (fallback.includes("unauthenticated")) return true;
+  }
+
   return false;
 }
 
@@ -357,7 +411,8 @@ const server = https.createServer(sslOptions, async (req, res) => {
       const strategy = getTokenSwapStrategy();
       const poolConns = getAllActiveConnections(swapProvider, model);
       if (poolConns.length > 0) {
-        log(`🔑 [${tool}] token-swap: ${poolConns.length} account(s) available (strategy=${strategy}${model ? `, model=${model}` : ""})`);
+        const availability = getTokenSwapAvailabilitySummary(swapProvider, model);
+        log(`🔑 [${tool}] token-swap: ${availability.summaryText} (strategy=${strategy}${model ? `, model=${model}` : ""})`);
         const handled = await tokenSwapForward(req, res, bodyBuffer, poolConns, model, strategy, swapProvider, bodyCollectStart);
         if (handled) return;
         log(`⚠️ [${tool}] token-swap: all accounts exhausted, falling through to original token`);
