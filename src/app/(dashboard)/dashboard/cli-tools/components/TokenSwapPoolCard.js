@@ -26,6 +26,25 @@ function getQuotaBg(pct) {
   return "bg-red-500";
 }
 
+function maskEmail(email) {
+  if (!email || typeof email !== "string") return email;
+  const atIndex = email.indexOf("@");
+  if (atIndex <= 0 || atIndex === email.length - 1) return email;
+
+  const local = email.slice(0, atIndex);
+  const domain = email.slice(atIndex + 1);
+
+  if (local.length === 1) return `${local[0]}**@${domain}`;
+  if (local.length === 2) return `${local[0]}**${local[1]}@${domain}`;
+
+  return `${local[0]}**${local[local.length - 1]}@${domain}`;
+}
+
+function getAccountDisplay(acc, maskEmails) {
+  if (acc.email) return maskEmails ? maskEmail(acc.email) : acc.email;
+  return acc.name || acc.id.slice(0, 16);
+}
+
 /**
  * Token Swap Pool Card — standalone card for token rotation mode.
  */
@@ -34,6 +53,8 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
   const [toggling, setToggling] = useState(false);
   const [strategy, setStrategy] = useState("round-robin"); // "round-robin" | "sticky"
   const [togglingStrategy, setTogglingStrategy] = useState(false);
+  const [maskEmails, setMaskEmails] = useState(false);
+  const [togglingMaskEmails, setTogglingMaskEmails] = useState(false);
   const [quotas, setQuotas] = useState({}); // { [connId]: { quotas: [], error: string|null, loading: bool } }
   const quotaCacheRef = useRef({}); // { [connId]: { data: parsed, error, ts: number } }
 
@@ -44,6 +65,7 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
         const data = await res.json();
         setEnabled(!!data.tokenSwapEnabled);
         setStrategy(data.tokenSwapStrategy || "round-robin");
+        setMaskEmails(!!data.tokenSwapMaskEmails);
       }
     } catch { /* ignore */ }
   }, []);
@@ -147,6 +169,21 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
       if (res.ok) setStrategy(val);
     } catch { /* ignore */ }
     setTogglingStrategy(false);
+  };
+
+  const toggleMaskEmails = async () => {
+    if (togglingMaskEmails) return;
+    setTogglingMaskEmails(true);
+    const newVal = !maskEmails;
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tokenSwapMaskEmails: newVal }),
+      });
+      if (res.ok) setMaskEmails(newVal);
+    } catch { /* ignore */ }
+    setTogglingMaskEmails(false);
   };
 
   const poolAccounts = connections.filter(
@@ -308,6 +345,30 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
             </p>
           </div>
 
+          {/* Privacy */}
+          <div className="flex items-center justify-between gap-3 px-2 py-2 rounded-lg border border-border bg-surface-alt/40">
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium text-text-main">Mask account emails</p>
+              <p className="text-[10px] text-text-muted">
+                Hide pool account emails in token swap logs and this panel. Example: {maskEmail("email@gmail.com")}
+              </p>
+            </div>
+            <button
+              onClick={toggleMaskEmails}
+              disabled={togglingMaskEmails}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ${
+                maskEmails ? "bg-violet-500" : "bg-surface border border-border"
+              } ${togglingMaskEmails ? "opacity-50" : "cursor-pointer"}`}
+              title={maskEmails ? "Disable email masking" : "Enable email masking"}
+            >
+              <span
+                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow-sm ${
+                  maskEmails ? "translate-x-4" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          </div>
+
           {/* Prerequisites */}
           <div className="flex flex-col gap-1 px-1">
             <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-0.5">Prerequisites</p>
@@ -359,7 +420,7 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
                   <div key={acc.id} className="flex items-center gap-2 px-1 py-1 rounded hover:bg-surface-alt/50 transition-colors">
                     <span className="material-symbols-outlined text-[14px] shrink-0 text-green-500">check_circle</span>
                     <span className="flex-1 text-xs text-text-main truncate min-w-0">
-                      {acc.email || acc.name || acc.id.slice(0, 16)}
+                      {getAccountDisplay(acc, maskEmails)}
                     </span>
                     {renderAccountQuota(acc.id)}
                   </div>

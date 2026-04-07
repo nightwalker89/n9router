@@ -65,7 +65,8 @@ const defaultData = {
     observabilityMaxJsonSize: 1024,
     outboundProxyEnabled: false,
     outboundProxyUrl: "",
-    outboundNoProxy: ""
+    outboundNoProxy: "",
+    tokenSwapMaskEmails: false,
   },
   pricing: {} // NEW: pricing configuration
 };
@@ -101,6 +102,7 @@ function cloneDefaultData() {
       outboundProxyEnabled: false,
       outboundProxyUrl: "",
       outboundNoProxy: "",
+      tokenSwapMaskEmails: false,
     },
     pricing: {},
   };

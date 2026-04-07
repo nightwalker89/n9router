@@ -8,7 +8,7 @@
  *  - isTokenSwapEnabled
  *  - getNextConnection / round-robin
  *  - getAllActiveConnections
- *  - triggerRefreshIfNeeded (fire-and-forget http call)
+ *  - triggerRefreshIfNeeded (awaits refresh and reloads persisted token)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -376,31 +376,58 @@ describe("triggerRefreshIfNeeded", () => {
     tmp.cleanup();
   });
 
-  it("does not make HTTP request when no expiresAt set", () => {
+  it("does not make HTTP request when no expiresAt set", async () => {
     httpSpy = vi.spyOn(http, "request").mockReturnValue({ on: vi.fn(), end: vi.fn() });
     pool = loadTokenPool(tmp.DATA_DIR);
     const conn = makeConn({ expiresAt: null });
-    pool.triggerRefreshIfNeeded(conn);
+    const result = await pool.triggerRefreshIfNeeded(conn);
     expect(httpSpy).not.toHaveBeenCalled();
+    expect(result).toEqual(conn);
   });
 
-  it("does not make HTTP request when token expires far in future (>5min)", () => {
+  it("does not make HTTP request when token expires far in future (>5min)", async () => {
     httpSpy = vi.spyOn(http, "request").mockReturnValue({ on: vi.fn(), end: vi.fn() });
     pool = loadTokenPool(tmp.DATA_DIR);
     const futureDate = new Date(Date.now() + 10 * 60_000).toISOString(); // 10 min
-    const conn = makeConn({ expiresAt: futureDate });
-    pool.triggerRefreshIfNeeded(conn);
+    const conn = makeConn({ expiresAt: futureDate, refreshToken: "reftok" });
+    const result = await pool.triggerRefreshIfNeeded(conn);
     expect(httpSpy).not.toHaveBeenCalled();
+    expect(result).toEqual(conn);
   });
 
-  it("fires HTTP request when token expires within 5min (near expiry)", () => {
-    const mockReq = { on: vi.fn(), end: vi.fn() };
+  it("does not make HTTP request when no refreshToken exists", async () => {
+    httpSpy = vi.spyOn(http, "request").mockReturnValue({ on: vi.fn(), end: vi.fn() });
+    pool = loadTokenPool(tmp.DATA_DIR);
+    const nearExpiry = new Date(Date.now() + 3 * 60_000).toISOString();
+    const conn = makeConn({ expiresAt: nearExpiry, refreshToken: null });
+    const result = await pool.triggerRefreshIfNeeded(conn);
+    expect(httpSpy).not.toHaveBeenCalled();
+    expect(result).toEqual(conn);
+  });
+
+  it("fires HTTP request when token expires within 5min (near expiry)", async () => {
+    const mockRes = {
+      on: vi.fn((event, handler) => {
+        if (event === "end") handler();
+        return mockRes;
+      }),
+    };
+    const mockReq = {
+      on: vi.fn(),
+      end: vi.fn(() => {
+        const db = JSON.parse(fs.readFileSync(tmp.dbPath, "utf-8"));
+        db.providerConnections[0].accessToken = "tok-new";
+        fs.writeFileSync(tmp.dbPath, JSON.stringify(db));
+        httpSpy.mock.calls[0][1](mockRes);
+      }),
+    };
     httpSpy = vi.spyOn(http, "request").mockReturnValue(mockReq);
     pool = loadTokenPool(tmp.DATA_DIR);
 
     const nearExpiry = new Date(Date.now() + 3 * 60_000).toISOString(); // 3 min
-    const conn = makeConn({ id: "refresh-me", expiresAt: nearExpiry });
-    pool.triggerRefreshIfNeeded(conn);
+    const conn = makeConn({ id: "refresh-me", expiresAt: nearExpiry, refreshToken: "reftok" });
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({ providerConnections: [conn] }));
+    const result = await pool.triggerRefreshIfNeeded(conn);
 
     expect(httpSpy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -410,18 +437,32 @@ describe("triggerRefreshIfNeeded", () => {
       expect.any(Function)
     );
     expect(mockReq.end).toHaveBeenCalled();
+    expect(result.accessToken).toBe("tok-new");
   });
 
-  it("fires HTTP request when token is already expired", () => {
-    const mockReq = { on: vi.fn(), end: vi.fn() };
+  it("fires HTTP request when token is already expired", async () => {
+    const mockRes = {
+      on: vi.fn((event, handler) => {
+        if (event === "end") handler();
+        return mockRes;
+      }),
+    };
+    const mockReq = {
+      on: vi.fn(),
+      end: vi.fn(() => {
+        httpSpy.mock.calls[0][1](mockRes);
+      }),
+    };
     httpSpy = vi.spyOn(http, "request").mockReturnValue(mockReq);
     pool = loadTokenPool(tmp.DATA_DIR);
 
     const pastDate = new Date(Date.now() - 60_000).toISOString(); // 1 min ago
-    const conn = makeConn({ id: "expired-conn", expiresAt: pastDate });
-    pool.triggerRefreshIfNeeded(conn);
+    const conn = makeConn({ id: "expired-conn", expiresAt: pastDate, refreshToken: "reftok" });
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({ providerConnections: [conn] }));
+    const result = await pool.triggerRefreshIfNeeded(conn);
 
     expect(httpSpy).toHaveBeenCalled();
+    expect(result.id).toBe("expired-conn");
   });
 });
 

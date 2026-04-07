@@ -110,6 +110,52 @@ function getActiveConnections(provider) {
   } catch { return []; }
 }
 
+function getConnectionById(connId) {
+  try {
+    if (!fs.existsSync(DB_FILE)) return null;
+    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
+    const connections = db.providerConnections || [];
+    return connections.find(c => c.id === connId) || null;
+  } catch {
+    return null;
+  }
+}
+
+function maskEmail(email) {
+  if (!email || typeof email !== "string") return email;
+  const atIndex = email.indexOf("@");
+  if (atIndex <= 0 || atIndex === email.length - 1) return email;
+
+  const local = email.slice(0, atIndex);
+  const domain = email.slice(atIndex + 1);
+
+  if (local.length === 1) return `${local[0]}**@${domain}`;
+  if (local.length === 2) return `${local[0]}**${local[1]}@${domain}`;
+
+  return `${local[0]}**${local[local.length - 1]}@${domain}`;
+}
+
+function isAccountEmailMaskEnabled() {
+  try {
+    if (!fs.existsSync(DB_FILE)) return false;
+    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
+    return !!db.settings?.tokenSwapMaskEmails;
+  } catch {
+    return false;
+  }
+}
+
+function getConnectionLabel(connection) {
+  if (!connection) return "";
+
+  const shouldMask = isAccountEmailMaskEnabled();
+  const email = shouldMask ? maskEmail(connection.email) : connection.email;
+
+  if (connection.name && email) return `${connection.name} <${email}>`;
+  if (email) return email;
+  return connection.name || connection.id.slice(0, 8);
+}
+
 function isTokenSwapEnabled(provider) {
   try {
     if (!fs.existsSync(DB_FILE)) return false;
@@ -131,13 +177,13 @@ function getNextConnection(provider) {
   const connections = getActiveConnections(provider);
   if (connections.length === 0) return null;
   if (connections.length === 1) {
-    log(`🎯 [token-pool] selected: "${connections[0].name || connections[0].email || connections[0].id.slice(0, 8)}" (only account)`);
+    log(`🎯 [token-pool] selected: "${getConnectionLabel(connections[0])}" (only account)`);
     return connections[0];
   }
   const idx = (rrState[provider] || 0) % connections.length;
   rrState[provider] = idx + 1;
   const selected = connections[idx];
-  log(`🎯 [token-pool] round-robin[${idx}/${connections.length}]: "${selected.name || selected.email || selected.id.slice(0, 8)}"`);
+  log(`🎯 [token-pool] round-robin[${idx}/${connections.length}]: "${getConnectionLabel(selected)}"`);
   return selected;
 }
 
@@ -236,24 +282,38 @@ function markAccountUsed(connId) {
   }
 }
 
-// ── Token refresh trigger (fire-and-forget via HTTP) ─────────
+// ── Token refresh trigger (refresh + reload persisted token) ─
 // Calls 9Router's existing POST /api/providers/:id/test which
-// checks expiry and refreshes token automatically.
+// checks expiry, refreshes token automatically, then returns the
+// latest persisted connection snapshot for the current request.
 
-function triggerRefreshIfNeeded(connection) {
-  if (!connection.expiresAt) return;
+async function triggerRefreshIfNeeded(connection) {
+  if (!connection?.expiresAt || !connection?.refreshToken) return connection;
   const expiresAt = new Date(connection.expiresAt).getTime();
-  if (Date.now() + TOKEN_EXPIRY_BUFFER_MS < expiresAt) return;
+  if (Date.now() + TOKEN_EXPIRY_BUFFER_MS < expiresAt) return connection;
 
-  log(`🔄 [token-pool] near-expiry refresh → ${(connection.name || connection.email || connection.id).slice(0, 20)}`);
-  try {
-    const req = http.request(
-      { hostname: "127.0.0.1", port: ROUTER_PORT, path: `/api/providers/${connection.id}/test`, method: "POST" },
-      () => {} // ignore response
-    );
-    req.on("error", () => {}); // swallow
-    req.end();
-  } catch { /* ignore */ }
+  log(`🔄 [token-pool] near-expiry refresh → ${getConnectionLabel(connection).slice(0, 20)}`);
+  return await new Promise((resolve) => {
+    try {
+      const req = http.request(
+        { hostname: "127.0.0.1", port: ROUTER_PORT, path: `/api/providers/${connection.id}/test`, method: "POST" },
+        (res) => {
+          res.on("data", () => {});
+          res.on("end", () => {
+            const refreshed = getConnectionById(connection.id);
+            if (refreshed?.accessToken && refreshed.accessToken !== connection.accessToken) {
+              log(`♻️ [token-pool] refreshed token applied → ${getConnectionLabel(connection).slice(0, 20)}`);
+            }
+            resolve(refreshed || connection);
+          });
+        }
+      );
+      req.on("error", () => resolve(connection));
+      req.end();
+    } catch {
+      resolve(connection);
+    }
+  });
 }
 
 module.exports = {
@@ -267,4 +327,6 @@ module.exports = {
   getTokenSwapStrategy,
   parseQuotaCooldown,
   markAccountUsed,
+  getConnectionLabel,
+  maskEmail,
 };

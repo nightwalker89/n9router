@@ -8,7 +8,7 @@ const { TARGET_HOSTS, URL_PATTERNS, getToolForHost } = require("./config");
 const { DATA_DIR, MITM_DIR } = require("./paths");
 const { isTokenSwapEnabled, getAllActiveConnections, triggerRefreshIfNeeded,
         setCooldown, setModelCooldown, getTokenSwapStrategy,
-        parseQuotaCooldown, markAccountUsed } = require("./tokenPool");
+        parseQuotaCooldown, markAccountUsed, getConnectionLabel } = require("./tokenPool");
 const { getCertForDomain } = require("./cert/generate");
 
 const DB_FILE = path.join(DATA_DIR, "db.json");
@@ -185,10 +185,10 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
   const targetIP = await resolveTargetIP(targetHost);
 
   for (let i = 0; i < connections.length; i++) {
-    const conn = connections[i];
-    triggerRefreshIfNeeded(conn);
+    const originalConn = connections[i];
+    const conn = await triggerRefreshIfNeeded(originalConn);
 
-    const label = conn.name && conn.email ? `${conn.name} <${conn.email}>` : conn.name || conn.email || conn.id.slice(0, 8);
+    const label = getConnectionLabel(conn);
     const modelTag = model ? ` model=${model}` : "";
     const posTag = connections.length > 1 ? ` [${i + 1}/${connections.length}]` : "";
     const useTag = conn.consecutiveUseCount > 1 ? ` uses=${conn.consecutiveUseCount}` : "";
@@ -283,20 +283,20 @@ const server = https.createServer(sslOptions, async (req, res) => {
 
     // Anti-loop: skip requests from 9Router
     if (req.headers[INTERNAL_REQUEST_HEADER.name] === INTERNAL_REQUEST_HEADER.value) {
-      log(`🔁 [request] anti-loop skip: ${host}${req.url}`);
+      // log(`🔁 [request] anti-loop skip: ${host}${req.url}`);
       return passthrough(req, res, bodyBuffer);
     }
 
     const tool = getToolForHost(req.headers.host);
     if (!tool) {
-      log(`⏩ [request] no tool for host="${host}", passthrough`);
+      // log(`⏩ [request] no tool for host="${host}", passthrough`);
       return passthrough(req, res, bodyBuffer);
     }
 
     const patterns = URL_PATTERNS[tool] || [];
     const isChat = patterns.some(p => req.url.includes(p));
     if (!isChat) {
-      log(`⏩ [request] url="${req.url}" not a chat pattern for tool=${tool}, passthrough`);
+      // log(`⏩ [request] url="${req.url}" not a chat pattern for tool=${tool}, passthrough`);
       return passthrough(req, res, bodyBuffer);
     }
 
@@ -333,7 +333,7 @@ const server = https.createServer(sslOptions, async (req, res) => {
 
     const mappedModel = getMappedModel(tool, model);
     if (!mappedModel) {
-      log(`⏩ passthrough | no mapping | ${tool} | ${model || "unknown"}`);
+      // log(`⏩ passthrough | no mapping | ${tool} | ${model || "unknown"}`);
       return passthrough(req, res, bodyBuffer);
     }
 
