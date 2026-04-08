@@ -18,6 +18,48 @@ const HOSTS_FILE = IS_WIN
   ? path.join(process.env.SystemRoot || "C:\\Windows", "System32", "drivers", "etc", "hosts")
   : "/etc/hosts";
 
+function compactText(value) {
+  if (value == null) return "";
+  return String(value).replace(/\s+/g, " ").trim();
+}
+
+function describeDnsError(error, context = {}) {
+  const parts = [];
+  const action = context.action || "DNS operation failed";
+
+  parts.push(action);
+
+  if (context.tool) parts.push(`tool=${context.tool}`);
+  if (context.hostsFile) parts.push(`hostsFile=${context.hostsFile}`);
+  if (context.hosts && context.hosts.length) parts.push(`hosts=${context.hosts.join(", ")}`);
+
+  if (error?.code) parts.push(`code=${error.code}`);
+  if (error?.syscall) parts.push(`syscall=${error.syscall}`);
+  if (error?.path) parts.push(`path=${error.path}`);
+
+  const stdout = compactText(error?.stdout);
+  const stderr = compactText(error?.stderr);
+  const message = compactText(error?.message);
+
+  if (message) parts.push(`message=${message}`);
+  if (stderr) parts.push(`stderr=${stderr}`);
+  if (stdout) parts.push(`stdout=${stdout}`);
+
+  return parts.join(" | ");
+}
+
+function flushWindowsDns() {
+  try {
+    execSync("ipconfig /flushdns", {
+      windowsHide: true,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    throw new Error(describeDnsError(error, { action: "Failed to flush Windows DNS cache" }));
+  }
+}
+
 /**
  * Execute elevated PowerShell script on Windows via Start-Process -Verb RunAs.
  * Only UAC consent dialog appears, no CMD/PS window popup.
@@ -160,15 +202,23 @@ async function addDNSEntry(tool, sudoPassword) {
       // Process already has admin rights — edit hosts file directly
       const toAppend = entriesToAdd.map(h => `127.0.0.1 ${h}`).join("\r\n") + "\r\n";
       fs.appendFileSync(HOSTS_FILE, toAppend, "utf8");
-      require("child_process").execSync("ipconfig /flushdns", { windowsHide: true });
+      flushWindowsDns();
     } else {
       await execWithPassword(`echo "${entries}" >> ${HOSTS_FILE}`, sudoPassword);
       await flushDNS(sudoPassword);
     }
     log(`🌐 DNS ${tool}: ✅ added ${entriesToAdd.join(", ")}`);
   } catch (error) {
-    const msg = error.message?.includes("incorrect password") ? "Wrong sudo password" : "Failed to add DNS entry";
-    throw new Error(msg);
+    const detail = error.message?.includes("incorrect password")
+      ? "Wrong sudo password"
+      : describeDnsError(error, {
+          action: "Failed to add DNS entry",
+          tool,
+          hostsFile: HOSTS_FILE,
+          hosts: entriesToAdd,
+        });
+    err(`DNS ${tool}: add failed — ${detail}`);
+    throw new Error(detail);
   }
 }
 
@@ -191,7 +241,7 @@ async function removeDNSEntry(tool, sudoPassword) {
       const content = fs.readFileSync(HOSTS_FILE, "utf8");
       const filtered = content.split(/\r?\n/).filter(l => !entriesToRemove.some(h => l.includes(h))).join("\r\n");
       fs.writeFileSync(HOSTS_FILE, filtered, "utf8");
-      require("child_process").execSync("ipconfig /flushdns", { windowsHide: true });
+      flushWindowsDns();
     } else {
       for (const host of entriesToRemove) {
         const sedCmd = IS_MAC
@@ -203,8 +253,16 @@ async function removeDNSEntry(tool, sudoPassword) {
     }
     log(`🌐 DNS ${tool}: ✅ removed ${entriesToRemove.join(", ")}`);
   } catch (error) {
-    const msg = error.message?.includes("incorrect password") ? "Wrong sudo password" : "Failed to remove DNS entry";
-    throw new Error(msg);
+    const detail = error.message?.includes("incorrect password")
+      ? "Wrong sudo password"
+      : describeDnsError(error, {
+          action: "Failed to remove DNS entry",
+          tool,
+          hostsFile: HOSTS_FILE,
+          hosts: entriesToRemove,
+        });
+    err(`DNS ${tool}: remove failed — ${detail}`);
+    throw new Error(detail);
   }
 }
 

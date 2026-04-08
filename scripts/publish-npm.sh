@@ -43,6 +43,9 @@ fi
 info "Installing dependencies..."
 npm install
 
+info "Cleaning previous build artifacts..."
+rm -rf .next
+
 info "Building Next.js standalone..."
 # Override NEXT_PUBLIC_* vars so local .env values are NOT baked into the bundle.
 # These are runtime-configurable by the end user anyway.
@@ -76,6 +79,22 @@ rm -f  .next/standalone/.DS_Store
 rm -rf .next/standalone/.git
 rm -rf .next/standalone/.github
 rm -rf .next/standalone/.vscode
+
+# ── Cross-platform hardening (native modules) ─────────────────────────────────
+info "Pruning host-native artifacts from standalone..."
+
+# 1) Remove host-built better-sqlite3 binary and let postinstall rebuild it
+# on the target machine.
+rm -f .next/standalone/node_modules/better-sqlite3/build/Release/better_sqlite3.node
+
+# 2) Remove platform-specific sharp binary packs copied from the build host.
+# images.unoptimized=true, so these are not required at runtime.
+if [[ -d .next/standalone/node_modules/@img ]]; then
+  find .next/standalone/node_modules/@img \
+    -mindepth 1 -maxdepth 1 -type d \
+    \( -name 'sharp-*' -o -name 'sharp-libvips-*' \) \
+    -exec rm -rf {} +
+fi
 
 ok "Build complete"
 

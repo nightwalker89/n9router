@@ -133,8 +133,12 @@ export async function DELETE(request) {
 
 // PATCH - Toggle DNS for a specific tool (enable/disable)
 export async function PATCH(request) {
+  let tool;
+  let action;
   try {
-    const { tool, action, sudoPassword } = await request.json();
+    const body = await request.json();
+    ({ tool, action } = body);
+    const { sudoPassword } = body;
     const pwd = getPassword(sudoPassword) || await loadEncryptedPassword() || "";
 
     if (!tool || !action) {
@@ -162,7 +166,7 @@ export async function PATCH(request) {
     const status = await getMitmStatus();
     return NextResponse.json({ success: true, dnsStatus: status.dnsStatus });
   } catch (error) {
-    console.log("Error toggling DNS:", error.message);
+    console.error(`Error toggling DNS (${action || "unknown"}:${tool || "unknown"}):`, error.message);
     return NextResponse.json({ error: error.message || "Failed to toggle DNS" }, { status: 500 });
   }
 }
