@@ -380,17 +380,78 @@ Your CLI tool  →  n9router MITM proxy  →  Antigravity Account A
 - Tokens nearing expiry trigger a **background refresh** — zero interruptions
 - Live **pool status dashboard**: quota bars, cooldown countdowns, per-account health
 
-**Enable it in 3 steps:**
+<div align="center">
+  <img src="./images/token-rotate-under-the-hood.png" alt="Token Rotate — How It Works Under the Hood" width="700"/>
+</div>
+
+### 🚀 Step-by-Step Setup
+
+<div align="center">
+  <img src="./images/token-rotate-setup-guide.png" alt="Token Rotate Setup Guide" width="600"/>
+</div>
+
+
+**Prerequisites:** n9router must be running (`npm install -g n9router` → `n9router`).
+
+**Step 1 — Add Antigravity accounts to the pool**
+
+Go to **Dashboard → Providers → Antigravity** and connect at least one account via OAuth. Repeat for every additional account you want in the rotation pool.
+
+> **Shortcut:** If you already use Antigravity Management Tools, click **"Import Accounts"** inside the Antigravity provider card to bulk-import all existing accounts in one click — no manual OAuth flow needed.
+
+**Step 2 — Start the MITM Server**
+
+Go to **Dashboard → n9router Tools → MITM Server** and click **Start**.
+
+The MITM proxy intercepts HTTPS traffic between Antigravity IDE and its servers. It needs to be running before rotation can work.
+
+**Step 3 — Enable DNS Redirect**
+
+Go to **Dashboard → n9router Tools → DNS Redirect** and click **Enable for Antigravity**.
+
+This redirects your machine's DNS so that Antigravity IDE's API calls are transparently routed through the local MITM proxy.
+
+**Step 4 — Turn on Token Swap Pool**
+
+Go to **Dashboard → n9router Tools → Token Swap Pool** and toggle it **ON**.
+
+Choose your rotation strategy:
+
+| Strategy | When to use |
+|----------|-------------|
+| **Round-Robin** | You have 3+ accounts and want even load distribution |
+| **Sticky** | You have 2 accounts and want to drain one fully before switching |
+
+**Step 5 — Restart Antigravity IDE**
+
+Fully close Antigravity (quit the app, not just minimize it), then reopen it. This is required because DNS redirect only affects **new** connections — existing sessions still talk to the real Antigravity servers and bypass the proxy.
+
+> On macOS: right-click the Antigravity icon in the Dock → **Quit**, then relaunch.
+> On Windows: close from the system tray → relaunch.
+
+**Step 6 — Code as usual in Antigravity IDE**
+
+No settings changes needed inside Antigravity. Just use it normally — n9router silently rotates accounts in the background whenever a quota limit or 429 is hit.
 
 ```
-1. Dashboard → CLI Tools → MITM Server → Start
-2. Dashboard → CLI Tools → DNS Redirect → Enable
-3. Dashboard → CLI Tools → Token Swap Pool → Toggle ON
+Antigravity IDE  →  n9router MITM proxy  →  Antigravity Account A
+                                         ↓ (429 / quota hit)
+                                         →  Antigravity Account B  ← auto-rotated
+                                         ↓ (quota hit)
+                                         →  Antigravity Account C
+                                         ↓ (all on cooldown)
+                                         → waits cooldown timer, then retries
 ```
 
-Add as many Antigravity accounts as you want — each one extends your effective quota linearly.
+**Managing the pool from the dashboard:**
 
-> **Note:** Token Swap Pool (Mode B) and MITM Model Routing (Mode A) are mutually exclusive. Enabling Token Swap Pool bypasses the alias pass-through, shown as "Bypassed" in the UI.
+- View each account's remaining quota and reset time
+- See which account is "next up" in the rotation queue
+- Enable / disable individual accounts without removing them
+- Reset the sticky streak for a specific account manually
+- Watch live cooldown countdowns after a quota hit
+
+> **Note:** Token Swap Pool (Mode B) and MITM Model Routing (Mode A) are mutually exclusive. When Token Swap Pool is enabled, the MITM alias pass-through is bypassed and shown as **"Bypassed"** in the UI. Disable Token Swap Pool to use Model Routing instead.
 
 ---
 
