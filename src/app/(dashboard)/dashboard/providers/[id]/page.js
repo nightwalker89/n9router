@@ -5,7 +5,7 @@ import PropTypes from "prop-types";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { Card, Button, Badge, Input, Modal, CardSkeleton, OAuthModal, KiroOAuthWrapper, CursorAuthModal, IFlowCookieModal, GitLabAuthModal, Toggle, Select, Tooltip } from "@/shared/components";
+import { Card, Button, Badge, Input, Modal, CardSkeleton, OAuthModal, KiroOAuthWrapper, CursorAuthModal, IFlowCookieModal, GitLabAuthModal, Toggle, Select, Tooltip, EditConnectionModal } from "@/shared/components";
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS, FREE_PROVIDERS, FREE_TIER_PROVIDERS, getProviderAlias, isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 import { getModelsByProviderId } from "@/shared/constants/models";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
@@ -64,6 +64,7 @@ export default function ProviderDetailPage() {
       }
     : (OAUTH_PROVIDERS[providerId] || APIKEY_PROVIDERS[providerId] || FREE_PROVIDERS[providerId] || FREE_TIER_PROVIDERS[providerId]);
   const isOAuth = !!OAUTH_PROVIDERS[providerId] || !!FREE_PROVIDERS[providerId];
+  const isFreeNoAuth = !!FREE_PROVIDERS[providerId]?.noAuth;
   const models = getModelsByProviderId(providerId);
   const providerAlias = getProviderAlias(providerId);
   
@@ -649,7 +650,7 @@ export default function ProviderDetailPage() {
               onSetAlias={(alias) => handleSetAlias(model.id, alias, providerStorageAlias)}
               onDeleteAlias={() => handleDeleteAlias(existingAlias)}
               testStatus={modelTestResults[model.id]}
-              onTest={connections.length > 0 ? () => handleTestModel(model.id) : undefined}
+              onTest={connections.length > 0 || isFreeNoAuth ? () => handleTestModel(model.id) : undefined}
               isTesting={testingModelId === model.id}
               isFree={model.isFree}
             />
@@ -668,9 +669,10 @@ export default function ProviderDetailPage() {
             onSetAlias={() => {}}
             onDeleteAlias={() => handleDeleteAlias(model.alias)}
             testStatus={modelTestResults[model.id]}
-            onTest={connections.length > 0 ? () => handleTestModel(model.id) : undefined}
+            onTest={connections.length > 0 || isFreeNoAuth ? () => handleTestModel(model.id) : undefined}
             isTesting={testingModelId === model.id}
             isCustom
+            isFree={false}
           />
         ))}
 
@@ -868,143 +870,157 @@ export default function ProviderDetailPage() {
       )}
 
       {/* Connections */}
-      <Card>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">Connections</h2>
-          {/* Round Robin toggle */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-text-muted font-medium">Round Robin</span>
-            <Toggle
-              checked={providerStrategy === "round-robin"}
-              onChange={handleRoundRobinToggle}
-            />
-            {providerStrategy === "round-robin" && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-text-muted">Sticky:</span>
-                <input
-                  type="number"
-                  min={1}
-                  value={providerStickyLimit}
-                  onChange={(e) => handleStickyLimitChange(e.target.value)}
-                  placeholder="1"
-                  className="w-14 px-2 py-1 text-xs border border-border rounded-md bg-background focus:outline-none focus:border-primary"
-                />
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Import result feedback */}
-        {importResult && (
-          <div className={`flex items-center justify-between gap-2 mb-3 px-3 py-2 rounded-lg text-xs ${
-            importResult.error
-              ? "bg-red-500/5 border border-red-500/15 text-red-500"
-              : "bg-green-500/5 border border-green-500/15 text-green-600"
-          }`}>
-            <span>
-              {importResult.error
-                ? `✗ ${importResult.error}`
-                : (() => {
-                    const parts = [
-                      `imported ${importResult.imported}`,
-                      `updated ${importResult.updated}`,
-                    ];
-                    if (importResult.skipped > 0) parts.push(`skipped ${importResult.skipped}`);
-                    if (importResult.failed > 0) parts.push(`failed ${importResult.failed}`);
-                    return `✓ ${parts.join(", ")}`;
-                  })()}
-            </span>
-            <button onClick={() => setImportResult(null)} className="text-current opacity-60 hover:opacity-100">✕</button>
-          </div>
-        )}
-
-        {connections.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 text-primary mb-4">
-              <span className="material-symbols-outlined text-[32px]">{isOAuth ? "lock" : "key"}</span>
+      {isFreeNoAuth ? (
+        <Card>
+          <div className="flex items-center gap-3">
+            <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-green-500/10 text-green-500">
+              <span className="material-symbols-outlined text-[20px]">lock_open</span>
             </div>
-            <p className="text-text-main font-medium mb-1">No connections yet</p>
-            <p className="text-sm text-text-muted mb-4">Add your first connection to get started</p>
-            {!isCompatible && (
-              <div className="flex gap-2 justify-center">
-                {providerId === "iflow" && (
-                  <Button icon="cookie" variant="secondary" onClick={() => setShowIFlowCookieModal(true)}>
-                    Cookie Auth
-                  </Button>
-                )}
-                <Button icon="add" onClick={() => isOAuth ? setShowOAuthModal(true) : setShowAddApiKeyModal(true)}>
-                  {providerId === "iflow" ? "OAuth" : "Add Connection"}
-                </Button>
-                {providerId === "antigravity" && (
-                  <>
-                    <Tooltip text={ANTIGRAVITY_TOOLTIP_IMPORT_AGT} position="bottom">
-                      <Button icon="download" variant="secondary" onClick={handleImportFromAgt} disabled={agtImportBusy}>
-                        {importingAgt ? "Importing…" : "Import from AGT"}
-                      </Button>
-                    </Tooltip>
-                    <Tooltip text={ANTIGRAVITY_TOOLTIP_IMPORT_REFRESH} position="bottom">
-                      <Button
-                        icon="key"
-                        variant="secondary"
-                        onClick={() => setShowAgtRefreshModal(true)}
-                        disabled={agtImportBusy}
-                      >
-                        Import refresh tokens
-                      </Button>
-                    </Tooltip>
-                  </>
-                )}
-              </div>
-            )}
+            <div>
+              <p className="text-sm font-medium">No authentication required</p>
+              <p className="text-xs text-text-muted">This provider is ready to use.</p>
+            </div>
           </div>
-        ) : (
-          <>
-            {connectionsList}
-            {!isCompatible && (
-              <div className="flex gap-2 mt-4">
-                {providerId === "iflow" && (
+        </Card>
+      ) : (
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">Connections</h2>
+            {/* Round Robin toggle */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-text-muted font-medium">Round Robin</span>
+              <Toggle
+                checked={providerStrategy === "round-robin"}
+                onChange={handleRoundRobinToggle}
+              />
+              {providerStrategy === "round-robin" && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-text-muted">Sticky:</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={providerStickyLimit}
+                    onChange={(e) => handleStickyLimitChange(e.target.value)}
+                    placeholder="1"
+                    className="w-14 px-2 py-1 text-xs border border-border rounded-md bg-background focus:outline-none focus:border-primary"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Import result feedback */}
+          {importResult && (
+            <div className={`flex items-center justify-between gap-2 mb-3 px-3 py-2 rounded-lg text-xs ${
+              importResult.error
+                ? "bg-red-500/5 border border-red-500/15 text-red-500"
+                : "bg-green-500/5 border border-green-500/15 text-green-600"
+            }`}>
+              <span>
+                {importResult.error
+                  ? `✗ ${importResult.error}`
+                  : (() => {
+                      const parts = [
+                        `imported ${importResult.imported}`,
+                        `updated ${importResult.updated}`,
+                      ];
+                      if (importResult.skipped > 0) parts.push(`skipped ${importResult.skipped}`);
+                      if (importResult.failed > 0) parts.push(`failed ${importResult.failed}`);
+                      return `✓ ${parts.join(", ")}`;
+                    })()}
+              </span>
+              <button onClick={() => setImportResult(null)} className="text-current opacity-60 hover:opacity-100">✕</button>
+            </div>
+          )}
+
+          {connections.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 text-primary mb-4">
+                <span className="material-symbols-outlined text-[32px]">{isOAuth ? "lock" : "key"}</span>
+              </div>
+              <p className="text-text-main font-medium mb-1">No connections yet</p>
+              <p className="text-sm text-text-muted mb-4">Add your first connection to get started</p>
+              {!isCompatible && (
+                <div className="flex gap-2 justify-center">
+                  {providerId === "iflow" && (
+                    <Button icon="cookie" variant="secondary" onClick={() => setShowIFlowCookieModal(true)}>
+                      Cookie Auth
+                    </Button>
+                  )}
+                  <Button icon="add" onClick={() => isOAuth ? setShowOAuthModal(true) : setShowAddApiKeyModal(true)}>
+                    {providerId === "iflow" ? "OAuth" : "Add Connection"}
+                  </Button>
+                  {providerId === "antigravity" && (
+                    <>
+                      <Tooltip text={ANTIGRAVITY_TOOLTIP_IMPORT_AGT} position="bottom">
+                        <Button icon="download" variant="secondary" onClick={handleImportFromAgt} disabled={agtImportBusy}>
+                          {importingAgt ? "Importing…" : "Import from AGT"}
+                        </Button>
+                      </Tooltip>
+                      <Tooltip text={ANTIGRAVITY_TOOLTIP_IMPORT_REFRESH} position="bottom">
+                        <Button
+                          icon="key"
+                          variant="secondary"
+                          onClick={() => setShowAgtRefreshModal(true)}
+                          disabled={agtImportBusy}
+                        >
+                          Import refresh tokens
+                        </Button>
+                      </Tooltip>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              {connectionsList}
+              {!isCompatible && (
+                <div className="flex gap-2 mt-4">
+                  {providerId === "iflow" && (
+                    <Button
+                      size="sm"
+                      icon="cookie"
+                      variant="secondary"
+                      onClick={() => setShowIFlowCookieModal(true)}
+                      title="Add connection using browser cookie"
+                    >
+                      Cookie
+                    </Button>
+                  )}
                   <Button
                     size="sm"
-                    icon="cookie"
-                    variant="secondary"
-                    onClick={() => setShowIFlowCookieModal(true)}
-                    title="Add connection using browser cookie"
+                    icon="add"
+                    onClick={() => isOAuth ? setShowOAuthModal(true) : setShowAddApiKeyModal(true)}
                   >
-                    Cookie
+                    Add
                   </Button>
-                )}
-                <Button
-                  size="sm"
-                  icon="add"
-                  onClick={() => isOAuth ? setShowOAuthModal(true) : setShowAddApiKeyModal(true)}
-                >
-                  Add
-                </Button>
-                {providerId === "antigravity" && (
-                  <>
-                    <Tooltip text={ANTIGRAVITY_TOOLTIP_IMPORT_AGT} position="bottom">
-                      <Button size="sm" icon="download" variant="secondary" onClick={handleImportFromAgt} disabled={agtImportBusy}>
-                        {importingAgt ? "Importing…" : "Import from AGT"}
-                      </Button>
-                    </Tooltip>
-                    <Tooltip text={ANTIGRAVITY_TOOLTIP_IMPORT_REFRESH} position="bottom">
-                      <Button
-                        size="sm"
-                        icon="key"
-                        variant="secondary"
-                        onClick={() => setShowAgtRefreshModal(true)}
-                        disabled={agtImportBusy}
-                      >
-                        Refresh tokens
-                      </Button>
-                    </Tooltip>
-                  </>
-                )}
-              </div>
-            )}
-          </>
-        )}
-      </Card>
+                  {providerId === "antigravity" && (
+                    <>
+                      <Tooltip text={ANTIGRAVITY_TOOLTIP_IMPORT_AGT} position="bottom">
+                        <Button size="sm" icon="download" variant="secondary" onClick={handleImportFromAgt} disabled={agtImportBusy}>
+                          {importingAgt ? "Importing…" : "Import from AGT"}
+                        </Button>
+                      </Tooltip>
+                      <Tooltip text={ANTIGRAVITY_TOOLTIP_IMPORT_REFRESH} position="bottom">
+                        <Button
+                          size="sm"
+                          icon="key"
+                          variant="secondary"
+                          onClick={() => setShowAgtRefreshModal(true)}
+                          disabled={agtImportBusy}
+                        >
+                          Refresh tokens
+                        </Button>
+                      </Tooltip>
+                    </>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </Card>
+      )}
 
       {/* Models */}
       <Card>
@@ -1346,9 +1362,6 @@ function PassthroughModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias
 
         <div className="flex items-center gap-1 mt-1">
         <code className="text-xs text-text-muted font-mono bg-sidebar px-1.5 py-0.5 rounded">{fullModel}</code>
-        {isFree && (
-          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-green-500/10 text-green-600 dark:text-green-400">Free</span>
-        )}
           <div className="relative group/btn">
             <button
               onClick={() => onCopy(fullModel, `model-${modelId}`)}
@@ -2029,199 +2042,6 @@ AddApiKeyModal.propTypes = {
   providerName: PropTypes.string,
   isCompatible: PropTypes.bool,
   isAnthropic: PropTypes.bool,
-  proxyPools: PropTypes.arrayOf(PropTypes.shape({
-    id: PropTypes.string,
-    name: PropTypes.string,
-  })),
-  onSave: PropTypes.func.isRequired,
-  onClose: PropTypes.func.isRequired,
-};
-
-function EditConnectionModal({ isOpen, connection, proxyPools, onSave, onClose }) {
-  const [formData, setFormData] = useState({
-    name: "",
-    priority: 1,
-    apiKey: "",
-  });
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState(null);
-  const [validating, setValidating] = useState(false);
-  const [validationResult, setValidationResult] = useState(null);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (connection) {
-      setFormData({
-        name: connection.name || "",
-        priority: connection.priority || 1,
-        apiKey: "",
-      });
-      setTestResult(null);
-      setValidationResult(null);
-    }
-  }, [connection]);
-
-  const handleTest = async () => {
-    if (!connection?.provider) return;
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const res = await fetch(`/api/providers/${connection.id}/test`, { method: "POST" });
-      const data = await res.json();
-      setTestResult(data.valid ? "success" : "failed");
-    } catch {
-      setTestResult("failed");
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const handleValidate = async () => {
-    if (!connection?.provider || !formData.apiKey) return;
-    setValidating(true);
-    setValidationResult(null);
-    try {
-      const res = await fetch("/api/providers/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: connection.provider, apiKey: formData.apiKey }),
-      });
-      const data = await res.json();
-      setValidationResult(data.valid ? "success" : "failed");
-    } catch {
-      setValidationResult("failed");
-    } finally {
-      setValidating(false);
-    }
-  };
-
-  const handleSubmit = async () => {
-    setSaving(true);
-    try {
-      const updates = {
-        name: formData.name,
-        priority: formData.priority,
-      };
-      if (!isOAuth && formData.apiKey) {
-        updates.apiKey = formData.apiKey;
-        let isValid = validationResult === "success";
-        if (!isValid) {
-          try {
-            setValidating(true);
-            setValidationResult(null);
-            const res = await fetch("/api/providers/validate", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ provider: connection.provider, apiKey: formData.apiKey }),
-            });
-            const data = await res.json();
-            isValid = !!data.valid;
-            setValidationResult(isValid ? "success" : "failed");
-          } catch {
-            setValidationResult("failed");
-          } finally {
-            setValidating(false);
-          }
-        }
-        if (isValid) {
-          updates.testStatus = "active";
-          updates.lastError = null;
-          updates.lastErrorAt = null;
-        }
-      }
-      await onSave(updates);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (!connection) return null;
-
-  const isOAuth = connection.authType === "oauth";
-  const isCompatible = isOpenAICompatibleProvider(connection.provider) || isAnthropicCompatibleProvider(connection.provider);
-
-  return (
-    <Modal isOpen={isOpen} title="Edit Connection" onClose={onClose}>
-      <div className="flex flex-col gap-4">
-          <Input
-            label="Name"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-          placeholder={isOAuth ? "Account name" : "Production Key"}
-          />
-        {isOAuth && connection.email && (
-          <div className="bg-sidebar/50 p-3 rounded-lg">
-            <p className="text-sm text-text-muted mb-1">Email</p>
-            <p className="font-medium">{connection.email}</p>
-          </div>
-        )}
-        <Input
-          label="Priority"
-          type="number"
-          value={formData.priority}
-          onChange={(e) => setFormData({ ...formData, priority: Number.parseInt(e.target.value) || 1 })}
-        />
-
-        {!isOAuth && (
-          <>
-            <div className="flex gap-2">
-              <Input
-                label="API Key"
-                type="password"
-                value={formData.apiKey}
-                onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
-                placeholder="Enter new API key"
-                hint="Leave blank to keep the current API key."
-                className="flex-1"
-              />
-              <div className="pt-6">
-                <Button onClick={handleValidate} disabled={!formData.apiKey || validating || saving} variant="secondary">
-                  {validating ? "Checking..." : "Check"}
-                </Button>
-              </div>
-            </div>
-            {validationResult && (
-              <Badge variant={validationResult === "success" ? "success" : "error"}>
-                {validationResult === "success" ? "Valid" : "Invalid"}
-              </Badge>
-            )}
-          </>
-        )}
-
-        {/* Test Connection */}
-        {!isCompatible && (
-          <div className="flex items-center gap-3">
-            <Button onClick={handleTest} variant="secondary" disabled={testing}>
-              {testing ? "Testing..." : "Test Connection"}
-            </Button>
-            {testResult && (
-              <Badge variant={testResult === "success" ? "success" : "error"}>
-                {testResult === "success" ? "Valid" : "Failed"}
-              </Badge>
-            )}
-          </div>
-        )}
-
-        <div className="flex gap-2">
-          <Button onClick={handleSubmit} fullWidth disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
-          <Button onClick={onClose} variant="ghost" fullWidth>Cancel</Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-EditConnectionModal.propTypes = {
-  isOpen: PropTypes.bool.isRequired,
-  connection: PropTypes.shape({
-    id: PropTypes.string,
-    name: PropTypes.string,
-    email: PropTypes.string,
-    priority: PropTypes.number,
-    authType: PropTypes.string,
-    provider: PropTypes.string,
-    providerSpecificData: PropTypes.object,
-  }),
   proxyPools: PropTypes.arrayOf(PropTypes.shape({
     id: PropTypes.string,
     name: PropTypes.string,
