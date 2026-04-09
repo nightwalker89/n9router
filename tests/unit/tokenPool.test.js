@@ -270,6 +270,70 @@ describe("getActiveConnections — filtering", () => {
   });
 });
 
+describe("getAllActiveConnections — stored model quota exhaustion", () => {
+  let tmp, pool;
+  beforeEach(() => {
+    tmp = createTempDb();
+    pool = loadTokenPool(tmp.DATA_DIR);
+  });
+  afterEach(() => tmp.cleanup());
+
+  it("skips accounts whose stored quota for the requested model is zero", () => {
+    const exhausted = makeConn({
+      id: "exhausted",
+      priority: 1,
+      modelQuotaStatus: {
+        "claude-sonnet-4-6": {
+          remainingPercentage: 0,
+          exhausted: true,
+        },
+      },
+    });
+    const healthy = makeConn({
+      id: "healthy",
+      priority: 2,
+      modelQuotaStatus: {
+        "claude-sonnet-4-6": {
+          remainingPercentage: 42,
+          exhausted: false,
+        },
+      },
+    });
+
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({ providerConnections: [exhausted, healthy] }));
+
+    const result = pool.getAllActiveConnections("antigravity", "claude-sonnet-4-6");
+    expect(result.map(c => c.id)).toEqual(["healthy"]);
+  });
+
+  it("returns no accounts when all stored quotas for the requested model are zero", () => {
+    const c1 = makeConn({
+      id: "c1",
+      priority: 1,
+      modelQuotaStatus: {
+        "claude-sonnet-4-6": {
+          remainingPercentage: 0,
+          exhausted: true,
+        },
+      },
+    });
+    const c2 = makeConn({
+      id: "c2",
+      priority: 2,
+      modelQuotaStatus: {
+        "claude-sonnet-4-6": {
+          remainingPercentage: 0,
+          exhausted: true,
+        },
+      },
+    });
+
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({ providerConnections: [c1, c2] }));
+
+    expect(pool.getAllActiveConnections("antigravity", "claude-sonnet-4-6")).toEqual([]);
+  });
+});
+
 // ── isTokenSwapEnabled ───────────────────────────────────────────────────────
 
 describe("isTokenSwapEnabled", () => {

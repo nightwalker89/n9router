@@ -156,6 +156,17 @@ function isModelExhausted(connId, model) {
   return true;
 }
 
+function isStoredModelQuotaExhausted(connection, model) {
+  if (!connection || !model) return false;
+  const status = connection.modelQuotaStatus;
+  if (!status || typeof status !== "object") return false;
+
+  const modelStatus = status[model];
+  if (!modelStatus || typeof modelStatus !== "object") return false;
+
+  return modelStatus.exhausted === true || modelStatus.remainingPercentage === 0;
+}
+
 // ── Strategy reader ───────────────────────────────────────────
 
 function getTokenSwapStrategy() {
@@ -282,6 +293,11 @@ function getTokenSwapAvailabilitySummary(provider, model) {
         continue;
       }
 
+      if (model && isStoredModelQuotaExhausted(connection, model)) {
+        reasons.modelCooldown += 1;
+        continue;
+      }
+
       if (strategy === "sticky" && model && isModelExhausted(connection.id, model)) {
         reasons.modelCooldown += 1;
         continue;
@@ -397,16 +413,24 @@ function getAllActiveConnections(provider, model) {
   if (connections.length <= 1) return connections;
 
   const strategy = getTokenSwapStrategy();
+  const hardAvailable = model
+    ? connections.filter(c => !isStoredModelQuotaExhausted(c, model))
+    : connections;
+
+  if (model && hardAvailable.length === 0) {
+    return [];
+  }
 
   if (strategy === "sticky") {
     // Sticky strategy: filter out accounts exhausted for this specific model,
     // then sort most-recently-used first so the same account sticks across requests.
     const available = model
-      ? connections.filter(c => !isModelExhausted(c.id, model))
-      : connections;
+      ? hardAvailable.filter(c => !isModelExhausted(c.id, model))
+      : hardAvailable;
 
-    // If all accounts exhausted for this model, fall back to full list
-    const pool = available.length > 0 ? available : connections;
+    // Runtime model cooldowns are temporary and may be false positives,
+    // so sticky mode can still fall back to hard-eligible accounts.
+    const pool = available.length > 0 ? available : hardAvailable;
 
     // Most-recently-used first (sticky within session)
     return [...pool].sort((a, b) => {
@@ -417,11 +441,13 @@ function getAllActiveConnections(provider, model) {
     });
   }
 
+  const roundRobinConnections = hardAvailable;
+
   // Round-robin strategy: sticky round-robin matching the main routing engine
   // (src/sse/services/auth.js). Least-recently-used account starts each request.
   const stickyLimit = getStickyLimit(provider);
 
-  const byRecency = [...connections].sort((a, b) => {
+  const byRecency = [...roundRobinConnections].sort((a, b) => {
     if (!a.lastUsedAt && !b.lastUsedAt) return (a.priority || 999) - (b.priority || 999);
     if (!a.lastUsedAt) return 1;
     if (!b.lastUsedAt) return -1;
@@ -432,7 +458,7 @@ function getAllActiveConnections(provider, model) {
 
   if (current?.lastUsedAt && currentCount < stickyLimit) {
     // Keep current account first, rest sorted oldest-first for fallback
-    const rest = connections.filter(c => c.id !== current.id).sort((a, b) => {
+    const rest = roundRobinConnections.filter(c => c.id !== current.id).sort((a, b) => {
       if (!a.lastUsedAt && !b.lastUsedAt) return (a.priority || 999) - (b.priority || 999);
       if (!a.lastUsedAt) return -1;
       if (!b.lastUsedAt) return 1;
@@ -442,7 +468,7 @@ function getAllActiveConnections(provider, model) {
   }
 
   // Rotate: least-recently-used first
-  return [...connections].sort((a, b) => {
+  return [...roundRobinConnections].sort((a, b) => {
     if (!a.lastUsedAt && !b.lastUsedAt) return (a.priority || 999) - (b.priority || 999);
     if (!a.lastUsedAt) return -1;
     if (!b.lastUsedAt) return 1;

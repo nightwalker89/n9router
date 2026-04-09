@@ -17,6 +17,42 @@ function isAuthExpiredMessage(usage) {
   return AUTH_EXPIRED_PATTERNS.some((p) => msg.includes(p));
 }
 
+function clampPercentage(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function getRemainingPercentage(quota) {
+  const direct = clampPercentage(quota?.remainingPercentage);
+  if (direct != null) return direct;
+
+  const total = typeof quota?.total === "number" ? quota.total : null;
+  const used = typeof quota?.used === "number" ? quota.used : null;
+  if (total == null || total <= 0 || used == null) return null;
+
+  return clampPercentage(((total - used) / total) * 100);
+}
+
+function buildModelQuotaStatus(usage) {
+  if (!usage?.quotas || typeof usage.quotas !== "object") return null;
+
+  const status = {};
+
+  for (const [modelKey, quota] of Object.entries(usage.quotas)) {
+    if (!quota || typeof quota !== "object") continue;
+
+    const remainingPercentage = getRemainingPercentage(quota);
+    status[modelKey] = {
+      displayName: quota.displayName || modelKey,
+      resetAt: quota.resetAt || null,
+      remainingPercentage,
+      exhausted: remainingPercentage === 0,
+    };
+  }
+
+  return Object.keys(status).length > 0 ? status : null;
+}
+
 function shouldUseAntigravityLocalFallback(usage) {
   if (!usage || typeof usage !== "object") return true;
   if (usage.quotas && Object.keys(usage.quotas).length > 0) return false;
@@ -213,8 +249,19 @@ export async function GET(request, { params }) {
 
     if (connection.provider === "antigravity") {
       const accountType = inferAntigravityAccountType(usage);
+      const modelQuotaStatus = buildModelQuotaStatus(usage);
+      const updates = {};
+
       if (accountType && accountType !== connection.accountType) {
-        await updateProviderConnection(connection.id, { accountType });
+        updates.accountType = accountType;
+      }
+
+      if (modelQuotaStatus) {
+        updates.modelQuotaStatus = modelQuotaStatus;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await updateProviderConnection(connection.id, updates);
       }
     }
 

@@ -1,6 +1,6 @@
 {
   "name": "n9router",
-  "version": "0.3.98",
+  "version": "0.3.99",
   "description": "Self-hosted AI routing gateway — local proxy for Claude, Gemini, OpenAI and 40+ providers",
   "keywords": [
     "ai",
