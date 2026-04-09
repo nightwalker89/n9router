@@ -462,6 +462,8 @@ server.on("error", (e) => {
 });
 
 const shutdown = () => server.close(() => process.exit(0));
+process.setMaxListeners(0);
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 if (process.platform === "win32") process.on("SIGBREAK", shutdown);
+
