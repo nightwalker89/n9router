@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, Badge, Toggle } from "@/shared/components";
 import Link from "next/link";
+import { inferAntigravityAccountType, normalizeAntigravityAccountType } from "@/lib/antigravity/accountType";
 import {
   parseQuotaData,
   formatResetTime,
@@ -53,6 +54,13 @@ function getStickyLimitForTool(tool) {
   return tool?.stickyRoundRobinLimit || 3;
 }
 
+function getAccountTypeBadgeVariant(accountType) {
+  if (accountType === "Ultra") return "warning";
+  if (accountType === "Pro") return "primary";
+  if (accountType === "Free") return "info";
+  return "default";
+}
+
 function getPreferredAccountId(accounts, strategy, stickyLimit) {
   if (!accounts || accounts.length === 0) return null;
   if (accounts.length === 1) return accounts[0].id;
@@ -97,8 +105,8 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
   const [togglingAccountId, setTogglingAccountId] = useState(null);
   const [resettingAccountId, setResettingAccountId] = useState(null);
   const [resettingAll, setResettingAll] = useState(false);
-  const [quotas, setQuotas] = useState({}); // { [connId]: { quotas: [], error: string|null, loading: bool } }
-  const quotaCacheRef = useRef({}); // { [connId]: { data: parsed, error, ts: number } }
+  const [quotas, setQuotas] = useState({}); // { [connId]: { quotas: [], error: string|null, loading: bool, accountType?: string|null } }
+  const quotaCacheRef = useRef({}); // { [connId]: { data: parsed, error, ts: number, accountType?: string|null } }
 
   const fetchEnabled = useCallback(async () => {
     try {
@@ -129,7 +137,7 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
       const entry = quotaCacheRef.current[acc.id];
       if (!force && entry && (now - entry.ts) < QUOTA_CACHE_TTL_MS) {
         // Use cached data
-        cached[acc.id] = { quotas: entry.data, error: entry.error, loading: false };
+        cached[acc.id] = { quotas: entry.data, error: entry.error, loading: false, accountType: entry.accountType || null };
       } else {
         toFetch.push(acc);
       }
@@ -155,26 +163,27 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           const error = errData.error || `HTTP ${res.status}`;
-          quotaCacheRef.current[acc.id] = { data: [], error, ts: Date.now() };
+          quotaCacheRef.current[acc.id] = { data: [], error, ts: Date.now(), accountType: null };
           setQuotas(prev => ({
             ...prev,
-            [acc.id]: { quotas: [], error, loading: false },
+            [acc.id]: { quotas: [], error, loading: false, accountType: null },
           }));
           return;
         }
         const data = await res.json();
         const parsed = parseQuotaData(tool.tokenSwapProvider || "antigravity", data);
-        quotaCacheRef.current[acc.id] = { data: parsed, error: null, ts: Date.now() };
+        const accountType = inferAntigravityAccountType(data);
+        quotaCacheRef.current[acc.id] = { data: parsed, error: null, ts: Date.now(), accountType };
         setQuotas(prev => ({
           ...prev,
-          [acc.id]: { quotas: parsed, error: null, loading: false },
+          [acc.id]: { quotas: parsed, error: null, loading: false, accountType },
         }));
       } catch (err) {
         const error = err.message || "Failed";
-        quotaCacheRef.current[acc.id] = { data: [], error, ts: Date.now() };
+        quotaCacheRef.current[acc.id] = { data: [], error, ts: Date.now(), accountType: null };
         setQuotas(prev => ({
           ...prev,
-          [acc.id]: { quotas: [], error, loading: false },
+          [acc.id]: { quotas: [], error, loading: false, accountType: null },
         }));
       }
     }));
@@ -287,12 +296,19 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
     return {
       state: pct === null ? "no-data" : "ready",
       highlight,
+      accountType: q.accountType || null,
       pct,
       nextResetAt,
       resetCountdown: formatResetTime(nextResetAt),
       resetDisplay: formatResetTimeDisplay(nextResetAt),
     };
   };
+
+  const getResolvedAccountType = (acc) => (
+    normalizeAntigravityAccountType(quotas[acc.id]?.accountType) ||
+    normalizeAntigravityAccountType(acc.accountType) ||
+    null
+  );
 
   const renderAccountQuota = (accId) => {
     const meta = getAccountQuotaMeta(accId);
@@ -564,7 +580,9 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
 
             {providerAccounts.length > 0 ? (
               <>
-                {providerAccounts.map((acc) => (
+                {providerAccounts.map((acc) => {
+                  const accountType = getResolvedAccountType(acc);
+                  return (
                   <div
                     key={acc.id}
                     className={`rounded-xl border border-border bg-surface-alt/30 px-3 py-2.5 transition-colors ${
@@ -580,6 +598,11 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
                           <span className="text-xs font-medium text-text-main truncate">
                             {getAccountDisplay(acc, maskEmails)}
                           </span>
+                          {accountType && (
+                            <Badge variant={getAccountTypeBadgeVariant(accountType)} size="sm">
+                              {accountType}
+                            </Badge>
+                          )}
                           {preferredAccountId === acc.id && acc.isActive !== false && (
                             <span className="text-[9px] text-violet-300 bg-violet-500/10 border border-violet-500/20 px-1 py-0.5 rounded shrink-0">
                               next
@@ -622,7 +645,8 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
                 <Link
                   href="/dashboard/providers"
                   className="text-[11px] text-primary hover:underline flex items-center gap-1 px-1 mt-1"
