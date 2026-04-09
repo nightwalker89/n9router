@@ -13,20 +13,61 @@ const { log } = require("./logger");
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000; // refresh 5min before expiry
 const ROUTER_PORT = process.env.PORT || 20128;
-const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
+const DEFAULT_COOLDOWN_MS = 2 * 60 * 1000;
 const DEFAULT_AUTH_COOLDOWN_MS = 10 * 60 * 1000;
+const DEFAULT_STRIKE_THRESHOLD = 3; // consecutive 429s before hard cooldown
 
 // ── In-memory state ──────────────────────────────────────────
 const cooldownMap = {};        // { [connectionId]: expiresTimestamp } quota/general cooldown
 const authCooldownMap = {};    // { [connectionId]: expiresTimestamp } invalid_token/auth cooldown
 const modelCooldownMap = {};   // { [connectionId]: { [model]: expiresTimestamp } }
+const strikeMap = {};          // { [connectionId]: consecutiveHitCount }
+const modelStrikeMap = {};     // { [connectionId]: { [model]: consecutiveHitCount } }
 const rrState = {};            // { [provider]: roundRobinIndex }
 
-// ── Cooldown management ──────────────────────────────────────
+// ── Strike + cooldown management ─────────────────────────────
+// Upstream often returns false-positive 429s. Instead of locking
+// an account on the first hit, we count consecutive strikes.
+// Hard cooldown only triggers after STRIKE_THRESHOLD consecutive 429s.
+
+function getStrikeThreshold() {
+  try {
+    if (!fs.existsSync(DB_FILE)) return DEFAULT_STRIKE_THRESHOLD;
+    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
+    return db.settings?.cooldownStrikeThreshold || DEFAULT_STRIKE_THRESHOLD;
+  } catch { return DEFAULT_STRIKE_THRESHOLD; }
+}
+
+/**
+ * Record a 429 strike for an account. Returns true if the account
+ * just entered hard cooldown (threshold reached), false if it's
+ * still within tolerance.
+ */
+function recordStrike(connId, durationMs) {
+  const count = (strikeMap[connId] || 0) + 1;
+  strikeMap[connId] = count;
+  const threshold = getStrikeThreshold();
+
+  if (count >= threshold) {
+    const ms = durationMs || DEFAULT_COOLDOWN_MS;
+    cooldownMap[connId] = Date.now() + ms;
+    delete strikeMap[connId];
+    log(`⏸ [token-pool] cooldown: ${connId.slice(0, 8)}… for ${Math.ceil(ms / 60000)}m (after ${count} strikes)`);
+    return true;
+  }
+
+  log(`⚡ [token-pool] strike ${count}/${threshold}: ${connId.slice(0, 8)}… (not locked yet)`);
+  return false;
+}
+
+function clearStrikes(connId) {
+  delete strikeMap[connId];
+}
 
 function setCooldown(connId, durationMs) {
   const ms = durationMs || DEFAULT_COOLDOWN_MS;
   cooldownMap[connId] = Date.now() + ms;
+  delete strikeMap[connId];
   log(`⏸ [token-pool] cooldown: ${connId.slice(0, 8)}… for ${Math.ceil(ms / 60000)}m`);
 }
 
@@ -59,15 +100,45 @@ function isInCooldown(connId) {
   return !!getCooldownState(connId);
 }
 
-// ── Per-model cooldown management ────────────────────────────
+// ── Per-model strike + cooldown management ───────────────────
 // Tracks which account+model combinations are quota-exhausted.
-// Used by "sticky" strategy: whole account stays available for other models.
+// Same strike-before-cooldown logic as account-level.
+
+/**
+ * Record a 429 strike for a specific account+model. Returns true
+ * if the model just entered hard cooldown.
+ */
+function recordModelStrike(connId, model, durationMs) {
+  const key = model || "__unknown__";
+  if (!modelStrikeMap[connId]) modelStrikeMap[connId] = {};
+  const count = (modelStrikeMap[connId][key] || 0) + 1;
+  modelStrikeMap[connId][key] = count;
+  const threshold = getStrikeThreshold();
+
+  if (count >= threshold) {
+    const ms = durationMs || DEFAULT_COOLDOWN_MS;
+    if (!modelCooldownMap[connId]) modelCooldownMap[connId] = {};
+    modelCooldownMap[connId][key] = Date.now() + ms;
+    delete modelStrikeMap[connId][key];
+    log(`⏸ [token-pool] model-cooldown: ${connId.slice(0, 8)}… model="${key}" for ${Math.ceil(ms / 60000)}m (after ${count} strikes)`);
+    return true;
+  }
+
+  log(`⚡ [token-pool] model-strike ${count}/${threshold}: ${connId.slice(0, 8)}… model="${key}" (not locked yet)`);
+  return false;
+}
+
+function clearModelStrikes(connId, model) {
+  const key = model || "__unknown__";
+  if (modelStrikeMap[connId]?.[key]) delete modelStrikeMap[connId][key];
+}
 
 function setModelCooldown(connId, model, durationMs) {
   const ms = durationMs || DEFAULT_COOLDOWN_MS;
   const key = model || "__unknown__";
   if (!modelCooldownMap[connId]) modelCooldownMap[connId] = {};
   modelCooldownMap[connId][key] = Date.now() + ms;
+  if (modelStrikeMap[connId]?.[key]) delete modelStrikeMap[connId][key];
   log(`⏸ [token-pool] model-cooldown: ${connId.slice(0, 8)}… model="${key}" for ${Math.ceil(ms / 60000)}m`);
 }
 
@@ -470,6 +541,10 @@ module.exports = {
   setCooldown,
   setAuthCooldown,
   setModelCooldown,
+  recordStrike,
+  recordModelStrike,
+  clearStrikes,
+  clearModelStrikes,
   isModelExhausted,
   getTokenSwapStrategy,
   parseQuotaCooldown,

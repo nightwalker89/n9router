@@ -4,10 +4,12 @@ const path = require("path");
 const dns = require("dns");
 const { promisify } = require("util");
 const { log, err } = require("./logger");
-const { TARGET_HOSTS, URL_PATTERNS, getToolForHost } = require("./config");
+const { TARGET_HOSTS, URL_PATTERNS, getToolForHost, isTargetHost } = require("./config");
 const { DATA_DIR, MITM_DIR } = require("./paths");
 const { isTokenSwapEnabled, getAllActiveConnections, triggerRefreshIfNeeded,
-        forceRefreshConnection, setCooldown, setAuthCooldown, setModelCooldown, getTokenSwapStrategy,
+        forceRefreshConnection, setCooldown, setAuthCooldown, setModelCooldown,
+        recordStrike, recordModelStrike, clearStrikes, clearModelStrikes,
+        getTokenSwapStrategy,
         parseQuotaCooldown, markAccountUsed, getConnectionLabel, getTokenSwapAvailabilitySummary } = require("./tokenPool");
 const { getCertForDomain } = require("./cert/generate");
 const { buildInputOnlyRequestDetail, createTokenSwapUsageObserver, generateDetailId } = require("./usageTracker");
@@ -235,11 +237,11 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
           const cooldownMs = parseQuotaCooldown(result.body);
           const cdLabel = cooldownMs ? ` cooldown=${Math.ceil(cooldownMs / 60000)}m` : "";
           if (strategy === "sticky" && model) {
-            setModelCooldown(conn.id, model, cooldownMs);
-            log(`⚠️ [token-swap] "${label}" → ${result.statusCode} model=${model} quota exhausted${cdLabel}, trying next...`);
+            const locked = recordModelStrike(conn.id, model, cooldownMs);
+            log(`⚠️ [token-swap] "${label}" → ${result.statusCode} model=${model}${locked ? " LOCKED" : " strike"}${cdLabel}, trying next...`);
           } else {
-            setCooldown(conn.id, cooldownMs);
-            log(`⚠️ [token-swap] "${label}" → ${result.statusCode} account quota exhausted${cdLabel}, trying next...`);
+            const locked = recordStrike(conn.id, cooldownMs);
+            log(`⚠️ [token-swap] "${label}" → ${result.statusCode}${locked ? " LOCKED" : " strike"}${cdLabel}, trying next...`);
           }
           break;
         }
@@ -273,6 +275,9 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
         const successModelTag = model ? ` model=${model}` : "";
         const successStrategyTag = strategy === "sticky" ? ` sticky(use #${newCount})` : ` rr`;
         log(`✅ [token-swap] "${label}" → ${statusCode}${successModelTag}${successStrategyTag}`);
+        // Clear strikes on success — previous 429s were likely false positives
+        clearStrikes(conn.id);
+        if (model) clearModelStrikes(conn.id, model);
         markAccountUsed(conn.id);
         res.writeHead(statusCode, result.response.headers);
 

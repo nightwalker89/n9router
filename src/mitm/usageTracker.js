@@ -150,6 +150,63 @@ function extractContentLength(chunk) {
   return total;
 }
 
+function extractContentText(chunk) {
+  if (!chunk || typeof chunk !== "object") return { content: "", thinking: "" };
+
+  let content = "";
+  let thinking = "";
+
+  // Anthropic streaming
+  if (typeof chunk.delta?.text === "string") content += chunk.delta.text;
+  if (typeof chunk.delta?.thinking === "string") thinking += chunk.delta.thinking;
+
+  // OpenAI streaming
+  if (typeof chunk.choices?.[0]?.delta?.content === "string") content += chunk.choices[0].delta.content;
+  if (typeof chunk.choices?.[0]?.delta?.reasoning_content === "string") thinking += chunk.choices[0].delta.reasoning_content;
+
+  // OpenAI non-streaming
+  if (chunk.choices?.[0]?.message) {
+    const msg = chunk.choices[0].message;
+    if (typeof msg.content === "string") content += msg.content;
+    if (typeof msg.reasoning_content === "string") thinking += msg.reasoning_content;
+  }
+
+  // Anthropic content blocks
+  if (Array.isArray(chunk.content)) {
+    for (const item of chunk.content) {
+      if (typeof item?.text === "string" && item?.type !== "thinking") content += item.text;
+      if (item?.type === "thinking" && typeof item?.thinking === "string") thinking += item.thinking;
+    }
+  }
+
+  // OpenAI Responses API
+  if (chunk.response?.output_text && typeof chunk.response.output_text === "string") content += chunk.response.output_text;
+  if (chunk.response?.output && Array.isArray(chunk.response.output)) {
+    for (const item of chunk.response.output) {
+      if (typeof item?.content === "string") content += item.content;
+      if (Array.isArray(item?.content)) {
+        for (const part of item.content) {
+          if (typeof part?.text === "string") content += part.text;
+        }
+      }
+    }
+  }
+
+  // Gemini
+  const geminiParts = chunk.candidates?.[0]?.content?.parts || chunk.response?.candidates?.[0]?.content?.parts;
+  if (Array.isArray(geminiParts)) {
+    for (const part of geminiParts) {
+      if (part?.thought === true && typeof part?.text === "string") {
+        thinking += part.text;
+      } else if (typeof part?.text === "string") {
+        content += part.text;
+      }
+    }
+  }
+
+  return { content, thinking };
+}
+
 function estimateInputTokens(body) {
   if (!body || typeof body !== "object") return 0;
   try {
@@ -412,11 +469,23 @@ function createTokenSwapUsageObserver({ provider, model, connectionId, accountLa
   let contentLength = 0;
   let usage = null;
   let finished = false;
+  let responseContent = "";
+  let thinkingContent = "";
+  let contentCapped = false;
+  const MAX_CAPTURE_BYTES = 512 * 1024;
 
   const processParsedChunk = (parsed) => {
     const extracted = extractUsage(parsed);
     if (extracted) usage = extracted;
     contentLength += extractContentLength(parsed);
+    if (!contentCapped) {
+      const text = extractContentText(parsed);
+      responseContent += text.content;
+      thinkingContent += text.thinking;
+      if (responseContent.length + thinkingContent.length > MAX_CAPTURE_BYTES) {
+        contentCapped = true;
+      }
+    }
   };
 
   const processSseLine = (line) => {
@@ -504,10 +573,17 @@ function createTokenSwapUsageObserver({ provider, model, connectionId, accountLa
       try {
         await persistRequestDetail({
           ...detailRecord,
+          status: "completed",
           tokens: usage,
           latency: {
             ttft: 0,
             total: requestStartTime ? Date.now() - requestStartTime : 0
+          },
+          providerResponse: "[SSE stream — content captured in response field]",
+          response: {
+            content: responseContent || null,
+            thinking: thinkingContent || null,
+            type: contentCapped ? "token_swap_capped" : "token_swap"
           }
         });
       } catch (error) {
