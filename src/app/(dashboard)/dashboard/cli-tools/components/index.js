@@ -9,4 +9,5 @@ export { default as CopilotToolCard } from "./CopilotToolCard";
 export { default as MitmServerCard } from "./MitmServerCard";
 export { default as MitmToolCard } from "./MitmToolCard";
 export { default as TokenSwapPoolCard } from "./TokenSwapPoolCard";
+export { default as MitmLinkCard } from "./MitmLinkCard";
 
