@@ -36,6 +36,10 @@ export default function MultiModelMappingEditor({
   const buttonClass = compact
     ? "px-2 py-1.5 rounded border text-xs transition-colors shrink-0 whitespace-nowrap"
     : "px-2 py-1.5 rounded border text-xs transition-colors shrink-0";
+  const rowActionButtonClass = "h-8 min-w-8 inline-flex items-center justify-center rounded-md border border-border text-text-muted transition-colors";
+  const rowSelectButtonClass = compact
+    ? "h-8 px-2.5 inline-flex items-center justify-center rounded-md border border-border text-[11px] font-medium text-text-main transition-colors shrink-0 whitespace-nowrap"
+    : "h-8 px-2.5 inline-flex items-center justify-center rounded-md border border-border text-[11px] font-medium text-text-main transition-colors shrink-0";
   const disabled = !dnsActive;
 
   return (
@@ -101,30 +105,39 @@ export default function MultiModelMappingEditor({
                         />
                         <button
                           type="button"
+                          onClick={() => onOpenSelector(model.alias, index)}
+                          disabled={!hasActiveProviders || disabled}
+                          className={`${rowSelectButtonClass} ${hasActiveProviders && !disabled ? "hover:border-primary hover:text-primary cursor-pointer" : "opacity-40 cursor-not-allowed"}`}
+                          title="Select model"
+                        >
+                          Select
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => onReorderEntry(model.alias, index, index - 1)}
                           disabled={moveUpDisabled}
-                          className={`p-1 rounded border border-border text-text-muted transition-colors ${moveUpDisabled ? "opacity-40 cursor-not-allowed" : "hover:border-primary hover:text-primary cursor-pointer"}`}
+                          className={`${rowActionButtonClass} ${moveUpDisabled ? "opacity-40 cursor-not-allowed" : "hover:border-primary hover:text-primary cursor-pointer"}`}
                           title="Move up"
                         >
-                          <span className="material-symbols-outlined text-[14px]">keyboard_arrow_up</span>
+                          <span className="material-symbols-outlined text-[18px]">keyboard_arrow_up</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => onReorderEntry(model.alias, index, index + 1)}
                           disabled={moveDownDisabled}
-                          className={`p-1 rounded border border-border text-text-muted transition-colors ${moveDownDisabled ? "opacity-40 cursor-not-allowed" : "hover:border-primary hover:text-primary cursor-pointer"}`}
+                          className={`${rowActionButtonClass} ${moveDownDisabled ? "opacity-40 cursor-not-allowed" : "hover:border-primary hover:text-primary cursor-pointer"}`}
                           title="Move down"
                         >
-                          <span className="material-symbols-outlined text-[14px]">keyboard_arrow_down</span>
+                          <span className="material-symbols-outlined text-[18px]">keyboard_arrow_down</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => onRemoveEntry(model.alias, index)}
                           disabled={disabled}
-                          className={`p-1 rounded border border-border text-text-muted transition-colors ${disabled ? "opacity-40 cursor-not-allowed" : "hover:border-red-500 hover:text-red-500 cursor-pointer"}`}
+                          className={`${rowActionButtonClass} ${disabled ? "opacity-40 cursor-not-allowed" : "hover:border-red-500 hover:text-red-500 cursor-pointer"}`}
                           title="Remove"
                         >
-                          <span className="material-symbols-outlined text-[14px]">close</span>
+                          <span className="material-symbols-outlined text-[16px]">close</span>
                         </button>
                       </div>
                     );
@@ -142,14 +155,6 @@ export default function MultiModelMappingEditor({
                       className={`${buttonClass} ${canAdd ? "bg-surface border-border text-text-main hover:border-primary cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}
                     >
                       + Add
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onOpenSelector(model.alias)}
-                      disabled={!hasActiveProviders || disabled || entries.length >= MAX_MITM_ALIAS_MODELS}
-                      className={`${buttonClass} ${hasActiveProviders && !disabled && entries.length < MAX_MITM_ALIAS_MODELS ? "bg-surface border-border hover:border-primary cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}
-                    >
-                      Select
                     </button>
                     <span className="text-[10px] text-text-muted">
                       {entries.length}/{MAX_MITM_ALIAS_MODELS} mapped

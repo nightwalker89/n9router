@@ -17,6 +17,7 @@ export function useMitmMultiModelMappings(toolId) {
   const [selectedStrategy, setSelectedStrategy] = useState("round-robin");
   const [modalOpen, setModalOpen] = useState(false);
   const [currentEditingAlias, setCurrentEditingAlias] = useState(null);
+  const [currentEditingIndex, setCurrentEditingIndex] = useState(null);
   const [mappingFeedback, setMappingFeedback] = useState(null);
 
   const loadSavedMappings = useCallback(async () => {
@@ -47,8 +48,9 @@ export function useMitmMultiModelMappings(toolId) {
     }
   }, [toolId]);
 
-  const openModelSelector = useCallback((alias) => {
+  const openModelSelector = useCallback((alias, index = null) => {
     setCurrentEditingAlias(alias);
+    setCurrentEditingIndex(index);
     setModalOpen(true);
   }, []);
 
@@ -104,18 +106,22 @@ export function useMitmMultiModelMappings(toolId) {
   const handleModelSelect = useCallback((model) => {
     if (!currentEditingAlias || model.isPlaceholder) return;
     setModelMappings((prev) => {
-      const next = appendMappingEntry(prev, currentEditingAlias, model.value);
+      const next = currentEditingIndex === null
+        ? appendMappingEntry(prev, currentEditingAlias, model.value)
+        : updateMappingEntry(prev, currentEditingAlias, currentEditingIndex, model.value);
       const beforeCount = Array.isArray(prev?.[currentEditingAlias]) ? prev[currentEditingAlias].length : 0;
       const afterCount = Array.isArray(next?.[currentEditingAlias]) ? next[currentEditingAlias].length : 0;
       setMappingFeedback(
-        afterCount === beforeCount
+        currentEditingIndex === null && afterCount === beforeCount
           ? `Max 5 targets per alias. Remove one before adding another for ${currentEditingAlias}.`
           : null
       );
       saveMappings(next, selectedStrategy);
       return next;
     });
-  }, [currentEditingAlias, saveMappings, selectedStrategy]);
+    setModalOpen(false);
+    setCurrentEditingIndex(null);
+  }, [currentEditingAlias, currentEditingIndex, saveMappings, selectedStrategy]);
 
   const handleStrategyChange = useCallback((strategy) => {
     const normalized = normalizeStrategyValue(strategy);
@@ -128,6 +134,7 @@ export function useMitmMultiModelMappings(toolId) {
 
   return {
     currentEditingAlias,
+    currentEditingIndex,
     handleAddMapping,
     handleMappingBlur,
     handleModelMappingChange,
@@ -141,6 +148,7 @@ export function useMitmMultiModelMappings(toolId) {
     modelMappings,
     openModelSelector,
     selectedStrategy,
+    setCurrentEditingIndex,
     setMappingFeedback,
     setModalOpen,
   };
