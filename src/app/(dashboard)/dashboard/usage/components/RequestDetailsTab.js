@@ -89,7 +89,7 @@ function getInputTokens(tokens) {
 }
 
 function getCachedTokens(tokens) {
-  return tokens?.cache_read_input_tokens || tokens?.cached_tokens || 0;
+  return tokens?.cache_read_input_tokens || tokens?.cached_tokens || tokens?.prompt_tokens_details?.cached_tokens || 0;
 }
 
 export default function RequestDetailsTab() {
