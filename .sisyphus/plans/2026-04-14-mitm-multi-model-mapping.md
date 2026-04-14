@@ -391,6 +391,7 @@ Round-robin randomization: `Math.floor(Math.random() * len)` as start index, the
 ## Implementation Phases
 
 ### Phase 1: Core Runtime (server.js + all handlers)
+- Status: DONE 2026-04-14T14:30:47+07:00
 - `server.js`: `getMappedModels()`, `getMitmAliasStrategy()`, `tryMappedModels()`
 - `antigravity.js`: throw on non-2xx (remove try/catch wrapper)
 - `kiro.js`: same
@@ -398,21 +399,25 @@ Round-robin randomization: `Math.floor(Math.random() * len)` as start index, the
 - Update request handler in server.js
 
 ### Phase 2: API + DB Layer
+- Status: DONE 2026-04-14T14:48:00+07:00
 - `localDb.js`: add `mitmAliasStrategy` default
 - `alias/route.js`: accept arrays + strategy, return strategy on GET
 - Normalize string → array on save
 
-### Phase 3: UI — MitmToolCard.js (shared, all tools inherit)
-- Multi-model priority list with add/remove/reorder
-- Strategy selector dropdown
-- ModelSelectModal appends
+### Phase 3: Shared UI Editor
+- Status: DONE 2026-04-14T14:58:36+07:00
+- `MitmToolCard.js`: replace single input with multi-row editor
+- Add/remove target models per alias
+- Add strategy selector dropdown (`round-robin` / `fallback`)
 - Save sends arrays + strategy
 
 ### Phase 4: UI — AntigravityToolCard.js (legacy page)
+- Status: DONE 2026-04-14T15:03:44+07:00
 - Same multi-model UI pattern
 - Strategy selector
 
 ### Phase 5: Polish
+- Status: DONE 2026-04-14T15:19:22+07:00
 - Comma-separated text input
 - Visual feedback in logs during fallback
 - Enforce 5-model cap in UI

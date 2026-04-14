@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { Card, Button, Badge, Modal, Input, ModelSelectModal } from "@/shared/components";
+import MultiModelMappingEditor from "./MultiModelMappingEditor";
+import { useMitmMultiModelMappings } from "./useMitmMultiModelMappings";
 import Image from "next/image";
 
 export default function AntigravityToolCard({
@@ -22,10 +24,24 @@ export default function AntigravityToolCard({
   const [sudoPassword, setSudoPassword] = useState("");
   const [selectedApiKey, setSelectedApiKey] = useState("");
   const [message, setMessage] = useState(null);
-  const [modelMappings, setModelMappings] = useState({});
-  const [modalOpen, setModalOpen] = useState(false);
-  const [currentEditingAlias, setCurrentEditingAlias] = useState(null);
   const [modelAliases, setModelAliases] = useState({});
+  const {
+    currentEditingAlias,
+    handleAddMapping,
+    handleMappingBlur,
+    handleModelMappingChange,
+    handleModelSelect,
+    handleRemoveMapping,
+    handleReorderMapping,
+    handleStrategyChange,
+    loadSavedMappings,
+    mappingFeedback,
+    modalOpen,
+    modelMappings,
+    openModelSelector,
+    selectedStrategy,
+    setModalOpen,
+  } = useMitmMultiModelMappings("antigravity");
 
   useEffect(() => {
     if (apiKeys?.length > 0 && !selectedApiKey) {
@@ -40,29 +56,17 @@ export default function AntigravityToolCard({
   useEffect(() => {
     if (isExpanded && !status) {
       fetchStatus();
-      loadSavedMappings();
+      loadLegacyMappings();
       fetchModelAliases();
     }
     if (isExpanded) {
-      loadSavedMappings();
+      loadLegacyMappings();
       fetchModelAliases();
     }
   }, [isExpanded]);
 
-  const loadSavedMappings = async () => {
-    try {
-      const res = await fetch("/api/cli-tools/antigravity-mitm/alias?tool=antigravity");
-      if (res.ok) {
-        const data = await res.json();
-        const aliases = data.aliases || {};
-
-        if (Object.keys(aliases).length > 0) {
-          setModelMappings(aliases);
-        }
-      }
-    } catch (error) {
-      console.log("Error loading saved mappings:", error);
-    }
+  const loadLegacyMappings = async () => {
+    await loadSavedMappings();
   };
 
   const fetchModelAliases = async () => {
@@ -182,50 +186,6 @@ export default function AntigravityToolCard({
     }
   };
 
-  const openModelSelector = (alias) => {
-    setCurrentEditingAlias(alias);
-    setModalOpen(true);
-  };
-
-  const handleModelSelect = (model) => {
-    if (currentEditingAlias) {
-      setModelMappings(prev => ({
-        ...prev,
-        [currentEditingAlias]: model.value,
-      }));
-    }
-  };
-
-  const handleModelMappingChange = (alias, value) => {
-    setModelMappings(prev => ({
-      ...prev,
-      [alias]: value,
-    }));
-  };
-
-  const handleSaveMappings = async () => {
-    setLoading(true);
-    setMessage(null);
-
-    try {
-      const res = await fetch("/api/cli-tools/antigravity-mitm/alias", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tool: "antigravity", mappings: modelMappings }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to save mappings");
-      }
-
-      setMessage({ type: "success", text: "Mappings saved!" });
-    } catch (error) {
-      setMessage({ type: "error", text: error.message });
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const isRunning = status?.running;
 
@@ -340,47 +300,22 @@ export default function AntigravityToolCard({
                 )}
               </div>
 
-              {tool.defaultModels.map((model) => (
-                <div key={model.alias} className="flex items-center gap-2">
-                  <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">{model.name}</span>
-                  <span className="material-symbols-outlined text-text-muted text-[14px]">arrow_forward</span>
-                  <input
-                    type="text"
-                    value={modelMappings[model.alias] || ""}
-                    onChange={(e) => handleModelMappingChange(model.alias, e.target.value)}
-                    placeholder="provider/model-id"
-                    className="flex-1 px-2 py-1.5 bg-surface rounded border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  />
-                  <button
-                    onClick={() => openModelSelector(model.alias)}
-                    disabled={!hasActiveProviders}
-                    className={`px-2 py-1.5 rounded border text-xs transition-colors shrink-0 whitespace-nowrap ${hasActiveProviders ? "bg-surface border-border text-text-main hover:border-primary cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}
-                  >
-                    Select
-                  </button>
-                  {modelMappings[model.alias] && (
-                    <button
-                      onClick={() => handleModelMappingChange(model.alias, "")}
-                      className="p-1 text-text-muted hover:text-red-500 rounded transition-colors"
-                      title="Clear"
-                    >
-                      <span className="material-symbols-outlined text-[14px]">close</span>
-                    </button>
-                  )}
-                </div>
-              ))}
-
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handleSaveMappings}
-                  disabled={loading || Object.keys(modelMappings).length === 0}
-                >
-                  <span className="material-symbols-outlined text-[14px] mr-1">save</span>
-                  Save Mappings
-                </Button>
-              </div>
+              <MultiModelMappingEditor
+                tool={tool}
+                mappings={modelMappings}
+                strategy={selectedStrategy}
+                dnsActive={isRunning}
+                hasActiveProviders={hasActiveProviders}
+                onChangeEntry={handleModelMappingChange}
+                onBlurEntry={handleMappingBlur}
+                onOpenSelector={openModelSelector}
+                onAddEntry={(alias) => handleAddMapping(alias, "antigravity/model-id")}
+                onRemoveEntry={handleRemoveMapping}
+                onReorderEntry={handleReorderMapping}
+                onChangeStrategy={handleStrategyChange}
+                feedback={mappingFeedback}
+                compact
+              />
             </>
           )}
 
@@ -468,10 +403,10 @@ export default function AntigravityToolCard({
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
         onSelect={handleModelSelect}
-        selectedModel={currentEditingAlias ? modelMappings[currentEditingAlias] : null}
+        selectedModel={currentEditingAlias ? modelMappings[currentEditingAlias]?.[0] : null}
         activeProviders={activeProviders}
         modelAliases={modelAliases}
-        title={`Select model for ${currentEditingAlias}`}
+        title={`Add mapped model for ${currentEditingAlias}`}
       />
     </Card>
   );

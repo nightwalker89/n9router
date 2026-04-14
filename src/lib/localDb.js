@@ -73,6 +73,7 @@ const defaultData = {
     outboundNoProxy: "",
     tokenSwapMaskEmails: false,
     mitmRouterBaseUrl: DEFAULT_MITM_ROUTER_BASE,
+    mitmAliasStrategy: "round-robin",
   },
   pricing: {} // NEW: pricing configuration
 };
@@ -112,6 +113,7 @@ function cloneDefaultData() {
       outboundNoProxy: "",
       tokenSwapMaskEmails: false,
       mitmRouterBaseUrl: DEFAULT_MITM_ROUTER_BASE,
+      mitmAliasStrategy: "round-robin",
     },
     pricing: {},
   };

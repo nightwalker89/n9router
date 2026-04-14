@@ -6,6 +6,11 @@ const { promisify } = require("util");
 const { log, err } = require("./logger");
 const { TARGET_HOSTS, URL_PATTERNS, getToolForHost, isTargetHost } = require("./config");
 const { DATA_DIR, MITM_DIR } = require("./paths");
+const {
+  getMappedModels,
+  getMitmAliasStrategy,
+  tryMappedModels,
+} = require("./modelMapping");
 const { isTokenSwapEnabled, getAllActiveConnections, triggerRefreshIfNeeded,
         forceRefreshConnection, setCooldown, setAuthCooldown, setModelCooldown,
         recordStrike, recordModelStrike, clearStrikes, clearModelStrikes,
@@ -112,19 +117,6 @@ function extractModel(url, body) {
   } catch { return null; }
 }
 
-function getMappedModel(tool, model) {
-  if (!model) return null;
-  try {
-    if (!fs.existsSync(DB_FILE)) return null;
-    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
-    const aliases = db.mitmAlias?.[tool];
-    if (!aliases) return null;
-    if (aliases[model]) return aliases[model];
-    // Prefix match fallback
-    const prefixKey = Object.keys(aliases).find(k => k && aliases[k] && (model.startsWith(k) || k.startsWith(model)));
-    return prefixKey ? aliases[prefixKey] : null;
-  } catch { return null; }
-}
 
 function saveRequestLog(url, bodyBuffer) {
   if (!ENABLE_FILE_LOG) return;
@@ -466,14 +458,34 @@ const server = https.createServer(sslOptions, async (req, res) => {
 
     log(`🔍 [${tool}] model="${model}"`);
 
-    const mappedModel = getMappedModel(tool, model);
-    if (!mappedModel) {
+    const mappedModels = getMappedModels({ dbFile: DB_FILE, tool, model });
+    if (!mappedModels) {
       // log(`⏩ passthrough | no mapping | ${tool} | ${model || "unknown"}`);
       return passthrough(req, res, bodyBuffer);
     }
 
-    log(`⚡ intercept | ${tool} | ${model} → ${mappedModel}`);
-    return handlers[tool].intercept(req, res, bodyBuffer, mappedModel, passthrough);
+    log(`⚡ intercept | ${tool} | ${model} → ${mappedModels.join(", ")}`);
+    const strategy = getMitmAliasStrategy({ dbFile: DB_FILE });
+    const handled = await tryMappedModels({
+      req,
+      res,
+      bodyBuffer,
+      models: mappedModels,
+      tool,
+      strategy,
+      handlers,
+      passthrough,
+      log,
+      err,
+    });
+
+    if (!handled && !res.headersSent) {
+      res.writeHead(502, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        error: { message: `All ${mappedModels.length} mapped models failed`, type: "mitm_error" }
+      }));
+    }
+    return;
   } catch (e) {
     err(`Unhandled error: ${e.message}`);
     if (!res.headersSent) res.writeHead(500, { "Content-Type": "application/json" });
