@@ -85,9 +85,15 @@ export function saveUsageStats({ provider, model, tokens, connectionId, apiKey, 
   console.log(`${COLORS.green}[${time}] 📊 [${label}] ${provider.toUpperCase()} | in=${inTokens} | out=${outTokens}${accountSuffix}${COLORS.reset}`);
 
   // Normalize to OpenAI token shape for storage
+  const cacheRead = tokens.cache_read_input_tokens || tokens.cached_tokens || tokens.prompt_tokens_details?.cached_tokens || 0;
+  const cacheCreation = tokens.cache_creation_input_tokens || 0;
+  const reasoning = tokens.reasoning_tokens || tokens.completion_tokens_details?.reasoning_tokens || 0;
   const normalized = {
     prompt_tokens: tokens.prompt_tokens ?? tokens.input_tokens ?? 0,
-    completion_tokens: tokens.completion_tokens ?? tokens.output_tokens ?? 0
+    completion_tokens: tokens.completion_tokens ?? tokens.output_tokens ?? 0,
+    ...(cacheRead > 0 && { cache_read_input_tokens: cacheRead }),
+    ...(cacheCreation > 0 && { cache_creation_input_tokens: cacheCreation }),
+    ...(reasoning > 0 && { reasoning_tokens: reasoning }),
   };
 
   saveRequestUsage({

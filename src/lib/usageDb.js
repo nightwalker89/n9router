@@ -562,6 +562,7 @@ export async function getUsageStats(period = "all") {
     totalRequests: lifetimeTotalRequests,
     totalPromptTokens: 0,
     totalCompletionTokens: 0,
+    totalCachedTokens: 0,
     totalCost: 0,
     byProvider: {},
     byModel: {},
@@ -618,6 +619,7 @@ export async function getUsageStats(period = "all") {
   for (const entry of history) {
     const promptTokens = entry.tokens?.prompt_tokens || 0;
     const completionTokens = entry.tokens?.completion_tokens || 0;
+    const cachedTokens = entry.tokens?.cache_read_input_tokens || entry.tokens?.cached_tokens || 0;
     const entryTime = new Date(entry.timestamp);
 
     // Use pre-stored cost (saved at request time), avoid recalculating
@@ -625,6 +627,7 @@ export async function getUsageStats(period = "all") {
 
     stats.totalPromptTokens += promptTokens;
     stats.totalCompletionTokens += completionTokens;
+    stats.totalCachedTokens += cachedTokens;
     stats.totalCost += entryCost;
 
     // Last 10 minutes aggregation - floor entry time to its minute
@@ -644,12 +647,14 @@ export async function getUsageStats(period = "all") {
         requests: 0,
         promptTokens: 0,
         completionTokens: 0,
+        cachedTokens: 0,
         cost: 0
       };
     }
     stats.byProvider[entry.provider].requests++;
     stats.byProvider[entry.provider].promptTokens += promptTokens;
     stats.byProvider[entry.provider].completionTokens += completionTokens;
+    stats.byProvider[entry.provider].cachedTokens += cachedTokens;
     stats.byProvider[entry.provider].cost += entryCost;
 
     // By Model
@@ -663,6 +668,7 @@ export async function getUsageStats(period = "all") {
         requests: 0,
         promptTokens: 0,
         completionTokens: 0,
+        cachedTokens: 0,
         cost: 0,
         rawModel: entry.model,
         provider: providerDisplayName,
@@ -672,6 +678,7 @@ export async function getUsageStats(period = "all") {
     stats.byModel[modelKey].requests++;
     stats.byModel[modelKey].promptTokens += promptTokens;
     stats.byModel[modelKey].completionTokens += completionTokens;
+    stats.byModel[modelKey].cachedTokens += cachedTokens;
     stats.byModel[modelKey].cost += entryCost;
     if (new Date(entry.timestamp) > new Date(stats.byModel[modelKey].lastUsed)) {
       stats.byModel[modelKey].lastUsed = entry.timestamp;
@@ -688,6 +695,7 @@ export async function getUsageStats(period = "all") {
           requests: 0,
           promptTokens: 0,
           completionTokens: 0,
+          cachedTokens: 0,
           cost: 0,
           rawModel: entry.model,
           provider: providerDisplayName,
@@ -699,6 +707,7 @@ export async function getUsageStats(period = "all") {
       stats.byAccount[accountKey].requests++;
       stats.byAccount[accountKey].promptTokens += promptTokens;
       stats.byAccount[accountKey].completionTokens += completionTokens;
+      stats.byAccount[accountKey].cachedTokens += cachedTokens;
       stats.byAccount[accountKey].cost += entryCost;
       if (new Date(entry.timestamp) > new Date(stats.byAccount[accountKey].lastUsed)) {
         stats.byAccount[accountKey].lastUsed = entry.timestamp;
@@ -719,6 +728,7 @@ export async function getUsageStats(period = "all") {
           requests: 0,
           promptTokens: 0,
           completionTokens: 0,
+          cachedTokens: 0,
           cost: 0,
           rawModel: entry.model,
           provider: providerDisplayName,
@@ -732,6 +742,7 @@ export async function getUsageStats(period = "all") {
       apiKeyEntry.requests++;
       apiKeyEntry.promptTokens += promptTokens;
       apiKeyEntry.completionTokens += completionTokens;
+      apiKeyEntry.cachedTokens += cachedTokens;
       apiKeyEntry.cost += entryCost;
       if (new Date(entry.timestamp) > new Date(apiKeyEntry.lastUsed)) {
         apiKeyEntry.lastUsed = entry.timestamp;
@@ -745,6 +756,7 @@ export async function getUsageStats(period = "all") {
           requests: 0,
           promptTokens: 0,
           completionTokens: 0,
+          cachedTokens: 0,
           cost: 0,
           rawModel: entry.model,
           provider: providerDisplayName,
@@ -758,6 +770,7 @@ export async function getUsageStats(period = "all") {
       apiKeyEntry.requests++;
       apiKeyEntry.promptTokens += promptTokens;
       apiKeyEntry.completionTokens += completionTokens;
+      apiKeyEntry.cachedTokens += cachedTokens;
       apiKeyEntry.cost += entryCost;
       if (new Date(entry.timestamp) > new Date(apiKeyEntry.lastUsed)) {
         apiKeyEntry.lastUsed = entry.timestamp;
@@ -773,6 +786,7 @@ export async function getUsageStats(period = "all") {
         requests: 0,
         promptTokens: 0,
         completionTokens: 0,
+        cachedTokens: 0,
         cost: 0,
         endpoint: endpoint,
         rawModel: entry.model,
@@ -784,6 +798,7 @@ export async function getUsageStats(period = "all") {
     endpointEntry.requests++;
     endpointEntry.promptTokens += promptTokens;
     endpointEntry.completionTokens += completionTokens;
+    endpointEntry.cachedTokens += cachedTokens;
     endpointEntry.cost += entryCost;
     if (new Date(entry.timestamp) > new Date(endpointEntry.lastUsed)) {
       endpointEntry.lastUsed = entry.timestamp;

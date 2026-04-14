@@ -84,7 +84,7 @@ function sortData(dataMap, pendingMap = {}, sortBy, sortOrder) {
       const totalCost = data.cost || 0;
       const inputCost = totalTokens > 0 ? (data.promptTokens || 0) * (totalCost / totalTokens) : 0;
       const outputCost = totalTokens > 0 ? (data.completionTokens || 0) * (totalCost / totalTokens) : 0;
-      return { ...data, key, totalTokens, totalCost, inputCost, outputCost, pending: pendingMap[key] || 0 };
+      return { ...data, key, totalTokens, totalCost, inputCost, outputCost, cachedTokens: data.cachedTokens || 0, pending: pendingMap[key] || 0 };
     })
     .sort((a, b) => {
       let valA = a[sortBy];
@@ -115,7 +115,7 @@ function groupDataByKey(data, keyField) {
     if (!groups[gk]) {
       groups[gk] = {
         groupKey: gk,
-        summary: { requests: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, cost: 0, inputCost: 0, outputCost: 0, lastUsed: null, pending: 0 },
+        summary: { requests: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, totalTokens: 0, cost: 0, inputCost: 0, outputCost: 0, lastUsed: null, pending: 0 },
         items: [],
       };
     }
@@ -123,6 +123,7 @@ function groupDataByKey(data, keyField) {
     s.requests += item.requests || 0;
     s.promptTokens += item.promptTokens || 0;
     s.completionTokens += item.completionTokens || 0;
+    s.cachedTokens += item.cachedTokens || 0;
     s.totalTokens += item.totalTokens || 0;
     s.cost += item.cost || 0;
     s.inputCost += item.inputCost || 0;
@@ -218,21 +219,27 @@ export default function UsageStats() {
 
   // Fetch filtered stats via REST when period changes
   useEffect(() => {
-    // First load: show full spinner; subsequent: show subtle fetching indicator
-    if (!stats) setLoading(true);
-    else setFetching(true);
+    const controller = new AbortController();
 
-    fetch(`/api/usage/stats?period=${period}`)
+    fetch(`/api/usage/stats?period=${period}`, { signal: controller.signal })
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (data) setStats((prev) => ({ ...prev, ...data }));
       })
-      .catch(() => {})
+      .catch((error) => {
+        if (error?.name !== "AbortError") {
+          setLoading(false);
+        }
+      })
       .finally(() => {
-        setLoading(false);
-        setFetching(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+          setFetching(false);
+        }
       });
-  }, [period]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    return () => controller.abort();
+  }, [period]);
 
   // SSE connection - real-time updates for activeRequests + recentRequests only
   useEffect(() => {
@@ -270,6 +277,12 @@ export default function UsageStats() {
     }
     router.replace(`?${params.toString()}`, { scroll: false });
   }, [searchParams, router]);
+
+  const handlePeriodChange = useCallback((nextPeriod) => {
+    if (nextPeriod === period) return;
+    setFetching(true);
+    setPeriod(nextPeriod);
+  }, [period]);
 
   // Compute active table data
   const activeTableConfig = useMemo(() => {
@@ -404,7 +417,7 @@ export default function UsageStats() {
           {PERIODS.map((p) => (
             <button
               key={p.value}
-              onClick={() => setPeriod(p.value)}
+              onClick={() => handlePeriodChange(p.value)}
               disabled={fetching}
               className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${period === p.value ? "bg-primary text-white shadow-sm" : "text-text-muted hover:text-text hover:bg-bg-hover"}`}
             >
