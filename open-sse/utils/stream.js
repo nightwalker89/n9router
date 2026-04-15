@@ -124,7 +124,16 @@ export function createSSEStream(options = {}) {
 
               const extracted = extractUsage(parsed);
               if (extracted) {
-                usage = extracted;
+                // Merge instead of overwrite: Claude sends input_tokens in message_start
+                // and output_tokens in message_delta — both must be preserved.
+                usage = usage ? {
+                  prompt_tokens: Math.max(usage.prompt_tokens || 0, extracted.prompt_tokens || 0),
+                  completion_tokens: Math.max(usage.completion_tokens || 0, extracted.completion_tokens || 0),
+                  cache_read_input_tokens: extracted.cache_read_input_tokens ?? usage.cache_read_input_tokens,
+                  cache_creation_input_tokens: extracted.cache_creation_input_tokens ?? usage.cache_creation_input_tokens,
+                  cached_tokens: extracted.cached_tokens ?? usage.cached_tokens,
+                  reasoning_tokens: extracted.reasoning_tokens ?? usage.reasoning_tokens
+                } : extracted;
               }
 
               const isFinishChunk = parsed.choices?.[0]?.finish_reason;
@@ -211,9 +220,19 @@ export function createSSEStream(options = {}) {
           }
         }
 
-        // Extract usage
+        // Extract usage (accumulate across events — Claude sends input_tokens in message_start,
+        // output_tokens in message_delta; both must survive to produce correct totals).
         const extracted = extractUsage(parsed);
-        if (extracted) state.usage = extracted; // Keep original usage for logging
+        if (extracted) {
+          state.usage = state.usage ? {
+            prompt_tokens: Math.max(state.usage.prompt_tokens || 0, extracted.prompt_tokens || 0),
+            completion_tokens: Math.max(state.usage.completion_tokens || 0, extracted.completion_tokens || 0),
+            cache_read_input_tokens: extracted.cache_read_input_tokens ?? state.usage.cache_read_input_tokens,
+            cache_creation_input_tokens: extracted.cache_creation_input_tokens ?? state.usage.cache_creation_input_tokens,
+            cached_tokens: extracted.cached_tokens ?? state.usage.cached_tokens,
+            reasoning_tokens: extracted.reasoning_tokens ?? state.usage.reasoning_tokens
+          } : extracted;
+        }
 
         // Translate: targetFormat -> openai -> sourceFormat
         const translated = translateResponse(targetFormat, sourceFormat, parsed, state);
