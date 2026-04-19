@@ -1,8 +1,8 @@
 import { Low } from "lowdb";
 import { JSONFile } from "lowdb/node";
 import path from "node:path";
-import os from "node:os";
 import fs from "node:fs";
+import { DATA_DIR } from "@/lib/dataDir.js";
 
 const isCloud = typeof caches !== "undefined" && typeof caches === "object";
 
@@ -31,7 +31,6 @@ function getUserDataDir() {
   return path.join(homeDir, `.${appName}`);
 }
 
-const DATA_DIR = getUserDataDir();
 const DB_FILE = isCloud ? null : path.join(DATA_DIR, "request-details.json");
 
 if (!isCloud && !fs.existsSync(DATA_DIR)) {

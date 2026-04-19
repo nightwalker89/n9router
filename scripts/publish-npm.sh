@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 # publish-npm.sh — Build the Next.js standalone output and publish to npm
-# Usage: ./scripts/publish-npm.sh [--dry-run]
+# Usage: ./scripts/publish-npm.sh [--dry-run] [--tag <tag>]
+#   --tag next   Publish as a release candidate (won't affect 'latest')
+#   --tag beta   Same idea with a different label
 
 set -euo pipefail
 
 DRY_RUN=false
-for arg in "$@"; do
-  [[ "$arg" == "--dry-run" ]] && DRY_RUN=true
+NPM_TAG="latest"
+ARGS=("$@")
+for i in "${!ARGS[@]}"; do
+  [[ "${ARGS[$i]}" == "--dry-run" ]] && DRY_RUN=true
+  if [[ "${ARGS[$i]}" == "--tag" ]]; then
+    NPM_TAG="${ARGS[$((i+1))]:-next}"
+  fi
 done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -32,11 +39,23 @@ ok "Logged in to npm as: $NPM_USER"
 PKG_NAME=$(node -p "require('./package.json').name")
 PKG_VERSION=$(node -p "require('./package.json').version")
 
-info "Package : $PKG_NAME@$PKG_VERSION"
+# For non-latest tags, auto-append -<tag>.<YYYYMMDD> to form the publish version.
+# package.json is patched temporarily and restored via a trap.
+PUBLISH_VERSION="$PKG_VERSION"
+if [[ "$NPM_TAG" != "latest" ]]; then
+  RC_DATE=$(date +%Y%m%d)
+  PUBLISH_VERSION="${PKG_VERSION%-*}-${NPM_TAG}.${RC_DATE}"
+  info "RC version : $PUBLISH_VERSION (package.json stays at $PKG_VERSION)"
+  # Patch package.json; restore it on exit (success, error, or Ctrl-C)
+  trap 'node -e "const p=require(\"./package.json\");p.version=\"'"$PKG_VERSION"'\";require(\"fs\").writeFileSync(\"./package.json\",JSON.stringify(p,null,2)+\"\\n\")"' EXIT
+  node -e "const p=require('./package.json');p.version='$PUBLISH_VERSION';require('fs').writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n')"
+fi
 
-# Check if this version is already published
-if npm info "$PKG_NAME@$PKG_VERSION" version &>/dev/null; then
-  die "Version $PKG_VERSION is already published on npm. Bump the version first."
+info "Package : $PKG_NAME@$PUBLISH_VERSION (tag: $NPM_TAG)"
+
+# Check if this version is already published (only for latest — RC versions are auto-unique by date)
+if [[ "$NPM_TAG" == "latest" ]] && npm info "$PKG_NAME@$PUBLISH_VERSION" version &>/dev/null; then
+  die "Version $PUBLISH_VERSION is already published on npm. Bump the version first."
 fi
 
 # ── Build ─────────────────────────────────────────────────────────────────────
@@ -54,9 +73,6 @@ NEXT_PUBLIC_CLOUD_URL=https://9router.com \
 NODE_ENV=production \
 npm run build
 
-info "Copying static assets into standalone..."
-cp -r .next/static   .next/standalone/.next/static
-cp -r public         .next/standalone/public
 
 info "Copying MITM server (child-process — not traced by Next.js)..."
 # Copy to mitm/ (NOT src/mitm/) — bin/n9router.js sets MITM_SERVER_PATH here.
@@ -107,7 +123,11 @@ if $DRY_RUN; then
   ok "Dry-run mode — skipping actual publish."
   info "Run without --dry-run to publish for real."
 else
-  info "Publishing $PKG_NAME@$PKG_VERSION to npm..."
-  npm publish --access public
-  ok "Published! Install with: npm install -g $PKG_NAME"
+  info "Publishing $PKG_NAME@$PKG_VERSION to npm (tag: $NPM_TAG)..."
+  npm publish --access public --tag "$NPM_TAG"
+  if [[ "$NPM_TAG" == "latest" ]]; then
+    ok "Published! Install with: npm install -g $PKG_NAME"
+  else
+    ok "Published as '$NPM_TAG'! Install with: npm install -g $PKG_NAME@$NPM_TAG"
+  fi
 fi

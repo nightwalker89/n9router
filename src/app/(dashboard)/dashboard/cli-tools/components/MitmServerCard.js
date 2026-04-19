@@ -50,6 +50,7 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
   };
 
   const handleAction = (action) => {
+    setActionError(null);
     if (isWindows || status?.hasCachedPassword) {
       doAction(action, "");
     } else {
@@ -234,9 +235,10 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
             )}
           </div>
 
+          {/* Action error */}
           {actionError && (
-            <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-red-500/10 text-red-600 border border-red-500/20">
-              <span className="material-symbols-outlined text-[14px]">error</span>
+            <div className="flex items-start gap-2 px-2 py-1.5 rounded text-xs bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20">
+              <span className="material-symbols-outlined text-[14px] mt-0.5 shrink-0">error</span>
               <span>{actionError}</span>
             </div>
           )}

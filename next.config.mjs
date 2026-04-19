@@ -1,6 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
+  // MITM runs as a separate Bun/Node process (src/mitm/server.js); standalone tracing
+  // only picked up that entry file, not sibling requires (e.g. ./logger).
+  outputFileTracingIncludes: {
+    "/*": ["src/mitm/**/*"],
+  },
   serverExternalPackages: ["better-sqlite3"],
   images: {
     unoptimized: true
