@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { getSettings, updateSettings } from "@/lib/localDb";
 import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
+import { DATA_DIR } from "@/lib/dataDir";
 import bcrypt from "bcryptjs";
+import path from "path";
+
+const MITM_ANTIGRAVITY_DEBUG_LOG_DIR = path.join(DATA_DIR, "mitm", "logs", "antigravity");
 
 export async function GET() {
   try {
@@ -15,6 +19,7 @@ export async function GET() {
       ...safeSettings, 
       enableRequestLogs,
       enableTranslator,
+      mitmAntigravityDebugLogDir: MITM_ANTIGRAVITY_DEBUG_LOG_DIR,
       hasPassword: !!password
     });
   } catch (error) {
@@ -66,7 +71,10 @@ export async function PATCH(request) {
       applyOutboundProxyEnv(settings);
     }
     const { password, ...safeSettings } = settings;
-    return NextResponse.json(safeSettings);
+    return NextResponse.json({
+      ...safeSettings,
+      mitmAntigravityDebugLogDir: MITM_ANTIGRAVITY_DEBUG_LOG_DIR,
+    });
   } catch (error) {
     console.log("Error updating settings:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });

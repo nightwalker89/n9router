@@ -43,22 +43,42 @@ async function fetchRouter(openaiBody, path = "/v1/chat/completions", clientHead
 /**
  * Pipe SSE stream from router directly to client response
  */
-async function pipeSSE(routerRes, res) {
+async function pipeSSE(routerRes, res, debugContext = null) {
   const ct = routerRes.headers.get("content-type") || "application/json";
   const resHeaders = { "Content-Type": ct, "Cache-Control": "no-cache", "Connection": "keep-alive" };
   if (ct.includes("text/event-stream")) resHeaders["X-Accel-Buffering"] = "no";
   res.writeHead(200, resHeaders);
 
   if (!routerRes.body) {
-    res.end(await routerRes.text().catch(() => ""));
+    const bodyText = await routerRes.text().catch(() => "");
+    res.end(bodyText);
+    debugContext?.logResponse({
+      statusCode: routerRes.status,
+      headers: routerRes.headers,
+      bodyBuffer: Buffer.from(bodyText),
+      streamed: false,
+      note: "9Router mapped response",
+    });
     return;
   }
 
   const reader = routerRes.body.getReader();
   const decoder = new TextDecoder();
+  const chunks = [];
   while (true) {
     const { done, value } = await reader.read();
-    if (done) { res.end(); break; }
+    if (done) {
+      res.end();
+      debugContext?.logResponse({
+        statusCode: routerRes.status,
+        headers: routerRes.headers,
+        bodyBuffer: Buffer.concat(chunks),
+        streamed: ct.includes("text/event-stream"),
+        note: "9Router mapped response",
+      });
+      break;
+    }
+    chunks.push(Buffer.from(value));
     res.write(decoder.decode(value, { stream: true }));
   }
 }

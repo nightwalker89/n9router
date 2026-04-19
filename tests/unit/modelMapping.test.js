@@ -63,6 +63,39 @@ describe("modelMapping helpers", () => {
       expect(helpers.getMappedModels({ dbFile: tmp.dbFile, tool: "antigravity", model: "opus" })).toBeNull();
       tmp.cleanup();
     });
+
+    it("forces passthrough for gemini-3.1-flash-lite in antigravity mode", () => {
+      const tmp = createTempDb({
+        mitmAlias: {
+          antigravity: {
+            "gemini-3.1-flash-lite": ["cx/gpt-5.4"],
+          },
+        },
+      });
+      expect(helpers.getMappedModels({
+        dbFile: tmp.dbFile,
+        tool: "antigravity",
+        model: "gemini-3.1-flash-lite",
+      })).toBeNull();
+      tmp.cleanup();
+    });
+  });
+
+  describe("shouldPassthroughModel", () => {
+    it("matches the antigravity flash-lite passthrough target", () => {
+      expect(helpers.shouldPassthroughModel({
+        tool: "antigravity",
+        model: "gemini-3.1-flash-lite",
+      })).toBe(true);
+      expect(helpers.shouldPassthroughModel({
+        tool: "antigravity",
+        model: "gemini-2.5-flash-lite",
+      })).toBe(false);
+      expect(helpers.shouldPassthroughModel({
+        tool: "cursor",
+        model: "gemini-3.1-flash-lite",
+      })).toBe(false);
+    });
   });
 
   describe("getMitmAliasStrategy", () => {
@@ -104,6 +137,7 @@ describe("modelMapping helpers", () => {
       const log = vi.fn();
       const errorLog = vi.fn();
       const res = { headersSent: false };
+      const interceptOptions = { debugContext: { requestId: "req_123" } };
 
       const handled = await helpers.tryMappedModels({
         req: {},
@@ -113,7 +147,7 @@ describe("modelMapping helpers", () => {
         tool: "antigravity",
         strategy: "fallback",
         handlers: { antigravity: { intercept } },
-        passthrough: vi.fn(),
+        interceptOptions,
         log,
         err: errorLog,
       });
@@ -122,6 +156,7 @@ describe("modelMapping helpers", () => {
       expect(intercept).toHaveBeenCalledTimes(2);
       expect(intercept.mock.calls[0][3]).toBe("m1");
       expect(intercept.mock.calls[1][3]).toBe("m2");
+      expect(intercept.mock.calls[0][4]).toBe(interceptOptions);
       expect(errorLog).toHaveBeenCalledWith("[antigravity] m1 failed: boom");
       expect(log).toHaveBeenCalledWith("⚡ [antigravity] fb [1/2]: trying m1");
       expect(log).toHaveBeenCalledWith("↪️ [antigravity] falling back to next mapped model");
@@ -143,7 +178,7 @@ describe("modelMapping helpers", () => {
         tool: "antigravity",
         strategy: "fallback",
         handlers: { antigravity: { intercept } },
-        passthrough: vi.fn(),
+        interceptOptions: { debugContext: null },
         log: vi.fn(),
         err: vi.fn(),
       });
@@ -163,7 +198,7 @@ describe("modelMapping helpers", () => {
         tool: "antigravity",
         strategy: "fallback",
         handlers: { antigravity: { intercept } },
-        passthrough: vi.fn(),
+        interceptOptions: { debugContext: null },
         log: vi.fn(),
         err: vi.fn(),
       });

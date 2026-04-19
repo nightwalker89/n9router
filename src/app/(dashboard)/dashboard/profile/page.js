@@ -3,11 +3,13 @@
 import { useState, useEffect, useRef } from "react";
 import { Card, Button, Toggle, Input } from "@/shared/components";
 import { useTheme } from "@/shared/hooks/useTheme";
+import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG } from "@/shared/constants/config";
 
 export default function ProfilePage() {
   const { theme, setTheme, isDark } = useTheme();
+  const { copied, copy } = useCopyToClipboard();
   const [settings, setSettings] = useState({ fallbackStrategy: "fill-first" });
   const [loading, setLoading] = useState(true);
   const [passwords, setPasswords] = useState({ current: "", new: "", confirm: "" });
@@ -253,6 +255,21 @@ export default function ProfilePage() {
     }
   };
 
+  const updateMitmAntigravityDebugLogsEnabled = async (enabled) => {
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mitmAntigravityDebugLogsEnabled: enabled }),
+      });
+      if (res.ok) {
+        setSettings(prev => ({ ...prev, mitmAntigravityDebugLogsEnabled: enabled }));
+      }
+    } catch (err) {
+      console.error("Failed to update mitmAntigravityDebugLogsEnabled:", err);
+    }
+  };
+
   const reloadSettings = async () => {
     try {
       const res = await fetch("/api/settings");
@@ -330,6 +347,8 @@ export default function ProfilePage() {
   };
 
   const observabilityEnabled = settings.enableObservability === true;
+  const mitmAntigravityDebugLogsEnabled = settings.mitmAntigravityDebugLogsEnabled === true;
+  const mitmAntigravityDebugLogDir = settings.mitmAntigravityDebugLogDir || "";
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -648,6 +667,38 @@ export default function ProfilePage() {
               disabled={loading}
             />
           </div>
+          <div className="flex items-center justify-between pt-4 mt-4 border-t border-border/50">
+            <div>
+              <p className="font-medium">Antigravity MITM Debug Logs</p>
+              <p className="text-sm text-text-muted">
+                Write all Antigravity MITM requests to debug log files with masked tokens, related account info, and response payloads
+              </p>
+            </div>
+            <Toggle
+              checked={mitmAntigravityDebugLogsEnabled}
+              onChange={updateMitmAntigravityDebugLogsEnabled}
+              disabled={loading}
+            />
+          </div>
+          {mitmAntigravityDebugLogsEnabled && mitmAntigravityDebugLogDir && (
+            <div className="pt-3 mt-3 border-t border-border/50">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-medium">Log Folder</p>
+                  <p className="mt-1 break-all rounded-md bg-surface/70 px-3 py-2 font-mono text-xs text-text-muted">
+                    {mitmAntigravityDebugLogDir}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => copy(mitmAntigravityDebugLogDir, "mitm-antigravity-log-dir")}
+                >
+                  {copied === "mitm-antigravity-log-dir" ? "Copied!" : "Copy"}
+                </Button>
+              </div>
+            </div>
+          )}
         </Card>
 
         {/* App Info */}

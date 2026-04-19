@@ -1,8 +1,17 @@
 const fs = require("fs");
 
+const FORCED_PASSTHROUGH_MODELS = {
+  antigravity: new Set(["gemini-3.1-flash-lite"]),
+};
+
 function readDb(dbFile) {
   if (!dbFile || !fs.existsSync(dbFile)) return null;
   return JSON.parse(fs.readFileSync(dbFile, "utf-8"));
+}
+
+function shouldPassthroughModel({ tool, model }) {
+  if (!tool || !model) return false;
+  return FORCED_PASSTHROUGH_MODELS[tool]?.has(model) === true;
 }
 
 function normalizeMappedModels(value, limit = 5) {
@@ -35,6 +44,7 @@ function findMappedValue(aliases, model) {
 
 function getMappedModels({ dbFile, tool, model, limit = 5 }) {
   if (!tool || !model) return null;
+  if (shouldPassthroughModel({ tool, model })) return null;
 
   try {
     const db = readDb(dbFile);
@@ -75,7 +85,7 @@ async function tryMappedModels({
   tool,
   strategy,
   handlers,
-  passthrough,
+  interceptOptions,
   log,
   err,
 }) {
@@ -92,7 +102,7 @@ async function tryMappedModels({
     }
 
     try {
-      await handlers[tool].intercept(req, res, bodyBuffer, mappedModel, passthrough);
+      await handlers[tool].intercept(req, res, bodyBuffer, mappedModel, interceptOptions);
       log(`✅ [${tool}] routed via ${mappedModel}`);
       return true;
     } catch (error) {
@@ -116,5 +126,6 @@ module.exports = {
   getMitmAliasStrategy,
   normalizeMappedModels,
   orderMappedModels,
+  shouldPassthroughModel,
   tryMappedModels,
 };
