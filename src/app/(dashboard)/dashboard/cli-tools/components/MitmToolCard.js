@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, Button, Badge, Input, ModelSelectModal } from "@/shared/components";
 import MultiModelMappingEditor from "./MultiModelMappingEditor";
 import { useMitmMultiModelMappings } from "./useMitmMultiModelMappings";
+import { useMitmModelNameOverrides } from "./useMitmModelNameOverrides";
 import Image from "next/image";
 
 /**
@@ -51,12 +52,27 @@ export default function MitmToolCard({
     selectedStrategy,
     setModalOpen,
   } = useMitmMultiModelMappings(tool.id);
+  const {
+    cancelModelNameEdit,
+    commitModelName,
+    editingModelNameId,
+    loadNameOverrides,
+    modelNameDraft,
+    modelNameFeedback,
+    nameOverrides,
+    resetModelName,
+    setModelNameDraft,
+    startModelNameEdit,
+  } = useMitmModelNameOverrides(tool.id);
 
   const isWindows = typeof navigator !== "undefined" && navigator.userAgent?.includes("Windows");
 
   useEffect(() => {
-    if (isExpanded) loadSavedMappings();
-  }, [isExpanded, loadSavedMappings]);
+    if (isExpanded) {
+      loadSavedMappings();
+      if (tool.id === "antigravity") loadNameOverrides();
+    }
+  }, [isExpanded, loadNameOverrides, loadSavedMappings, tool.id]);
 
 
   const handleDnsToggle = () => {
@@ -190,7 +206,15 @@ export default function MitmToolCard({
                 onRemoveEntry={handleRemoveMapping}
                 onReorderEntry={handleReorderMapping}
                 onChangeStrategy={handleStrategyChange}
-                feedback={mappingFeedback}
+                feedback={[mappingFeedback, modelNameFeedback].filter(Boolean).join(" ")}
+                modelNameOverrides={nameOverrides}
+                editingModelNameId={editingModelNameId}
+                modelNameDraft={modelNameDraft}
+                onStartModelNameEdit={startModelNameEdit}
+                onChangeModelNameDraft={setModelNameDraft}
+                onCommitModelName={commitModelName}
+                onCancelModelNameEdit={cancelModelNameEdit}
+                onResetModelName={resetModelName}
               />
             )}
 

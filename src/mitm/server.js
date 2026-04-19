@@ -21,6 +21,7 @@ const { isTokenSwapEnabled, getAllActiveConnections, triggerRefreshIfNeeded,
 const { createAntigravityDebugContext, maskToken } = require("./antigravityDebugLog");
 const { getCertForDomain } = require("./cert/generate");
 const { buildInputOnlyRequestDetail, createTokenSwapUsageObserver, generateDetailId } = require("./usageTracker");
+const { handleAntigravityAvailableModels } = require("./handlers/antigravityAvailableModels");
 
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const LOCAL_PORT = 443;
@@ -82,7 +83,21 @@ try {
 const cachedTargetIPs = {};
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
+function isIPAddress(hostname) {
+  // IPv4 pattern: 0-255.0-255.0-255.0-255
+  const ipv4Pattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+  // IPv6 pattern (simplified - matches most common forms)
+  const ipv6Pattern = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/;
+  return ipv4Pattern.test(hostname) || ipv6Pattern.test(hostname);
+}
+
 async function resolveTargetIP(hostname) {
+  // If hostname is already an IP address, return it directly
+  if (isIPAddress(hostname)) {
+    log(`⚠️ [DNS] Host header is IP address: ${hostname} (skipping resolution)`);
+    return hostname;
+  }
+
   const cached = cachedTargetIPs[hostname];
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.ip;
   const resolver = new dns.Resolver();
@@ -460,6 +475,11 @@ function isRetryableAuthFailure(statusCode, headers, body) {
   return false;
 }
 
+function isAntigravityAvailableModelsRequest(req) {
+  const pathOnly = String(req.url || "").split("?")[0];
+  return req.method === "POST" && pathOnly === "/v1internal:fetchAvailableModels";
+}
+
 // ── Request handler ───────────────────────────────────────────
 
 const server = https.createServer(sslOptions, async (req, res) => {
@@ -498,6 +518,19 @@ const server = https.createServer(sslOptions, async (req, res) => {
 
     const patterns = URL_PATTERNS[tool] || [];
     const isChat = patterns.some(p => req.url.includes(p));
+    if (!isChat && tool === "antigravity" && isAntigravityAvailableModelsRequest(req)) {
+      return handleAntigravityAvailableModels({
+        req,
+        res,
+        bodyBuffer,
+        dbFile: DB_FILE,
+        resolveTargetIP,
+        debugContext,
+        log,
+        err,
+      });
+    }
+
     if (!isChat) {
       // log(`⏩ [request] url="${req.url}" not a chat pattern for tool=${tool}, passthrough`);
       debugContext?.log("route.selected", {

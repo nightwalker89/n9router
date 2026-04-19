@@ -26,6 +26,14 @@ export default function MultiModelMappingEditor({
   onChangeStrategy,
   feedback,
   compact = false,
+  modelNameOverrides = {},
+  editingModelNameId = null,
+  modelNameDraft = "",
+  onStartModelNameEdit,
+  onChangeModelNameDraft,
+  onCommitModelName,
+  onCancelModelNameEdit,
+  onResetModelName,
 }) {
   const rowLabelClass = compact
     ? "w-32 shrink-0 text-sm font-semibold text-text-main text-right"
@@ -41,6 +49,7 @@ export default function MultiModelMappingEditor({
     ? "h-8 px-2.5 inline-flex items-center justify-center rounded-md border border-border text-[11px] font-medium text-text-main transition-colors shrink-0 whitespace-nowrap"
     : "h-8 px-2.5 inline-flex items-center justify-center rounded-md border border-border text-[11px] font-medium text-text-main transition-colors shrink-0";
   const disabled = !dnsActive;
+  const canEditModelNames = tool.id === "antigravity" && typeof onStartModelNameEdit === "function";
 
   return (
     <div className="flex flex-col gap-3">
@@ -74,14 +83,70 @@ export default function MultiModelMappingEditor({
         {tool.defaultModels?.map((model) => {
           const entries = Array.isArray(mappings?.[model.alias]) ? mappings[model.alias] : [];
           const canAdd = dnsActive && entries.length < MAX_MITM_ALIAS_MODELS;
+          const customName = modelNameOverrides?.[model.alias] || "";
+          const displayName = customName || model.name;
+          const isEditingName = editingModelNameId === model.alias;
 
           return (
             <div key={model.alias} className="rounded-xl border border-border/70 bg-surface/40 p-3">
               <div className="flex items-start gap-3">
                 <div className={rowLabelClass}>
-                  <div className="flex flex-col gap-1">
-                    <span>{model.name}</span>
+                  <div className="flex flex-col items-end gap-1">
+                    {canEditModelNames && isEditingName ? (
+                      <input
+                        type="text"
+                        value={modelNameDraft}
+                        onChange={(event) => onChangeModelNameDraft?.(event.target.value)}
+                        onBlur={(event) => {
+                          if (event.currentTarget.dataset.cancelled === "true") return;
+                          onCommitModelName?.(model.alias, event.target.value);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            event.currentTarget.blur();
+                          }
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            event.currentTarget.dataset.cancelled = "true";
+                            onCancelModelNameEdit?.();
+                          }
+                        }}
+                        autoFocus
+                        className="w-full rounded-md border border-border bg-surface px-2 py-1 text-right text-xs font-semibold text-text-main focus:outline-none focus:ring-1 focus:ring-primary/50"
+                        aria-label={`Shown name for ${model.name}`}
+                      />
+                    ) : (
+                      <span className="flex max-w-full items-center justify-end gap-1">
+                        <span className="truncate">{displayName}</span>
+                        {canEditModelNames && (
+                          <button
+                            type="button"
+                            onClick={() => onStartModelNameEdit(model.alias, model.name)}
+                            className="inline-flex size-5 shrink-0 items-center justify-center rounded-md border border-transparent text-text-muted transition-colors hover:border-border hover:text-primary"
+                            title="Edit name shown in Antigravity"
+                            aria-label={`Edit name shown in Antigravity for ${model.name}`}
+                          >
+                            <span className="material-symbols-outlined text-[14px]">edit</span>
+                          </button>
+                        )}
+                      </span>
+                    )}
+                    {customName && !isEditingName && (
+                      <span className="max-w-full truncate text-[10px] font-normal text-text-muted">
+                        Original: {model.name}
+                      </span>
+                    )}
                     <span className="text-[10px] font-normal text-text-muted">Max {MAX_MITM_ALIAS_MODELS} targets</span>
+                    {customName && !isEditingName && typeof onResetModelName === "function" && (
+                      <button
+                        type="button"
+                        onClick={() => onResetModelName(model.alias)}
+                        className="text-[10px] font-normal text-text-muted underline-offset-2 hover:text-primary hover:underline"
+                      >
+                        Reset name
+                      </button>
+                    )}
                   </div>
                 </div>
 
