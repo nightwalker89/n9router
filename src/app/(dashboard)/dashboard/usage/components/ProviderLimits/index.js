@@ -495,6 +495,14 @@ export default function ProviderLimits() {
                           {conn.name}
                         </p>
                       )}
+                      {conn.provider === "kiro" && conn.id && (
+                        <p
+                          className="text-[10px] text-text-muted/70 font-mono truncate"
+                          title={`Connection ID: ${conn.id}`}
+                        >
+                          {conn.id}
+                        </p>
+                      )}
                     </div>
                   </div>
 
