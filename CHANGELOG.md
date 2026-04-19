@@ -2,6 +2,44 @@
 
 All notable changes to **n9router** will be documented in this file.
 
+## v0.4.8 (2026-04-19)
+
+### Features
+- Add Kiro AWS Identity Center device flow for provider OAuth (`b1288c5`)
+- Add marked package for Markdown rendering and enhance changelog styles (`75c4598`)
+- Add TTS (Text-to-Speech) core handler and TTS models config
+- Add suggested models API endpoint
+- Add proactive token refresh lead times for providers and Codex proxy management (`04cdb75`)
+- Add Blackbox AI as a supported provider (#599) (`3badf1c`)
+- Add multi-model support for Factory Droid CLI tool (#521) (`1d872ce`)
+- Add GLM-5 and MiniMax-M2.5 models to Kiro provider (#580) (`aa67198`)
+
+### Improvements
+- Refactor error handling to config-driven approach with centralized error rules (`b669b6f`)
+- Refactor localDb and usageDb for cleaner structure (`75ad0be`)
+- Update Qwen executor for OAuth handling (`75c4598`)
+- Enhance error formatting to include low-level cause details (`3977edc`)
+- Refactor HeaderMenu to use MenuItem component for better structure (`3977edc`)
+- Improve LanguageSwitcher to support controlled open state (`3977edc`)
+- Update backoff configuration and improve CLI detection messages (`6ab9927`)
+- Add installation guides for manual configuration in tool cards (Droid, Claude, OpenClaw) (`6ab9927`)
+- Enhance Windows Tailscale installation with curl support and well-known Windows path fallback (`6bec1e0`)
+- Refactor execSync and spawn calls with windowsHide option for better Windows compatibility (`1fa05eb`)
+- Auto-build Docker image on tag push (#547) (`befb2bc`)
+
+### Fixes
+- Fix Codex image URL fetches to await before sending upstream (#575) (`d0ace2a`)
+- Strip thinking/reasoning_effort for GitHub Copilot chat completions (#623) (`afe09f3`)
+- Show quota auth expired message for Kiro social auth accounts (#588) (`2e8784c`)
+- Enable Codex Apply/Reset buttons when CLI is installed (#591) (`877b744`)
+- Show manual config option when Claude CLI detection fails (#589) (`f27db54`)
+- Show manual config option when OpenClaw detection fails (#579) (`63dbf89`)
+- Ensure LocalMutex acquire returns release callback correctly (#569) (`dac6c39`)
+- Strip enumDescriptions from tool schema in antigravity-to-openai (#566) (`6e8aaab`)
+- Strip temperature parameter for gpt-5.4 model (#536) (`554bbfc`)
+- Fix noAuth support for providers and adjusted MITM restart settings (`6a6e2fc`)
+- Fix usage tracking bug (`75ad0be`)
+
 ## v0.4.7 (2026-04-14)
 
 ### Features
@@ -60,6 +98,67 @@ All notable changes to **n9router** will be documented in this file.
 
 ### Docs
 - Add Token Swap Pool feature to README (`199940a`)
+
+## v0.3.96 (2026-04-17)
+
+### Features
+- Add marked package for Markdown rendering
+- Enhance changelog styles
+
+### Improvements
+- Refactor error handling to config-driven approach with centralized error rules
+- Refactor localDb structure
+- Update Qwen executor for OAuth handling
+- Enhance error formatting to include low-level cause details
+- Refactor HeaderMenu to use MenuItem component
+- Improve LanguageSwitcher to support controlled open state
+- Update backoff configuration and improve CLI detection messages
+- Add installation guides for manual configuration in tool cards (Droid, Claude, OpenClaw)
+
+### Fixes
+- Fix Codex image URL fetches to await before sending upstream (#575)
+- Strip thinking/reasoning_effort for GitHub Copilot chat completions (#623)
+- Enable Codex Apply/Reset buttons when CLI is installed (#591)
+- Show manual config option when Claude CLI detection fails (#589)
+- Show manual config option when OpenClaw detection fails (#579)
+- Ensure LocalMutex acquire returns release callback correctly (#569)
+- Strip enumDescriptions from tool schema in antigravity-to-openai (#566)
+- Strip temperature parameter for gpt-5.4 model (#536)
+- Add Blackbox AI as a supported provider (#599)
+- Add multi-model support for Factory Droid CLI tool (#521)
+- Add GLM-5 and MiniMax-M2.5 models to Kiro provider (#580)
+- Fix usage tracking bug
+
+## v0.3.91 (2026-04-15)
+
+### Features
+- Add Kiro AWS Identity Center device flow for provider OAuth
+- Add TTS (Text-to-Speech) core handler and TTS models config
+- Add media providers dashboard page
+- Add suggested models API endpoint
+
+### Improvements
+- Refactor error handling to config-driven approach with centralized error rules
+- Refactor localDb and usageDb for cleaner structure
+
+### Fixes
+- Fix usage tracking bug
+
+## v0.3.90 (2026-04-14)
+
+### Features
+- Add proactive token refresh lead times for providers and Codex proxy management
+- Enhance CodexExecutor with compact URL support
+
+### Improvements
+- Enhance Windows Tailscale installation with curl support and fallback to well-known Windows path
+- Refactor execSync and spawn calls with windowsHide option for better Windows compatibility
+
+### Fixes
+- Fix noAuth support for providers and adjusted MITM restart settings
+- Bug fixes
+
+## v0.3.89 (2026-04-13)
 
 ## v0.3.83 (2026-04-08)
 

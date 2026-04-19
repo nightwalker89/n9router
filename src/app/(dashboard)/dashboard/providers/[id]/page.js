@@ -726,8 +726,9 @@ export default function ProviderDetailPage() {
         {/* Suggested models from provider API — show only models not yet added */}
         {suggestedModels.length > 0 && (() => {
           const addedFullModels = new Set(Object.values(modelAliases));
+          const hardcodedIds = new Set(models.map((m) => m.id));
           const notAdded = suggestedModels.filter(
-            (m) => !addedFullModels.has(`${providerStorageAlias}/${m.id}`)
+            (m) => !addedFullModels.has(`${providerStorageAlias}/${m.id}`) && !hardcodedIds.has(m.id)
           );
           if (notAdded.length === 0) return null;
           return (
@@ -926,7 +927,7 @@ export default function ProviderDetailPage() {
             <h2 className="text-lg font-semibold">Connections</h2>
             <div className="flex items-center gap-4">
               {/* Thinking config */}
-              {thinkingConfig && (
+              {/* {thinkingConfig && (
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-text-muted font-medium">Thinking</span>
                   <select
@@ -939,7 +940,7 @@ export default function ProviderDetailPage() {
                     ))}
                   </select>
                 </div>
-              )}
+              )} */}
               {/* Round Robin toggle */}
               <div className="flex items-center gap-2">
                 <span className="text-xs text-text-muted font-medium">Round Robin</span>
