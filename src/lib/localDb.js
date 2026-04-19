@@ -36,6 +36,8 @@ const DEFAULT_SETTINGS = {
   outboundProxyUrl: "",
   outboundNoProxy: "",
   mitmRouterBaseUrl: DEFAULT_MITM_ROUTER_BASE,
+  mitmAliasStrategy: "round-robin",
+  mitmAliasRoundRobinState: {},
 };
 
 function cloneDefaultData() {

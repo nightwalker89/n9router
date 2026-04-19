@@ -99,11 +99,17 @@ describe("modelMapping helpers", () => {
   });
 
   describe("getMitmAliasStrategy", () => {
-    it("defaults to round-robin and accepts fallback", () => {
+    it("defaults to round-robin and reads fallback from settings", () => {
       const missing = createTempDb({});
       expect(helpers.getMitmAliasStrategy({ dbFile: missing.dbFile })).toBe("round-robin");
       missing.cleanup();
 
+      const tmp = createTempDb({ settings: { mitmAliasStrategy: "fallback" } });
+      expect(helpers.getMitmAliasStrategy({ dbFile: tmp.dbFile })).toBe("fallback");
+      tmp.cleanup();
+    });
+
+    it("accepts the legacy top-level fallback location", () => {
       const tmp = createTempDb({ mitmAliasStrategy: "fallback" });
       expect(helpers.getMitmAliasStrategy({ dbFile: tmp.dbFile })).toBe("fallback");
       tmp.cleanup();
@@ -111,17 +117,41 @@ describe("modelMapping helpers", () => {
   });
 
   describe("orderMappedModels", () => {
-    afterEach(() => {
-      vi.restoreAllMocks();
-    });
-
     it("keeps fallback order intact", () => {
-      expect(helpers.orderMappedModels(["a", "b", "c"], "fallback")).toEqual(["a", "b", "c"]);
+      expect(helpers.orderMappedModels({
+        models: ["a", "b", "c"],
+        strategy: "fallback",
+      })).toEqual(["a", "b", "c"]);
     });
 
-    it("rotates round-robin order from a random starting index", () => {
-      vi.spyOn(Math, "random").mockReturnValue(0.5);
-      expect(helpers.orderMappedModels(["a", "b", "c", "d"], "round-robin")).toEqual(["c", "d", "a", "b"]);
+    it("rotates round-robin order sequentially per alias", () => {
+      const tmp = createTempDb({ settings: { mitmAliasRoundRobinState: {} } });
+
+      expect(helpers.orderMappedModels({
+        dbFile: tmp.dbFile,
+        tool: "antigravity",
+        aliasKey: "gemini-3-flash",
+        models: ["cx/gpt-5.4", "kr/claude-sonnet-4.5"],
+        strategy: "round-robin",
+      })).toEqual(["cx/gpt-5.4", "kr/claude-sonnet-4.5"]);
+
+      expect(helpers.orderMappedModels({
+        dbFile: tmp.dbFile,
+        tool: "antigravity",
+        aliasKey: "gemini-3-flash",
+        models: ["cx/gpt-5.4", "kr/claude-sonnet-4.5"],
+        strategy: "round-robin",
+      })).toEqual(["kr/claude-sonnet-4.5", "cx/gpt-5.4"]);
+
+      expect(helpers.orderMappedModels({
+        dbFile: tmp.dbFile,
+        tool: "antigravity",
+        aliasKey: "gemini-3-flash",
+        models: ["cx/gpt-5.4", "kr/claude-sonnet-4.5"],
+        strategy: "round-robin",
+      })).toEqual(["cx/gpt-5.4", "kr/claude-sonnet-4.5"]);
+
+      tmp.cleanup();
     });
   });
 
@@ -158,7 +188,7 @@ describe("modelMapping helpers", () => {
       expect(intercept.mock.calls[1][3]).toBe("m2");
       expect(intercept.mock.calls[0][4]).toBe(interceptOptions);
       expect(errorLog).toHaveBeenCalledWith("[antigravity] m1 failed: boom");
-      expect(log).toHaveBeenCalledWith("⚡ [antigravity] fb [1/2]: trying m1");
+      expect(log).toHaveBeenCalledWith("⚡ [antigravity] mode=fb [1/2]: trying m1");
       expect(log).toHaveBeenCalledWith("↪️ [antigravity] falling back to next mapped model");
       expect(log).toHaveBeenCalledWith("✅ [antigravity] routed via m2");
     });

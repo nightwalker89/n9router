@@ -7,7 +7,7 @@ const { log, err } = require("./logger");
 const { TARGET_HOSTS, URL_PATTERNS, getToolForHost } = require("./config");
 const { DATA_DIR, MITM_DIR } = require("./paths");
 const {
-  getMappedModels,
+  getMappedModelSelection,
   getMitmAliasStrategy,
   shouldPassthroughModel,
   tryMappedModels,
@@ -565,8 +565,8 @@ const server = https.createServer(sslOptions, async (req, res) => {
 
     log(`🔍 [${tool}] model="${model}"`);
 
-    const mappedModels = getMappedModels({ dbFile: DB_FILE, tool, model });
-    if (!mappedModels) {
+    const mappedSelection = getMappedModelSelection({ dbFile: DB_FILE, tool, model });
+    if (!mappedSelection) {
       // log(`⏩ passthrough | no mapping | ${tool} | ${model || "unknown"}`);
       debugContext?.log("route.selected", {
         tool,
@@ -576,20 +576,25 @@ const server = https.createServer(sslOptions, async (req, res) => {
       return passthrough(req, res, bodyBuffer, null, debugContext);
     }
 
-    log(`⚡ intercept | ${tool} | ${model} → ${mappedModels.join(", ")}`);
+    const { aliasKey, models: mappedModels } = mappedSelection;
     const strategy = getMitmAliasStrategy({ dbFile: DB_FILE });
+    const strategyTag = strategy === "round-robin" ? "rr" : "fb";
+    log(`⚡ intercept | ${tool} | mode=${strategyTag} | ${model} → ${mappedModels.join(", ")}`);
     debugContext?.log("route.selected", {
       tool,
       mode: "mapped",
+      aliasKey,
       mappedModels,
       strategy,
     });
     const handled = await tryMappedModels({
+      dbFile: DB_FILE,
       req,
       res,
       bodyBuffer,
       models: mappedModels,
       tool,
+      aliasKey,
       strategy,
       handlers,
       interceptOptions: { debugContext },
