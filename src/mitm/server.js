@@ -17,7 +17,8 @@ const { isTokenSwapEnabled, getAllActiveConnections, triggerRefreshIfNeeded,
         recordStrike, recordModelStrike, clearStrikes, clearModelStrikes,
         getTokenSwapStrategy,
         parseQuotaCooldown, shouldImmediateQuotaCooldown,
-        markAccountUsed, getConnectionLabel, getTokenSwapAvailabilitySummary } = require("./tokenPool");
+        markAccountUsed, getConnectionLabel, getTokenSwapAvailabilitySummary,
+        getAntigravity503RetryCount } = require("./tokenPool");
 const { createAntigravityDebugContext, maskToken } = require("./antigravityDebugLog");
 const { getCertForDomain } = require("./cert/generate");
 const { buildInputOnlyRequestDetail, createTokenSwapUsageObserver, generateDetailId } = require("./usageTracker");
@@ -232,6 +233,27 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
         });
 
         if (result.retry && result.retryType === "quota") {
+          // ── 503 in-place retry: retry same account before switching ──
+          if (result.statusCode === 503) {
+            const max503 = getAntigravity503RetryCount(conn.antigravity503RetryCount);
+            if (!conn._503retryCount) conn._503retryCount = 0;
+            conn._503retryCount++;
+
+            if (conn._503retryCount < max503) {
+              const backoffMs = Math.min(1000 * Math.pow(2, conn._503retryCount - 1), 10000);
+              log(`🔄 [token-swap] "${label}" → 503 retry ${conn._503retryCount}/${max503} after ${backoffMs / 1000}s`);
+              debugContext?.log("token_swap.503_retry", {
+                attempt: conn._503retryCount,
+                maxRetries: max503,
+                backoffMs,
+                connectionId: conn.id || null,
+              });
+              await new Promise(r => setTimeout(r, backoffMs));
+              continue; // retry same account (stays in while(true) loop)
+            }
+            log(`⚠️ [token-swap] "${label}" → 503 exhausted ${max503} retries`);
+          }
+
           const cooldownMs = parseQuotaCooldown(result.body);
           const cdLabel = cooldownMs ? ` cooldown=${Math.ceil(cooldownMs / 60000)}m` : "";
           const immediateCooldown = shouldImmediateQuotaCooldown(result.statusCode, result.body);

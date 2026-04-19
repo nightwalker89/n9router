@@ -17,6 +17,8 @@ const DEFAULT_COOLDOWN_MS = 2 * 60 * 1000;
 const DEFAULT_AUTH_COOLDOWN_MS = 10 * 60 * 1000;
 const DEFAULT_STRIKE_THRESHOLD = 3; // consecutive 429s before hard cooldown
 const CAPACITY_EXHAUSTED_COOLDOWN_MS = 60 * 1000;
+// Must match DEFAULT_AG_503_RETRY_COUNT in open-sse/config/runtimeConfig.js
+const DEFAULT_503_RETRY_COUNT = 3;  // default 503 retries per account before switching
 
 // ── In-memory state ──────────────────────────────────────────
 const cooldownMap = {};        // { [connectionId]: expiresTimestamp } quota/general cooldown
@@ -216,6 +218,23 @@ function parseQuotaCooldown(errorBody) {
 function shouldImmediateQuotaCooldown(statusCode, errorBody) {
   if (statusCode !== 503) return false;
   return parseQuotaCooldown(errorBody) != null;
+}
+
+/**
+ * Get effective 503 retry count for a connection.
+ * Priority: per-account override → global setting → DEFAULT_503_RETRY_COUNT
+ * @param {number|null|undefined} connectionOverride - Per-account antigravity503RetryCount
+ * @returns {number}
+ */
+function getAntigravity503RetryCount(connectionOverride) {
+  if (connectionOverride != null && connectionOverride > 0) {
+    return connectionOverride;
+  }
+  try {
+    if (!fs.existsSync(DB_FILE)) return DEFAULT_503_RETRY_COUNT;
+    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
+    return db.settings?.antigravity503RetryCount || DEFAULT_503_RETRY_COUNT;
+  } catch { return DEFAULT_503_RETRY_COUNT; }
 }
 
 // ── Read connections from db.json (sync) ─────────────────────
@@ -568,4 +587,5 @@ module.exports = {
   getConnectionLabel,
   maskEmail,
   getTokenSwapAvailabilitySummary,
+  getAntigravity503RetryCount,
 };

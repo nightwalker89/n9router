@@ -16,6 +16,9 @@ const HIGHLIGHT_MODEL = "claude-sonnet-4-6";
 // Cache TTL: 2 minutes — avoid hammering the upstream API
 const QUOTA_CACHE_TTL_MS = 2 * 60 * 1000;
 
+// Must match DEFAULT_AG_503_RETRY_COUNT in open-sse/config/runtimeConfig.js
+const DEFAULT_503_RETRY_COUNT = 3;
+
 /**
  * Get progress color based on remaining percentage
  */
@@ -92,11 +95,13 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
   const [togglingStrategy, setTogglingStrategy] = useState(false);
   const [maskEmails, setMaskEmails] = useState(false);
   const [togglingMaskEmails, setTogglingMaskEmails] = useState(false);
+  const [retryCount503, setRetryCount503] = useState(DEFAULT_503_RETRY_COUNT); // global 503 retry count
   const [togglingAccountId, setTogglingAccountId] = useState(null);
   const [resettingAccountId, setResettingAccountId] = useState(null);
   const [resettingAll, setResettingAll] = useState(false);
   const [quotas, setQuotas] = useState({}); // { [connId]: { quotas: [], error: string|null, loading: bool, accountType?: string|null } }
   const quotaCacheRef = useRef({}); // { [connId]: { data: parsed, error, ts: number, accountType?: string|null } }
+  const retryCount503TimerRef = useRef(null); // debounce timer for 503 retry save
 
   const fetchEnabled = useCallback(async () => {
     try {
@@ -106,6 +111,7 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
         setEnabled(!!data.tokenSwapEnabled);
         setStrategy(data.tokenSwapStrategy || "round-robin");
         setMaskEmails(!!data.tokenSwapMaskEmails);
+        setRetryCount503(data.antigravity503RetryCount ?? DEFAULT_503_RETRY_COUNT);
       }
     } catch { /* ignore */ }
   }, []);
@@ -388,6 +394,34 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
     setResettingAll(false);
   };
 
+  const setRetryCount503Value = async (val) => {
+    const clamped = Math.max(0, Math.min(20, isNaN(val) ? DEFAULT_503_RETRY_COUNT : val));
+    setRetryCount503(clamped);
+    // Debounce save to avoid rapid API calls while user is typing/stepping
+    if (retryCount503TimerRef.current) clearTimeout(retryCount503TimerRef.current);
+    retryCount503TimerRef.current = setTimeout(async () => {
+      try {
+        await fetch("/api/settings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ antigravity503RetryCount: clamped }),
+        });
+      } catch { /* ignore */ }
+    }, 500);
+  };
+
+  const updateAccountRetryCount = async (accountId, value) => {
+    const parsed = value === "" ? null : Math.max(0, Math.min(20, parseInt(value) || 0));
+    try {
+      await fetch(`/api/providers/${accountId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ antigravity503RetryCount: parsed }),
+      });
+      await onRefreshConnections?.();
+    } catch { /* ignore */ }
+  };
+
   return (
     <Card padding="xs" className="overflow-hidden">
       {/* ── Header ────────────────────────────────── */}
@@ -565,6 +599,26 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
               </button>
             </div>
 
+            {/* 503 Retry Count (global) */}
+            <div className="flex items-center justify-between gap-3 px-2 py-2 rounded-lg border border-border bg-surface-alt/40">
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium text-text-main">503 Retry Count</p>
+                <p className="text-[10px] text-text-muted">
+                  Retry 503 &quot;high traffic&quot; errors on same account before switching. Google often returns false 503s.
+                </p>
+              </div>
+              <input
+                type="number"
+                min="0"
+                max="20"
+                step="1"
+                value={retryCount503}
+                onChange={(e) => setRetryCount503Value(parseInt(e.target.value))}
+                className="w-14 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text-main text-center focus:outline-none focus:border-violet-500 transition-colors"
+                title="Global 503 retry count (0-20). Each account can override this."
+              />
+            </div>
+
             {providerAccounts.length > 0 ? (
               <>
                 {providerAccounts.map((acc) => {
@@ -602,6 +656,20 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
                         <div className="mt-1 flex items-center gap-2 flex-wrap text-[10px] text-text-muted">
                           <span>Priority #{acc.priority ?? "-"}</span>
                           {acc.lastUsedAt && <span>Last used {new Date(acc.lastUsedAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</span>}
+                          <span className="flex items-center gap-1">
+                            503 retries:
+                            <input
+                              type="number"
+                              min="0"
+                              max="20"
+                              step="1"
+                              value={acc.antigravity503RetryCount ?? ""}
+                              placeholder={String(retryCount503)}
+                              onChange={(e) => updateAccountRetryCount(acc.id, e.target.value)}
+                              className="w-10 rounded border border-border bg-surface px-1 py-0.5 text-[10px] text-center text-text-main placeholder:text-text-muted/50 focus:outline-none focus:border-violet-500 transition-colors"
+                              title={`Override 503 retry count for this account (global default: ${retryCount503}). Leave empty to use global.`}
+                            />
+                          </span>
                         </div>
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
