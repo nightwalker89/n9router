@@ -34,6 +34,7 @@
   "scripts": {
     "dev": "next dev --webpack --port 20128",
     "build": "NODE_ENV=production next build --webpack",
+    "postbuild": "cp -r public .next/standalone/ && cp -r .next/static .next/standalone/.next/",
     "start": "NODE_ENV=production next start",
     "dev:bun": "bun --bun next dev --webpack --port 20128",
     "build:bun": "NODE_ENV=production bun --bun next build --webpack",
