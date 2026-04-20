@@ -227,13 +227,15 @@ function shouldImmediateQuotaCooldown(statusCode, errorBody) {
  * @returns {number}
  */
 function getAntigravity503RetryCount(connectionOverride) {
-  if (connectionOverride != null && connectionOverride > 0) {
+  // Per-account override takes priority — even 0 (no retries) is a valid override
+  if (connectionOverride != null) {
     return connectionOverride;
   }
+  // Global setting from db.json — 0 is valid ("switch immediately, no retry")
   try {
     if (!fs.existsSync(DB_FILE)) return DEFAULT_503_RETRY_COUNT;
     const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
-    return db.settings?.antigravity503RetryCount || DEFAULT_503_RETRY_COUNT;
+    return db.settings?.antigravity503RetryCount ?? DEFAULT_503_RETRY_COUNT;
   } catch { return DEFAULT_503_RETRY_COUNT; }
 }
 

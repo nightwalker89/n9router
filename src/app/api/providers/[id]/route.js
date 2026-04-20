@@ -100,6 +100,7 @@ export async function PUT(request, { params }) {
       lastErrorAt,
       lastUsedAt,
       consecutiveUseCount,
+      antigravity503RetryCount,
       providerSpecificData
     } = body;
 
@@ -130,6 +131,7 @@ export async function PUT(request, { params }) {
     if (lastErrorAt !== undefined) updateData.lastErrorAt = lastErrorAt;
     if (lastUsedAt !== undefined) updateData.lastUsedAt = lastUsedAt;
     if (consecutiveUseCount !== undefined) updateData.consecutiveUseCount = consecutiveUseCount;
+    if (antigravity503RetryCount !== undefined) updateData.antigravity503RetryCount = antigravity503RetryCount;
 
     if (
       shouldMergeProviderSpecificData(

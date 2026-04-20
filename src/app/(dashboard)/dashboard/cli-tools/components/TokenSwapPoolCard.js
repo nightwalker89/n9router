@@ -96,12 +96,14 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
   const [maskEmails, setMaskEmails] = useState(false);
   const [togglingMaskEmails, setTogglingMaskEmails] = useState(false);
   const [retryCount503, setRetryCount503] = useState(DEFAULT_503_RETRY_COUNT); // global 503 retry count
+  const [accountRetryOverrides, setAccountRetryOverrides] = useState({}); // local optimistic state for per-account 503 retry inputs
   const [togglingAccountId, setTogglingAccountId] = useState(null);
   const [resettingAccountId, setResettingAccountId] = useState(null);
   const [resettingAll, setResettingAll] = useState(false);
   const [quotas, setQuotas] = useState({}); // { [connId]: { quotas: [], error: string|null, loading: bool, accountType?: string|null } }
   const quotaCacheRef = useRef({}); // { [connId]: { data: parsed, error, ts: number, accountType?: string|null } }
-  const retryCount503TimerRef = useRef(null); // debounce timer for 503 retry save
+  const retryCount503TimerRef = useRef(null); // debounce timer for global 503 retry save
+  const accountRetryTimersRef = useRef({}); // debounce timers for per-account 503 retry saves
 
   const fetchEnabled = useCallback(async () => {
     try {
@@ -119,6 +121,21 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
   useEffect(() => {
     fetchEnabled();
   }, [fetchEnabled]);
+
+  // Sync per-account retry overrides from connections prop (only for accounts that have a value set)
+  // We use a functional updater so we don't overwrite values the user is currently editing
+  useEffect(() => {
+    setAccountRetryOverrides(prev => {
+      const next = { ...prev };
+      connections.forEach(c => {
+        // Only initialise — don't overwrite if already in state (user may be mid-edit)
+        if (!(c.id in next)) {
+          next[c.id] = c.antigravity503RetryCount != null ? String(c.antigravity503RetryCount) : "";
+        }
+      });
+      return next;
+    });
+  }, [connections]);
 
   // Fetch quota for each pool account (with cache)
   const fetchQuotas = useCallback(async (accounts, force = false) => {
@@ -410,16 +427,45 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
     }, 500);
   };
 
-  const updateAccountRetryCount = async (accountId, value) => {
-    const parsed = value === "" ? null : Math.max(0, Math.min(20, parseInt(value) || 0));
-    try {
-      await fetch(`/api/providers/${accountId}`, {
+  const updateAccountRetryCount = (accountId, value) => {
+    // Update local state immediately so the user can type freely
+    setAccountRetryOverrides(prev => ({ ...prev, [accountId]: value }));
+
+    // Debounce the API save — no onRefreshConnections here so the input isn't reset mid-type
+    if (accountRetryTimersRef.current[accountId]) clearTimeout(accountRetryTimersRef.current[accountId]);
+    accountRetryTimersRef.current[accountId] = setTimeout(async () => {
+      const parsed = value === "" ? null : Math.max(0, Math.min(20, parseInt(value) || 0));
+      try {
+        await fetch(`/api/providers/${accountId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ antigravity503RetryCount: parsed }),
+        });
+      } catch { /* ignore */ }
+    }, 500);
+  };
+
+  // Toggle custom 503 retry on/off for an account
+  const toggleAccountCustomRetry = (accountId, currentHasCustom) => {
+    if (currentHasCustom) {
+      // Revert to global default — save null immediately
+      setAccountRetryOverrides(prev => ({ ...prev, [accountId]: "" }));
+      if (accountRetryTimersRef.current[accountId]) clearTimeout(accountRetryTimersRef.current[accountId]);
+      fetch(`/api/providers/${accountId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ antigravity503RetryCount: parsed }),
-      });
-      await onRefreshConnections?.();
-    } catch { /* ignore */ }
+        body: JSON.stringify({ antigravity503RetryCount: null }),
+      }).catch(() => {});
+    } else {
+      // Enable custom — default to the current global value
+      const customVal = String(retryCount503);
+      setAccountRetryOverrides(prev => ({ ...prev, [accountId]: customVal }));
+      fetch(`/api/providers/${accountId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ antigravity503RetryCount: retryCount503 }),
+      }).catch(() => {});
+    }
   };
 
   return (
@@ -576,47 +622,42 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
             <p className="text-[10px] text-text-muted px-0.5">
               Round robin uses least-recently-used ordering. Accounts with no usage timestamp are tried first, then older timestamps rotate ahead of newer ones.
             </p>
-            <div className="flex items-center justify-between gap-3 px-2 py-2 rounded-lg border border-border bg-surface-alt/40">
-              <div className="min-w-0">
-                <p className="text-[11px] font-medium text-text-main">Mask account emails</p>
-                <p className="text-[10px] text-text-muted">
-                  Hide pool account emails in token swap logs and this panel. Example: {maskEmail("email@gmail.com")}
-                </p>
-              </div>
+            {/* Compact controls row: Mask emails + 503 retry count */}
+            <div className="flex items-center gap-2 px-1.5 py-1.5 rounded-lg border border-border bg-surface-alt/40">
+              {/* Mask emails */}
               <button
                 onClick={toggleMaskEmails}
                 disabled={togglingMaskEmails}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ${
-                  maskEmails ? "bg-violet-500" : "bg-surface border border-border"
-                } ${togglingMaskEmails ? "opacity-50" : "cursor-pointer"}`}
-                title={maskEmails ? "Disable email masking" : "Enable email masking"}
+                title={`${maskEmails ? "Disable" : "Enable"} email masking — hides pool account emails in logs and this panel (e.g. ${maskEmail("email@gmail.com")})`}
+                className={`flex items-center gap-1.5 flex-1 min-w-0 px-1.5 py-1 rounded-md transition-colors text-left ${togglingMaskEmails ? "opacity-50" : "hover:bg-surface-alt cursor-pointer"}`}
               >
-                <span
-                  className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow-sm ${
-                    maskEmails ? "translate-x-4" : "translate-x-0.5"
-                  }`}
-                />
+                <span className={`material-symbols-outlined text-[13px] shrink-0 ${maskEmails ? "text-violet-400" : "text-text-muted"}`}>alternate_email</span>
+                <span className={`text-[11px] font-medium truncate ${maskEmails ? "text-violet-300" : "text-text-muted"}`}>Mask emails</span>
+                <span className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors shrink-0 ml-auto ${maskEmails ? "bg-violet-500" : "bg-surface-alt border border-border"}`}>
+                  <span className={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform shadow-sm ${maskEmails ? "translate-x-3.5" : "translate-x-0.5"}`} />
+                </span>
               </button>
-            </div>
 
-            {/* 503 Retry Count (global) */}
-            <div className="flex items-center justify-between gap-3 px-2 py-2 rounded-lg border border-border bg-surface-alt/40">
-              <div className="min-w-0">
-                <p className="text-[11px] font-medium text-text-main">503 Retry Count</p>
-                <p className="text-[10px] text-text-muted">
-                  Retry 503 &quot;high traffic&quot; errors on same account before switching. Google often returns false 503s.
-                </p>
+              <div className="w-px h-5 bg-border shrink-0" />
+
+              {/* 503 Retry Count */}
+              <div
+                className="flex items-center gap-1.5 shrink-0"
+                title="Global 503 retry count (0–20). Retry &quot;high traffic&quot; errors on same account before switching. Each account row can override this."
+              >
+                <span className="material-symbols-outlined text-[13px] text-text-muted shrink-0">refresh</span>
+                <span className="text-[11px] text-text-muted whitespace-nowrap">503 retries</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="20"
+                  step="1"
+                  value={retryCount503}
+                  onChange={(e) => setRetryCount503Value(parseInt(e.target.value))}
+                  className="w-10 rounded border border-border bg-surface px-1 py-0.5 text-[11px] text-text-main text-center focus:outline-none focus:border-violet-500 transition-colors"
+                  title="Global 503 retry count (0-20). Each account can override this."
+                />
               </div>
-              <input
-                type="number"
-                min="0"
-                max="20"
-                step="1"
-                value={retryCount503}
-                onChange={(e) => setRetryCount503Value(parseInt(e.target.value))}
-                className="w-14 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text-main text-center focus:outline-none focus:border-violet-500 transition-colors"
-                title="Global 503 retry count (0-20). Each account can override this."
-              />
             </div>
 
             {providerAccounts.length > 0 ? (
@@ -656,20 +697,43 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
                         <div className="mt-1 flex items-center gap-2 flex-wrap text-[10px] text-text-muted">
                           <span>Priority #{acc.priority ?? "-"}</span>
                           {acc.lastUsedAt && <span>Last used {new Date(acc.lastUsedAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</span>}
-                          <span className="flex items-center gap-1">
-                            503 retries:
-                            <input
-                              type="number"
-                              min="0"
-                              max="20"
-                              step="1"
-                              value={acc.antigravity503RetryCount ?? ""}
-                              placeholder={String(retryCount503)}
-                              onChange={(e) => updateAccountRetryCount(acc.id, e.target.value)}
-                              className="w-10 rounded border border-border bg-surface px-1 py-0.5 text-[10px] text-center text-text-main placeholder:text-text-muted/50 focus:outline-none focus:border-violet-500 transition-colors"
-                              title={`Override 503 retry count for this account (global default: ${retryCount503}). Leave empty to use global.`}
-                            />
-                          </span>
+                          {/* 503 retry: show global default OR custom override */}
+                          {(() => {
+                            const localVal = accountRetryOverrides[acc.id];
+                            const hasCustom = localVal != null && localVal !== "";
+                            return hasCustom ? (
+                              <span className="inline-flex items-center gap-1 rounded bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5" title={`Custom 503 retry count for this account. Global default: ${retryCount503}. Auto-saves. Click ↩ to revert.`}>
+                                <span className="text-violet-300">503:</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="20"
+                                  step="1"
+                                  value={localVal}
+                                  onChange={(e) => updateAccountRetryCount(acc.id, e.target.value)}
+                                  className="w-8 rounded border-none bg-transparent text-[10px] text-center text-violet-200 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                  title={`Custom 503 retry count for this account (global: ${retryCount503}). Auto-saves as you type.`}
+                                  autoFocus
+                                />
+                                <button
+                                  onClick={() => toggleAccountCustomRetry(acc.id, true)}
+                                  className="text-violet-400/70 hover:text-text-muted transition-colors leading-none"
+                                  title={`Revert to global default (${retryCount503})`}
+                                >
+                                  <span className="material-symbols-outlined text-[11px]">undo</span>
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => toggleAccountCustomRetry(acc.id, false)}
+                                className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-text-muted hover:bg-surface-alt hover:text-text-main transition-colors"
+                                title={`Using global 503 retry count (${retryCount503}). Click to set a custom value for this account only.`}
+                              >
+                                <span>503: {retryCount503}</span>
+                                <span className="text-[10px] opacity-60 leading-none">✎</span>
+                              </button>
+                            );
+                          })()}
                         </div>
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
