@@ -8,6 +8,10 @@ import { proxyAwareFetch } from "../utils/proxyFetch.js";
 
 const MAX_RETRY_AFTER_MS = 10000;
 
+// Full-jitter backoff config for 503 retries
+const BACKOFF_503_BASE_MS = 1000;
+const BACKOFF_503_CAP_MS = 15000;
+
 export class AntigravityExecutor extends BaseExecutor {
   constructor() {
     super("antigravity", PROVIDERS.antigravity);
@@ -204,8 +208,11 @@ export class AntigravityExecutor extends BaseExecutor {
           // 503-specific in-place retry with exponential backoff (before Retry-After check)
           if (response.status === HTTP_STATUS.SERVICE_UNAVAILABLE && retry503AttemptsByUrl[urlIndex] < MAX_503_RETRIES) {
             retry503AttemptsByUrl[urlIndex]++;
-            const backoffMs = Math.min(1000 * Math.pow(2, retry503AttemptsByUrl[urlIndex] - 1), 10000);
-            log?.debug?.("RETRY", `503 retry ${retry503AttemptsByUrl[urlIndex]}/${MAX_503_RETRIES} after ${backoffMs / 1000}s`);
+            // Full jitter: random in [0, min(cap, base * 2^attempt)]
+            // Prevents thundering herd when multiple requests hit 503 simultaneously
+            const expCeiling = Math.min(BACKOFF_503_CAP_MS, BACKOFF_503_BASE_MS * Math.pow(2, retry503AttemptsByUrl[urlIndex] - 1));
+            const backoffMs = Math.floor(Math.random() * expCeiling);
+            log?.debug?.("RETRY", `503 retry ${retry503AttemptsByUrl[urlIndex]}/${MAX_503_RETRIES} after ${(backoffMs / 1000).toFixed(2)}s (jitter, ceil=${expCeiling / 1000}s)`);
             await new Promise(resolve => setTimeout(resolve, backoffMs));
             urlIndex--;
             continue;
