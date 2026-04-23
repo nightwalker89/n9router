@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSettings, updateSettings } from "@/lib/localDb";
 import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
 import { DATA_DIR } from "@/lib/dataDir";
+import { setRtkEnabled } from "open-sse/rtk/flag.js";
 import bcrypt from "bcryptjs";
 import path from "path";
 
@@ -69,6 +70,11 @@ export async function PATCH(request) {
       Object.prototype.hasOwnProperty.call(body, "outboundNoProxy")
     ) {
       applyOutboundProxyEnv(settings);
+    }
+
+    // Sync RTK toggle immediately (sync cache for request hot path)
+    if (Object.prototype.hasOwnProperty.call(body, "rtkEnabled")) {
+      setRtkEnabled(settings.rtkEnabled);
     }
     const { password, ...safeSettings } = settings;
     return NextResponse.json({
