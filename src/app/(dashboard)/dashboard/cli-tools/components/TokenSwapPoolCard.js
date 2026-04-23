@@ -361,10 +361,13 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
     const time = new Date(event.ts).toLocaleTimeString(undefined, {
       hour: "2-digit", minute: "2-digit", second: "2-digit",
     });
-    if (event.status === "success")       return `${time} — ✅ Success`;
-    if (event.status === "fail")          return `${time} — ❌ Failed (${event.attempts} attempt${event.attempts !== 1 ? "s" : ""})`;
-    return `${time} — 🔄 Success after ${event.attempts} attempt${event.attempts !== 1 ? "s" : ""}`;
+    const attempts = Number(event.attempts) || 1;
+    if (event.status === "success") return `${time} — ✅ Success`;
+    if (event.status === "fail")    return `${time} — ❌ Failed`;
+    // retry_success — show how many attempts it took to succeed
+    return `${time} — 🔄 Success after ${attempts} attempt${attempts !== 1 ? "s" : ""}`;
   };
+
 
   /**
    * Render the health dot strip for an account (last 100 calls)
