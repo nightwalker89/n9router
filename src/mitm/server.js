@@ -22,7 +22,7 @@ const { isTokenSwapEnabled, getAllActiveConnections, triggerRefreshIfNeeded,
 const { createAntigravityDebugContext, maskToken } = require("./antigravityDebugLog");
 const { getCertForDomain } = require("./cert/generate");
 const { buildInputOnlyRequestDetail, createTokenSwapUsageObserver, generateDetailId } = require("./usageTracker");
-const { pushHealthEvent } = require("./healthStore");
+const { pushHealthEvent, getLastEventStatus } = require("./healthStore");
 
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const LOCAL_PORT = 443;
@@ -247,27 +247,34 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
         });
 
         if (result.retry && result.retryType === "quota") {
-          // ── 503 in-place retry: retry same account before switching ──
-          if (result.statusCode === 503) {
-            const max503 = getAntigravity503RetryCount(conn.antigravity503RetryCount);
-            if (!conn._503retryCount) conn._503retryCount = 0;
-            conn._503retryCount++;
+          // ── Unified quota retry: 429 and 503 treated identically ──
+          // Both are false-positive-prone from Antigravity; retry same account
+          // with exponential backoff before moving on.
+          const maxRetries = getAntigravity503RetryCount(conn.antigravity503RetryCount);
+          if (!conn._quotaRetryCount) conn._quotaRetryCount = 0;
+          conn._quotaRetryCount++;
 
-            if (conn._503retryCount < max503) {
-              const backoffMs = Math.min(1000 * Math.pow(2, conn._503retryCount - 1), 10000);
-              log(`🔄 [token-swap] "${label}" → 503 retry ${conn._503retryCount}/${max503} after ${backoffMs / 1000}s`);
-              debugContext?.log("token_swap.503_retry", {
-                attempt: conn._503retryCount,
-                maxRetries: max503,
-                backoffMs,
-                connectionId: conn.id || null,
-              });
-              await new Promise(r => setTimeout(r, backoffMs));
-              continue; // retry same account (stays in while(true) loop)
-            }
-            log(`⚠️ [token-swap] "${label}" → 503 exhausted ${max503} retries`);
-            reportHealth(conn.id, "fail", conn._503retryCount || 1, model);
+          if (conn._quotaRetryCount < maxRetries) {
+            const backoffMs = Math.min(1000 * Math.pow(2, conn._quotaRetryCount - 1), 10000);
+            log(`🔄 [token-swap] "${label}" → ${result.statusCode} retry ${conn._quotaRetryCount}/${maxRetries} after ${backoffMs / 1000}s`);
+            debugContext?.log("token_swap.quota_retry", {
+              statusCode: result.statusCode,
+              attempt: conn._quotaRetryCount,
+              maxRetries,
+              backoffMs,
+              connectionId: conn.id || null,
+            });
+            await new Promise(r => setTimeout(r, backoffMs));
+            continue; // retry same account
           }
+
+          log(`⚠️ [token-swap] "${label}" → ${result.statusCode} exhausted ${maxRetries} retries, trying next...`);
+
+          // ── 2-consecutive-fail rule: only apply cooldown/strike if this
+          // account's last health event was already a fail. A single transient
+          // 429/503 burst doesn't warrant a cooldown. ──
+          const lastStatus = getLastEventStatus(conn.id);
+          const isConsecutiveFail = lastStatus === "fl";
 
           const cooldownMs = parseQuotaCooldown(result.body);
           const cdLabel = cooldownMs ? ` cooldown=${Math.ceil(cooldownMs / 60000)}m` : "";
@@ -281,6 +288,7 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
             strategy,
             statusCode: result.statusCode,
             retryType: result.retryType,
+            consecutiveFail: isConsecutiveFail,
             responseHeaders: result.headers,
             responseBody: result.body,
             ...{
@@ -289,24 +297,32 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
               accountName: conn.name || null,
             },
           });
-          if (strategy === "sticky" && model) {
-            if (immediateCooldown) {
-              setModelCooldown(conn.id, model, cooldownMs);
-              log(`⚠️ [token-swap] "${label}" → ${result.statusCode} model=${model} COOLDOWN${cdLabel}, trying next...`);
+
+          if (isConsecutiveFail) {
+            // 2nd consecutive fail — apply cooldown/strike as normal
+            if (strategy === "sticky" && model) {
+              if (immediateCooldown) {
+                setModelCooldown(conn.id, model, cooldownMs);
+                log(`⚠️ [token-swap] "${label}" → ${result.statusCode} model=${model} COOLDOWN${cdLabel}, trying next...`);
+              } else {
+                const locked = recordModelStrike(conn.id, model, cooldownMs);
+                log(`⚠️ [token-swap] "${label}" → ${result.statusCode} model=${model}${locked ? " LOCKED" : " strike"}${cdLabel}, trying next...`);
+              }
             } else {
-              const locked = recordModelStrike(conn.id, model, cooldownMs);
-              log(`⚠️ [token-swap] "${label}" → ${result.statusCode} model=${model}${locked ? " LOCKED" : " strike"}${cdLabel}, trying next...`);
+              if (immediateCooldown) {
+                setCooldown(conn.id, cooldownMs);
+                log(`⚠️ [token-swap] "${label}" → ${result.statusCode} COOLDOWN${cdLabel}, trying next...`);
+              } else {
+                const locked = recordStrike(conn.id, cooldownMs);
+                log(`⚠️ [token-swap] "${label}" → ${result.statusCode}${locked ? " LOCKED" : " strike"}${cdLabel}, trying next...`);
+              }
             }
           } else {
-            if (immediateCooldown) {
-              setCooldown(conn.id, cooldownMs);
-              log(`⚠️ [token-swap] "${label}" → ${result.statusCode} COOLDOWN${cdLabel}, trying next...`);
-            } else {
-              const locked = recordStrike(conn.id, cooldownMs);
-              log(`⚠️ [token-swap] "${label}" → ${result.statusCode}${locked ? " LOCKED" : " strike"}${cdLabel}, trying next...`);
-            }
+            // 1st fail — skip this account but don't penalise it yet
+            log(`⚠️ [token-swap] "${label}" → ${result.statusCode} (1st fail, no cooldown), trying next...`);
           }
-          reportHealth(conn.id, "fail", 1, model);
+
+          reportHealth(conn.id, "fail", conn._quotaRetryCount || 1, model);
           break;
         }
 
@@ -371,8 +387,8 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
         clearStrikes(conn.id);
         if (model) clearModelStrikes(conn.id, model);
         markAccountUsed(conn.id);
-        // Record health: success on first try vs retry success
-        const _healthAttempts = (conn._503retryCount || 0) + 1;
+        // Record health: success on first try vs retry success (429+503 quota retries both count)
+        const _healthAttempts = (conn._quotaRetryCount || 0) + 1;
         reportHealth(conn.id, _healthAttempts > 1 ? "retry_success" : (i > 0 ? "retry_success" : "success"), _healthAttempts, model);
         res.writeHead(statusCode, result.response.headers);
 

@@ -84,8 +84,29 @@ function pushHealthEvent(connectionId, status, attempts, model) {
   writeStore(store);
 }
 
+/**
+ * Return the compact status code of the most recent health event for
+ * a connection, or null if no events exist yet.
+ * Used to implement the "2 consecutive fails = cooldown" policy.
+ *
+ * @param {string} connectionId
+ * @returns {"ok"|"rs"|"fl"|null}
+ */
+function getLastEventStatus(connectionId) {
+  if (!connectionId) return null;
+  try {
+    const store = readStore();
+    const events = store[connectionId];
+    if (!events || events.length === 0) return null;
+    return events[events.length - 1].s || null;
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
   pushHealthEvent,
+  getLastEventStatus,
   readStore,
   HEALTH_FILE,
   MAX_EVENTS,
