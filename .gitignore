@@ -71,3 +71,4 @@ ecosystem.config.*
 .npmrc
 .sisyphus
 plans/
+.gitnexus
