@@ -3,7 +3,7 @@ const fs = require("fs");
 const MITM_ALIAS_RR_STATE_KEY = "mitmAliasRoundRobinState";
 
 const FORCED_PASSTHROUGH_MODELS = {
-  antigravity: new Set(["gemini-3.1-flash-lite"]),
+  antigravity: new Set(["gemini-3.1-flash-lite","tab_flash_lite_preview","tab_jump_flash_lite_preview"]),
 };
 
 function readDb(dbFile) {
