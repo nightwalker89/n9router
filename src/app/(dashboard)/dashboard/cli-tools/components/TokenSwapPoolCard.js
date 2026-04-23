@@ -104,6 +104,7 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
   const quotaCacheRef = useRef({}); // { [connId]: { data: parsed, error, ts: number, accountType?: string|null } }
   const retryCount503TimerRef = useRef(null); // debounce timer for global 503 retry save
   const accountRetryTimersRef = useRef({}); // debounce timers for per-account 503 retry saves
+  const [healthData, setHealthData] = useState({}); // { [connId]: HealthEvent[] } — last 100 calls per account
 
   const fetchEnabled = useCallback(async () => {
     try {
@@ -136,6 +137,16 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
       return next;
     });
   }, [connections]);
+
+  // Fetch health data for all pool accounts from disk-backed store
+  const fetchHealth = useCallback(async () => {
+    try {
+      const res = await fetch("/api/internal/account-health");
+      if (!res.ok) return;
+      const data = await res.json();
+      setHealthData(data.accounts || {});
+    } catch { /* ignore */ }
+  }, []);
 
   // Fetch quota for each pool account (with cache)
   const fetchQuotas = useCallback(async (accounts, force = false) => {
@@ -268,6 +279,15 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
     }
   }, [enabled, activeCount, activeAccountsKey, fetchQuotas]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Poll health data every 10s when token swap is enabled
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (!enabled || activeCount === 0) return;
+    fetchHealth();
+    const interval = setInterval(fetchHealth, 10_000);
+    return () => clearInterval(interval);
+  }, [enabled, activeCount, fetchHealth]);
+
   // Prerequisites check
   const prereqsMet = serverRunning && dnsActive;
   const isFullyActive = enabled && prereqsMet && activeCount > 0;
@@ -321,6 +341,73 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
     normalizeAntigravityAccountType(acc.accountType) ||
     null
   );
+
+  /**
+   * Get dot background color based on health event
+   */
+  const getHealthDotColor = (event) => {
+    if (event.status === "success") return "#22c55e";   // green-500
+    if (event.status === "fail")    return "#ef4444";   // red-500
+    // retry_success — shade by attempt count
+    if (event.attempts <= 2) return "#fb923c";          // orange-400
+    if (event.attempts <= 3) return "#f97316";          // orange-500
+    return "#ea580c";                                   // orange-600
+  };
+
+  /**
+   * Tooltip text for a health event dot
+   */
+  const getHealthDotTitle = (event) => {
+    const time = new Date(event.ts).toLocaleTimeString(undefined, {
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+    });
+    if (event.status === "success")       return `${time} — ✅ Success`;
+    if (event.status === "fail")          return `${time} — ❌ Failed (${event.attempts} attempt${event.attempts !== 1 ? "s" : ""})`;
+    return `${time} — 🔄 Success after ${event.attempts} attempt${event.attempts !== 1 ? "s" : ""}`;
+  };
+
+  /**
+   * Render the health dot strip for an account (last 100 calls)
+   */
+  const renderHealthDots = (accId) => {
+    const events = healthData[accId];
+    if (!events || events.length === 0) return null;
+
+    const successCount  = events.filter(e => e.status === "success").length;
+    const retryCount    = events.filter(e => e.status === "retry_success").length;
+    const failCount     = events.filter(e => e.status === "fail").length;
+
+    return (
+      <div className="mt-1.5">
+        <div
+          className="flex flex-wrap gap-[2px]"
+          title={`Last ${events.length} call${events.length !== 1 ? "s" : ""}${successCount ? ` · ${successCount} ok` : ""}${retryCount ? ` · ${retryCount} retry` : ""}${failCount ? ` · ${failCount} fail` : ""}`}
+        >
+          {events.map((event, idx) => (
+            <div
+              key={idx}
+              className="rounded-[1px] shrink-0"
+              style={{
+                width: "6px",
+                height: "6px",
+                backgroundColor: getHealthDotColor(event),
+                opacity: 0.85,
+              }}
+              title={getHealthDotTitle(event)}
+            />
+          ))}
+        </div>
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-[9px] text-text-muted">
+            last {events.length} call{events.length !== 1 ? "s" : ""}
+          </span>
+          {successCount > 0 && <span className="text-[9px] text-green-500">{successCount} ok</span>}
+          {retryCount > 0 && <span className="text-[9px] text-orange-400">{retryCount} retry</span>}
+          {failCount > 0 && <span className="text-[9px] text-red-400">{failCount} fail</span>}
+        </div>
+      </div>
+    );
+  };
 
   const renderAccountQuota = (accId) => {
     const meta = getAccountQuotaMeta(accId);
@@ -764,6 +851,8 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
                       ) : (
                         renderAccountQuota(acc.id)
                       )}
+                      {/* Health pulse — last 100 call results as colored squares */}
+                      {renderHealthDots(acc.id)}
                     </div>
                   </div>
                   );

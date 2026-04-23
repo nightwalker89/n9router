@@ -22,10 +22,24 @@ const { isTokenSwapEnabled, getAllActiveConnections, triggerRefreshIfNeeded,
 const { createAntigravityDebugContext, maskToken } = require("./antigravityDebugLog");
 const { getCertForDomain } = require("./cert/generate");
 const { buildInputOnlyRequestDetail, createTokenSwapUsageObserver, generateDetailId } = require("./usageTracker");
+const { pushHealthEvent } = require("./healthStore");
 
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const LOCAL_PORT = 443;
 const INTERNAL_REQUEST_HEADER = { name: "x-request-source", value: "local" };
+
+/**
+ * Record account health event to disk (fire-and-forget, never blocks request flow).
+ * @param {string} connectionId
+ * @param {"success"|"retry_success"|"fail"} status
+ * @param {number} attempts - Total attempts including retries
+ * @param {string|null} model
+ */
+function reportHealth(connectionId, status, attempts, model) {
+  try {
+    pushHealthEvent(connectionId, status, attempts || 1, model || null);
+  } catch { /* ignore — health tracking must never affect request flow */ }
+}
 
 // Map MITM tool → provider name in providerConnections
 const TOOL_TO_PROVIDER = {
@@ -252,6 +266,7 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
               continue; // retry same account (stays in while(true) loop)
             }
             log(`⚠️ [token-swap] "${label}" → 503 exhausted ${max503} retries`);
+            reportHealth(conn.id, "fail", conn._503retryCount || 1, model);
           }
 
           const cooldownMs = parseQuotaCooldown(result.body);
@@ -291,6 +306,7 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
               log(`⚠️ [token-swap] "${label}" → ${result.statusCode}${locked ? " LOCKED" : " strike"}${cdLabel}, trying next...`);
             }
           }
+          reportHealth(conn.id, "fail", 1, model);
           break;
         }
 
@@ -343,6 +359,7 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
             },
           });
           log(`⚠️ [token-swap] "${label}" → 401 invalid_token, trying next...`);
+          reportHealth(conn.id, "fail", 1, model);
           break;
         }
 
@@ -354,6 +371,9 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
         clearStrikes(conn.id);
         if (model) clearModelStrikes(conn.id, model);
         markAccountUsed(conn.id);
+        // Record health: success on first try vs retry success
+        const _healthAttempts = (conn._503retryCount || 0) + 1;
+        reportHealth(conn.id, _healthAttempts > 1 ? "retry_success" : (i > 0 ? "retry_success" : "success"), _healthAttempts, model);
         res.writeHead(statusCode, result.response.headers);
 
         const detailId = generateDetailId(model);
@@ -430,6 +450,7 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
           accountEmail: conn.email || null,
           accountName: conn.name || null,
         });
+        reportHealth(conn.id, "fail", 1, model);
         break;
       }
     }
