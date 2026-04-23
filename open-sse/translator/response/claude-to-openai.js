@@ -28,6 +28,15 @@ export function claudeToOpenAIResponse(chunk, state) {
       state.messageId = chunk.message?.id || `msg_${Date.now()}`;
       state.model = chunk.message?.model;
       state.toolCallIndex = 0;
+      // Capture input-side tokens from message_start.
+      // Claude SSE reports input_tokens and cache tokens ONLY here; message_delta only has output_tokens.
+      if (chunk.message?.usage) {
+        state.inputUsage = {
+          input_tokens: chunk.message.usage.input_tokens || 0,
+          cache_read_input_tokens: chunk.message.usage.cache_read_input_tokens || 0,
+          cache_creation_input_tokens: chunk.message.usage.cache_creation_input_tokens || 0
+        };
+      }
       results.push(createChunk(state, { role: "assistant" }));
       break;
     }
@@ -104,13 +113,22 @@ export function claudeToOpenAIResponse(chunk, state) {
     }
 
     case "message_delta": {
-      // Extract usage from message_delta event (Claude native format)
-      // Normalize to OpenAI format (prompt_tokens/completion_tokens) for consistent logging
+      // Extract usage from message_delta event (Claude native format).
+      // IMPORTANT: Claude SSE only reports output_tokens in message_delta.
+      // input_tokens and cache tokens were reported in message_start and are stored in state.inputUsage.
       if (chunk.usage && typeof chunk.usage === "object") {
-        const inputTokens = typeof chunk.usage.input_tokens === "number" ? chunk.usage.input_tokens : 0;
+        const startUsage = state.inputUsage || {};
+        // Use message_delta values when present; fall back to message_start captured values.
+        const inputTokens = typeof chunk.usage.input_tokens === "number"
+          ? chunk.usage.input_tokens
+          : (startUsage.input_tokens || 0);
         const outputTokens = typeof chunk.usage.output_tokens === "number" ? chunk.usage.output_tokens : 0;
-        const cacheReadTokens = typeof chunk.usage.cache_read_input_tokens === "number" ? chunk.usage.cache_read_input_tokens : 0;
-        const cacheCreationTokens = typeof chunk.usage.cache_creation_input_tokens === "number" ? chunk.usage.cache_creation_input_tokens : 0;
+        const cacheReadTokens = typeof chunk.usage.cache_read_input_tokens === "number"
+          ? chunk.usage.cache_read_input_tokens
+          : (startUsage.cache_read_input_tokens || 0);
+        const cacheCreationTokens = typeof chunk.usage.cache_creation_input_tokens === "number"
+          ? chunk.usage.cache_creation_input_tokens
+          : (startUsage.cache_creation_input_tokens || 0);
 
         // prompt_tokens = input_tokens + cache_read + cache_creation (all prompt-side tokens)
         const promptTokens = inputTokens + cacheReadTokens + cacheCreationTokens;

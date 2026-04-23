@@ -2,6 +2,16 @@
 
 All notable changes to **n9router** will be documented in this file.
 
+## v0.4.11 (2026-04-23)
+
+### Features
+- Add per-account request health monitor in MITM Token Swap dashboard — last 100 calls displayed as colored 6×6px squares (green = success, orange gradient = retry success, red = fail) with live summary counts and hover tooltips
+- Persist health history to `~/.n9router/account-health.json`; survives server restarts; polled every 10s in the dashboard
+
+### Improvements
+- Treat Antigravity 429 and 503 errors identically — both now retry the same account with exponential backoff (shared `_quotaRetryCount` counter, reuses per-account retry count setting)
+- Apply cooldown/strike only after **2 consecutive fail** health events; a single 429/503 burst skips the account without penalising it, reducing false-positive cooldowns from Antigravity's random error responses
+
 ## v0.4.8 (2026-04-19)
 
 ### Features

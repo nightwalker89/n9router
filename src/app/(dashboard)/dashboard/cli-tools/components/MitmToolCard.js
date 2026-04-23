@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Card, Button, Badge, Input, ModelSelectModal } from "@/shared/components";
+import MultiModelMappingEditor from "./MultiModelMappingEditor";
+import { useMitmMultiModelMappings } from "./useMitmMultiModelMappings";
 import Image from "next/image";
 
 /**
@@ -32,55 +34,30 @@ export default function MitmToolCard({
   const [sudoPassword, setSudoPassword] = useState("");
   const [pendingDnsAction, setPendingDnsAction] = useState(null);
   const [modalError, setModalError] = useState(null);
-  const [modelMappings, setModelMappings] = useState({});
-  const [modalOpen, setModalOpen] = useState(false);
-  const [currentEditingAlias, setCurrentEditingAlias] = useState(null);
+  const {
+    currentEditingAlias,
+    handleAddMapping,
+    handleMappingBlur,
+    handleModelMappingChange,
+    handleModelSelect,
+    handleRemoveMapping,
+    handleReorderMapping,
+    handleStrategyChange,
+    loadSavedMappings,
+    mappingFeedback,
+    modalOpen,
+    modelMappings,
+    openModelSelector,
+    selectedStrategy,
+    setModalOpen,
+  } = useMitmMultiModelMappings(tool.id);
 
   const isWindows = typeof navigator !== "undefined" && navigator.userAgent?.includes("Windows");
-
-  const loadSavedMappings = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/cli-tools/antigravity-mitm/alias?tool=${tool.id}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (Object.keys(data.aliases || {}).length > 0) setModelMappings(data.aliases);
-      }
-    } catch { /* ignore */ }
-  }, [tool.id]);
 
   useEffect(() => {
     if (isExpanded) loadSavedMappings();
   }, [isExpanded, loadSavedMappings]);
 
-  const saveMappings = useCallback(async (mappings) => {
-    try {
-      await fetch("/api/cli-tools/antigravity-mitm/alias", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tool: tool.id, mappings }),
-      });
-    } catch { /* ignore */ }
-  }, [tool.id]);
-
-  const handleMappingBlur = (alias, value) => {
-    saveMappings({ ...modelMappings, [alias]: value });
-  };
-
-  const handleModelMappingChange = (alias, value) => {
-    setModelMappings(prev => ({ ...prev, [alias]: value }));
-  };
-
-  const openModelSelector = (alias) => {
-    setCurrentEditingAlias(alias);
-    setModalOpen(true);
-  };
-
-  const handleModelSelect = (model) => {
-    if (!currentEditingAlias || model.isPlaceholder) return;
-    const updated = { ...modelMappings, [currentEditingAlias]: model.value };
-    setModelMappings(updated);
-    saveMappings(updated);
-  };
 
   const handleDnsToggle = () => {
     if (!serverRunning) return;
@@ -199,44 +176,22 @@ export default function MitmToolCard({
               )}
             </div>
 
-            {/* Model Mappings */}
             {tool.defaultModels?.length > 0 && (
-              <div className="flex flex-col gap-2">
-                {tool.defaultModels.map((model) => (
-                  <div key={model.alias} className="flex items-center gap-2">
-                    <span className="w-36 shrink-0 text-xs font-semibold text-text-main text-right">{model.name}</span>
-                    <span className="material-symbols-outlined text-text-muted text-[14px]">arrow_forward</span>
-                    <input
-                      type="text"
-                      value={modelMappings[model.alias] || ""}
-                      onChange={(e) => handleModelMappingChange(model.alias, e.target.value)}
-                      onBlur={(e) => handleMappingBlur(model.alias, e.target.value)}
-                      placeholder="provider/model-id"
-                      disabled={!dnsActive}
-                      className={`flex-1 px-2 py-1.5 bg-surface rounded border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 ${!dnsActive ? "opacity-50 cursor-not-allowed" : ""}`}
-                    />
-                    <button
-                      onClick={() => openModelSelector(model.alias)}
-                      disabled={!hasActiveProviders || !dnsActive}
-                      className={`px-2 py-1.5 rounded border text-xs transition-colors shrink-0 ${hasActiveProviders && dnsActive ? "bg-surface border-border hover:border-primary cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}
-                    >
-                      Select
-                    </button>
-                    {modelMappings[model.alias] && (
-                      <button
-                        onClick={() => {
-                          handleModelMappingChange(model.alias, "");
-                          saveMappings({ ...modelMappings, [model.alias]: "" });
-                        }}
-                        className="p-1 text-text-muted hover:text-red-500 rounded transition-colors"
-                        title="Clear"
-                      >
-                        <span className="material-symbols-outlined text-[14px]">close</span>
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <MultiModelMappingEditor
+                tool={tool}
+                mappings={modelMappings}
+                strategy={selectedStrategy}
+                dnsActive={dnsActive}
+                hasActiveProviders={hasActiveProviders}
+                onChangeEntry={handleModelMappingChange}
+                onBlurEntry={handleMappingBlur}
+                onOpenSelector={openModelSelector}
+                onAddEntry={(alias) => handleAddMapping(alias, `${tool.id}/model-id`)}
+                onRemoveEntry={handleRemoveMapping}
+                onReorderEntry={handleReorderMapping}
+                onChangeStrategy={handleStrategyChange}
+                feedback={mappingFeedback}
+              />
             )}
 
             {tool.defaultModels?.length === 0 && (
@@ -324,10 +279,10 @@ export default function MitmToolCard({
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
         onSelect={handleModelSelect}
-        selectedModel={currentEditingAlias ? modelMappings[currentEditingAlias] : null}
+        selectedModel={currentEditingAlias ? modelMappings[currentEditingAlias]?.[0] : null}
         activeProviders={activeProviders}
         modelAliases={modelAliases}
-        title={`Select model for ${currentEditingAlias}`}
+        title={`Add mapped model for ${currentEditingAlias}`}
       />
     </>
   );

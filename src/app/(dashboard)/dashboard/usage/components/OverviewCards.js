@@ -7,8 +7,12 @@ const fmt = (n) => new Intl.NumberFormat().format(n || 0);
 const fmtCost = (n) => `$${(n || 0).toFixed(2)}`;
 
 export default function OverviewCards({ stats }) {
+  const cacheRatio = stats.totalPromptTokens > 0
+    ? ((stats.totalCachedTokens || 0) / stats.totalPromptTokens * 100).toFixed(1)
+    : "0.0";
+
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
       <Card className="px-4 py-3 flex flex-col gap-1">
         <span className="text-text-muted text-sm uppercase font-semibold">Total Requests</span>
         <span className="text-2xl font-bold">{fmt(stats.totalRequests)}</span>
@@ -20,6 +24,11 @@ export default function OverviewCards({ stats }) {
       <Card className="px-4 py-3 flex flex-col gap-1">
         <span className="text-text-muted text-sm uppercase font-semibold">Output Tokens</span>
         <span className="text-2xl font-bold text-success">{fmt(stats.totalCompletionTokens)}</span>
+      </Card>
+      <Card className="px-4 py-3 flex flex-col gap-1">
+        <span className="text-text-muted text-sm uppercase font-semibold">Cached Tokens</span>
+        <span className="text-2xl font-bold" style={{ color: "var(--color-info, #06b6d4)" }}>{fmt(stats.totalCachedTokens)}</span>
+        <span className="text-[10px] text-text-muted">{cacheRatio}% of input cached</span>
       </Card>
       <Card className="px-4 py-3 flex flex-col gap-1">
         <span className="text-text-muted text-sm uppercase font-semibold">Est. Cost</span>

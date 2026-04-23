@@ -48,6 +48,9 @@ export const DEFAULT_RETRY_CONFIG = {
   502: 1    // Bad gateway - retry 1 time (transient)
 };
 
+// Default 503 retry count for Antigravity executor (per-account before switching)
+export const DEFAULT_AG_503_RETRY_COUNT = 3;
+
 // Requests containing these texts will bypass provider
 export const SKIP_PATTERNS = [
   "Please write a 5-10 word title for the following conversation:"

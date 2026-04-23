@@ -172,7 +172,18 @@ export function hasValidUsage(usage) {
 export function extractUsage(chunk) {
   if (!chunk || typeof chunk !== "object") return null;
 
-  // Claude format (message_delta event)
+  // Claude format (message_start event — input_tokens and cache tokens are ONLY here, not in message_delta)
+  if (chunk.type === "message_start" && chunk.message?.usage) {
+    const usage = chunk.message.usage;
+    return normalizeUsage({
+      prompt_tokens: usage.input_tokens || 0,
+      completion_tokens: usage.output_tokens || 0,
+      cache_read_input_tokens: usage.cache_read_input_tokens,
+      cache_creation_input_tokens: usage.cache_creation_input_tokens
+    });
+  }
+
+  // Claude format (message_delta event — only output_tokens, input-side tokens already in message_start)
   if (chunk.type === "message_delta" && chunk.usage && typeof chunk.usage === "object") {
     return normalizeUsage({
       prompt_tokens: chunk.usage.input_tokens || 0,

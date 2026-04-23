@@ -151,6 +151,12 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       // Include current status for optimization check
       testStatus: connection.testStatus,
       lastError: connection.lastError,
+      // Per-account 503 retry override for Antigravity executor
+      // Resolves: per-account (takes priority, even if 0) → global setting → null (executor uses DEFAULT_AG_503_RETRY_COUNT)
+      // Use ?? not || so explicit 0 ("no retries for this account") is respected
+      antigravity503RetryCount: connection.antigravity503RetryCount != null
+        ? connection.antigravity503RetryCount
+        : (settings.antigravity503RetryCount ?? null),
       // Pass full connection for clearAccountError to read modelLock_* keys
       _connection: connection
     };

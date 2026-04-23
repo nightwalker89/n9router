@@ -4,22 +4,42 @@ const path = require("path");
 const dns = require("dns");
 const { promisify } = require("util");
 const { log, err } = require("./logger");
-const { TARGET_HOSTS, URL_PATTERNS, getToolForHost, isTargetHost } = require("./config");
+const { TARGET_HOSTS, URL_PATTERNS, getToolForHost } = require("./config");
 const { DATA_DIR, MITM_DIR } = require("./paths");
+const {
+  getMappedModelSelection,
+  getMitmAliasStrategy,
+  shouldPassthroughModel,
+  tryMappedModels,
+} = require("./modelMapping");
 const { isTokenSwapEnabled, getAllActiveConnections, triggerRefreshIfNeeded,
         forceRefreshConnection, setCooldown, setAuthCooldown, setModelCooldown,
         recordStrike, recordModelStrike, clearStrikes, clearModelStrikes,
         getTokenSwapStrategy,
         parseQuotaCooldown, shouldImmediateQuotaCooldown,
-        markAccountUsed, getConnectionLabel, getTokenSwapAvailabilitySummary } = require("./tokenPool");
+        markAccountUsed, getConnectionLabel, getTokenSwapAvailabilitySummary,
+        getAntigravity503RetryCount } = require("./tokenPool");
+const { createAntigravityDebugContext, maskToken } = require("./antigravityDebugLog");
 const { getCertForDomain } = require("./cert/generate");
 const { buildInputOnlyRequestDetail, createTokenSwapUsageObserver, generateDetailId } = require("./usageTracker");
+const { pushHealthEvent, getLastEventStatus } = require("./healthStore");
 
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const LOCAL_PORT = 443;
-const ENABLE_FILE_LOG = false;
-const LOG_DIR = path.join(DATA_DIR, "logs", "mitm");
 const INTERNAL_REQUEST_HEADER = { name: "x-request-source", value: "local" };
+
+/**
+ * Record account health event to disk (fire-and-forget, never blocks request flow).
+ * @param {string} connectionId
+ * @param {"success"|"retry_success"|"fail"} status
+ * @param {number} attempts - Total attempts including retries
+ * @param {string|null} model
+ */
+function reportHealth(connectionId, status, attempts, model) {
+  try {
+    pushHealthEvent(connectionId, status, attempts || 1, model || null);
+  } catch { /* ignore — health tracking must never affect request flow */ }
+}
 
 // Map MITM tool → provider name in providerConnections
 const TOOL_TO_PROVIDER = {
@@ -27,8 +47,6 @@ const TOOL_TO_PROVIDER = {
   // copilot: "copilot",   // future
   // kiro: "kiro",         // future
 };
-
-if (ENABLE_FILE_LOG && !fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 
 // Load handlers — dev/ overrides handlers/ for private implementations
 function loadHandler(name) {
@@ -112,36 +130,12 @@ function extractModel(url, body) {
   } catch { return null; }
 }
 
-function getMappedModel(tool, model) {
-  if (!model) return null;
-  try {
-    if (!fs.existsSync(DB_FILE)) return null;
-    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
-    const aliases = db.mitmAlias?.[tool];
-    if (!aliases) return null;
-    if (aliases[model]) return aliases[model];
-    // Prefix match fallback
-    const prefixKey = Object.keys(aliases).find(k => k && aliases[k] && (model.startsWith(k) || k.startsWith(model)));
-    return prefixKey ? aliases[prefixKey] : null;
-  } catch { return null; }
-}
-
-function saveRequestLog(url, bodyBuffer) {
-  if (!ENABLE_FILE_LOG) return;
-  try {
-    const ts = new Date().toISOString().replace(/[:.]/g, "-");
-    const slug = url.replace(/[^a-zA-Z0-9]/g, "_").substring(0, 60);
-    const body = JSON.parse(bodyBuffer.toString());
-    fs.writeFileSync(path.join(LOG_DIR, `${ts}_${slug}.json`), JSON.stringify(body, null, 2));
-  } catch { /* ignore */ }
-}
-
 /**
  * Forward request to real upstream.
  * Optional onResponse(rawBuffer) callback — if provided, tees the response
  * so it's both forwarded to client AND passed to the callback for inspection.
  */
-async function passthrough(req, res, bodyBuffer, onResponse) {
+async function passthrough(req, res, bodyBuffer, onResponse, debugContext = null) {
   const targetHost = (req.headers.host || TARGET_HOSTS[0]).split(":")[0];
   const targetIP = await resolveTargetIP(targetHost);
 
@@ -155,23 +149,28 @@ async function passthrough(req, res, bodyBuffer, onResponse) {
     rejectUnauthorized: false
   }, (forwardRes) => {
     res.writeHead(forwardRes.statusCode, forwardRes.headers);
-
-    if (!onResponse) {
-      forwardRes.pipe(res);
-      return;
-    }
-
-    // Tee: forward to client AND buffer for callback
     const chunks = [];
-    forwardRes.on("data", chunk => { chunks.push(chunk); res.write(chunk); });
+    forwardRes.on("data", chunk => {
+      chunks.push(chunk);
+      res.write(chunk);
+    });
     forwardRes.on("end", () => {
       res.end();
-      try { onResponse(Buffer.concat(chunks), forwardRes.headers); } catch { /* ignore */ }
+      const rawBuffer = Buffer.concat(chunks);
+      try { onResponse?.(rawBuffer, forwardRes.headers, forwardRes.statusCode); } catch { /* ignore */ }
+      debugContext?.logResponse({
+        statusCode: forwardRes.statusCode,
+        headers: forwardRes.headers,
+        bodyBuffer: rawBuffer,
+        streamed: String(forwardRes.headers["content-type"] || "").includes("text/event-stream"),
+        note: "Direct upstream passthrough response",
+      });
     });
   });
 
   forwardReq.on("error", (e) => {
     err(`Passthrough error: ${e.message}`);
+    debugContext?.logError("passthrough.error", e, { targetHost, url: req.url });
     if (!res.headersSent) res.writeHead(502);
     res.end("Bad Gateway");
   });
@@ -184,7 +183,7 @@ async function passthrough(req, res, bodyBuffer, onResponse) {
 // Unlike passthrough(), this checks upstream statusCode BEFORE
 // piping to client — enabling auto-retry on 429/503.
 
-async function tokenSwapForward(req, res, bodyBuffer, connections, model, strategy, provider, requestStartTime) {
+async function tokenSwapForward(req, res, bodyBuffer, connections, model, strategy, provider, requestStartTime, debugContext = null) {
   const targetHost = (req.headers.host || TARGET_HOSTS[0]).split(":")[0];
   const targetIP = await resolveTargetIP(targetHost);
   let lastRetryResponse = null;
@@ -200,6 +199,18 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
       const posTag = connections.length > 1 ? ` [${i + 1}/${connections.length}]` : "";
       const recencyTag = conn.lastUsedAt ? ` lastUsed=${conn.lastUsedAt}` : " lastUsed=never";
       log(`🔑 [token-swap]${posTag} trying "${label}"${modelTag}${recencyTag}`);
+      debugContext?.log("token_swap.attempt", {
+        strategy,
+        position: i + 1,
+        total: connections.length,
+        lastUsedAt: conn.lastUsedAt || null,
+        accessTokenMasked: maskToken(conn.accessToken),
+        ...{
+          connectionId: conn.id || null,
+          accountEmail: conn.email || null,
+          accountName: conn.name || null,
+        },
+      });
 
       const swappedHeaders = {
         ...req.headers,
@@ -236,6 +247,35 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
         });
 
         if (result.retry && result.retryType === "quota") {
+          // ── Unified quota retry: 429 and 503 treated identically ──
+          // Both are false-positive-prone from Antigravity; retry same account
+          // with exponential backoff before moving on.
+          const maxRetries = getAntigravity503RetryCount(conn.antigravity503RetryCount);
+          if (!conn._quotaRetryCount) conn._quotaRetryCount = 0;
+          conn._quotaRetryCount++;
+
+          if (conn._quotaRetryCount < maxRetries) {
+            const backoffMs = Math.min(1000 * Math.pow(2, conn._quotaRetryCount - 1), 10000);
+            log(`🔄 [token-swap] "${label}" → ${result.statusCode} retry ${conn._quotaRetryCount}/${maxRetries} after ${backoffMs / 1000}s`);
+            debugContext?.log("token_swap.quota_retry", {
+              statusCode: result.statusCode,
+              attempt: conn._quotaRetryCount,
+              maxRetries,
+              backoffMs,
+              connectionId: conn.id || null,
+            });
+            await new Promise(r => setTimeout(r, backoffMs));
+            continue; // retry same account
+          }
+
+          log(`⚠️ [token-swap] "${label}" → ${result.statusCode} exhausted ${maxRetries} retries, trying next...`);
+
+          // ── 2-consecutive-fail rule: only apply cooldown/strike if this
+          // account's last health event was already a fail. A single transient
+          // 429/503 burst doesn't warrant a cooldown. ──
+          const lastStatus = getLastEventStatus(conn.id);
+          const isConsecutiveFail = lastStatus === "fl";
+
           const cooldownMs = parseQuotaCooldown(result.body);
           const cdLabel = cooldownMs ? ` cooldown=${Math.ceil(cooldownMs / 60000)}m` : "";
           const immediateCooldown = shouldImmediateQuotaCooldown(result.statusCode, result.body);
@@ -244,29 +284,62 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
             headers: result.headers,
             body: result.body,
           };
-          if (strategy === "sticky" && model) {
-            if (immediateCooldown) {
-              setModelCooldown(conn.id, model, cooldownMs);
-              log(`⚠️ [token-swap] "${label}" → ${result.statusCode} model=${model} COOLDOWN${cdLabel}, trying next...`);
+          debugContext?.log("token_swap.retryable_error", {
+            strategy,
+            statusCode: result.statusCode,
+            retryType: result.retryType,
+            consecutiveFail: isConsecutiveFail,
+            responseHeaders: result.headers,
+            responseBody: result.body,
+            ...{
+              connectionId: conn.id || null,
+              accountEmail: conn.email || null,
+              accountName: conn.name || null,
+            },
+          });
+
+          if (isConsecutiveFail) {
+            // 2nd consecutive fail — apply cooldown/strike as normal
+            if (strategy === "sticky" && model) {
+              if (immediateCooldown) {
+                setModelCooldown(conn.id, model, cooldownMs);
+                log(`⚠️ [token-swap] "${label}" → ${result.statusCode} model=${model} COOLDOWN${cdLabel}, trying next...`);
+              } else {
+                const locked = recordModelStrike(conn.id, model, cooldownMs);
+                log(`⚠️ [token-swap] "${label}" → ${result.statusCode} model=${model}${locked ? " LOCKED" : " strike"}${cdLabel}, trying next...`);
+              }
             } else {
-              const locked = recordModelStrike(conn.id, model, cooldownMs);
-              log(`⚠️ [token-swap] "${label}" → ${result.statusCode} model=${model}${locked ? " LOCKED" : " strike"}${cdLabel}, trying next...`);
+              if (immediateCooldown) {
+                setCooldown(conn.id, cooldownMs);
+                log(`⚠️ [token-swap] "${label}" → ${result.statusCode} COOLDOWN${cdLabel}, trying next...`);
+              } else {
+                const locked = recordStrike(conn.id, cooldownMs);
+                log(`⚠️ [token-swap] "${label}" → ${result.statusCode}${locked ? " LOCKED" : " strike"}${cdLabel}, trying next...`);
+              }
             }
           } else {
-            if (immediateCooldown) {
-              setCooldown(conn.id, cooldownMs);
-              log(`⚠️ [token-swap] "${label}" → ${result.statusCode} COOLDOWN${cdLabel}, trying next...`);
-            } else {
-              const locked = recordStrike(conn.id, cooldownMs);
-              log(`⚠️ [token-swap] "${label}" → ${result.statusCode}${locked ? " LOCKED" : " strike"}${cdLabel}, trying next...`);
-            }
+            // 1st fail — skip this account but don't penalise it yet
+            log(`⚠️ [token-swap] "${label}" → ${result.statusCode} (1st fail, no cooldown), trying next...`);
           }
+
+          reportHealth(conn.id, "fail", conn._quotaRetryCount || 1, model);
           break;
         }
 
         if (result.retry && result.retryType === "auth") {
           const retryableAuth = isRetryableAuthFailure(result.statusCode, result.headers, result.body);
           if (!retryableAuth) {
+            debugContext?.log("token_swap.non_retryable_auth", {
+              strategy,
+              statusCode: result.statusCode,
+              responseHeaders: result.headers,
+              responseBody: result.body,
+              ...{
+                connectionId: conn.id || null,
+                accountEmail: conn.email || null,
+                accountName: conn.name || null,
+              },
+            });
             res.writeHead(result.statusCode, result.headers);
             res.end(result.body);
             return true;
@@ -289,7 +362,20 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
             headers: result.headers,
             body: result.body,
           };
+          debugContext?.log("token_swap.retryable_error", {
+            strategy,
+            statusCode: result.statusCode,
+            retryType: result.retryType,
+            responseHeaders: result.headers,
+            responseBody: result.body,
+            ...{
+              connectionId: conn.id || null,
+              accountEmail: conn.email || null,
+              accountName: conn.name || null,
+            },
+          });
           log(`⚠️ [token-swap] "${label}" → 401 invalid_token, trying next...`);
+          reportHealth(conn.id, "fail", 1, model);
           break;
         }
 
@@ -301,6 +387,9 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
         clearStrikes(conn.id);
         if (model) clearModelStrikes(conn.id, model);
         markAccountUsed(conn.id);
+        // Record health: success on first try vs retry success (429+503 quota retries both count)
+        const _healthAttempts = (conn._quotaRetryCount || 0) + 1;
+        reportHealth(conn.id, _healthAttempts > 1 ? "retry_success" : (i > 0 ? "retry_success" : "success"), _healthAttempts, model);
         res.writeHead(statusCode, result.response.headers);
 
         const detailId = generateDetailId(model);
@@ -334,22 +423,50 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
           detailRecord: inputOnlyDetail,
           requestStartTime
         });
+        const responseChunks = [];
 
         result.response.on("data", (chunk) => {
           usageObserver.onChunk(chunk);
+          responseChunks.push(chunk);
           res.write(chunk);
         });
         result.response.on("end", () => {
           res.end();
+          debugContext?.logResponse({
+            statusCode,
+            headers: result.response.headers,
+            bodyBuffer: Buffer.concat(responseChunks),
+            streamed: true,
+            note: "Token-swap upstream response",
+            extra: {
+              strategy,
+              connectionId: conn.id || null,
+              accountEmail: conn.email || null,
+              accountName: conn.name || null,
+            },
+          });
           usageObserver.onEnd().catch(() => {});
         });
         result.response.on("error", (streamError) => {
           err(`[token-swap] upstream stream error for "${label}": ${streamError.message}`);
+          debugContext?.logError("token_swap.stream_error", streamError, {
+            strategy,
+            connectionId: conn.id || null,
+            accountEmail: conn.email || null,
+            accountName: conn.name || null,
+          });
           if (!res.writableEnded) res.end();
         });
         return true;
       } catch (e) {
         err(`[token-swap] error for "${label}": ${e.message}`);
+        debugContext?.logError("token_swap.error", e, {
+          strategy,
+          connectionId: conn.id || null,
+          accountEmail: conn.email || null,
+          accountName: conn.name || null,
+        });
+        reportHealth(conn.id, "fail", 1, model);
         break;
       }
     }
@@ -357,6 +474,12 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
 
   if (lastRetryResponse) {
     log(`⚠️ [token-swap] exhausted ${connections.length} account(s), returning last retryable ${lastRetryResponse.statusCode}`);
+    debugContext?.log("token_swap.exhausted", {
+      attemptedAccounts: connections.length,
+      statusCode: lastRetryResponse.statusCode,
+      responseHeaders: lastRetryResponse.headers,
+      responseBody: lastRetryResponse.body,
+    });
     res.writeHead(lastRetryResponse.statusCode, lastRetryResponse.headers);
     res.end(lastRetryResponse.body);
     return true;
@@ -399,6 +522,7 @@ function isRetryableAuthFailure(statusCode, headers, body) {
 // ── Request handler ───────────────────────────────────────────
 
 const server = https.createServer(sslOptions, async (req, res) => {
+  let debugContext = null;
   try {
     if (req.url === "/_mitm_health") {
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -413,8 +537,6 @@ const server = https.createServer(sslOptions, async (req, res) => {
     const bodyBuffer = await collectBodyRaw(req);
     log(`📦 [request] body collected: ${bodyBuffer.length}B in ${Date.now() - bodyCollectStart}ms from ${host}`);
 
-    if (bodyBuffer.length > 0) saveRequestLog(req.url, bodyBuffer);
-
     // Anti-loop: skip requests from 9Router
     if (req.headers[INTERNAL_REQUEST_HEADER.name] === INTERNAL_REQUEST_HEADER.value) {
       // log(`🔁 [request] anti-loop skip: ${host}${req.url}`);
@@ -427,17 +549,37 @@ const server = https.createServer(sslOptions, async (req, res) => {
       return passthrough(req, res, bodyBuffer);
     }
 
+    const model = tool !== "cursor" ? extractModel(req.url, bodyBuffer) : null;
+    debugContext = tool === "antigravity"
+      ? createAntigravityDebugContext({ req, bodyBuffer, model })
+      : null;
+    debugContext?.logRequest({ tool });
+
     const patterns = URL_PATTERNS[tool] || [];
     const isChat = patterns.some(p => req.url.includes(p));
     if (!isChat) {
       // log(`⏩ [request] url="${req.url}" not a chat pattern for tool=${tool}, passthrough`);
-      return passthrough(req, res, bodyBuffer);
+      debugContext?.log("route.selected", {
+        tool,
+        mode: "passthrough",
+        reason: "non_chat_pattern",
+      });
+      return passthrough(req, res, bodyBuffer, null, debugContext);
     }
 
     // Extract model early — needed for sticky token-swap strategy and mitmAlias.
     // Cursor uses binary proto so model extraction is deferred to its handler.
-    const model = tool !== "cursor" ? extractModel(req.url, bodyBuffer) : null;
     log(`🧩 [request] tool=${tool} model="${model || "unknown"}" url=${req.url}`);
+
+    if (shouldPassthroughModel({ tool, model })) {
+      log(`⏩ [${tool}] passthrough forced for model="${model}"`);
+      debugContext?.log("route.selected", {
+        tool,
+        mode: "passthrough",
+        reason: "forced_model_passthrough",
+      });
+      return passthrough(req, res, bodyBuffer, null, debugContext);
+    }
 
     // ── TOKEN SWAP: rotate auth tokens before mitmAlias ──────
     const swapProvider = TOOL_TO_PROVIDER[tool];
@@ -447,11 +589,27 @@ const server = https.createServer(sslOptions, async (req, res) => {
       if (poolConns.length > 0) {
         const availability = getTokenSwapAvailabilitySummary(swapProvider, model);
         log(`🔑 [${tool}] token-swap: ${availability.summaryText} (strategy=${strategy}${model ? `, model=${model}` : ""})`);
-        const handled = await tokenSwapForward(req, res, bodyBuffer, poolConns, model, strategy, swapProvider, bodyCollectStart);
+        debugContext?.log("route.selected", {
+          tool,
+          mode: "token_swap",
+          strategy,
+          availability: availability.summaryText,
+        });
+        const handled = await tokenSwapForward(req, res, bodyBuffer, poolConns, model, strategy, swapProvider, bodyCollectStart, debugContext);
         if (handled) return;
         log(`⚠️ [${tool}] token-swap: all accounts exhausted, falling through to original token`);
+        debugContext?.log("token_swap.fallthrough", {
+          tool,
+          strategy,
+          reason: "all_accounts_exhausted",
+        });
       } else {
         log(`⚠️ [token-swap] 0 active connections for provider=${swapProvider} model="${model || "any"}" — all on cooldown?`);
+        debugContext?.log("token_swap.unavailable", {
+          tool,
+          strategy,
+          reason: "no_active_connections",
+        });
       }
     }
 
@@ -466,16 +624,58 @@ const server = https.createServer(sslOptions, async (req, res) => {
 
     log(`🔍 [${tool}] model="${model}"`);
 
-    const mappedModel = getMappedModel(tool, model);
-    if (!mappedModel) {
+    const mappedSelection = getMappedModelSelection({ dbFile: DB_FILE, tool, model });
+    if (!mappedSelection) {
       // log(`⏩ passthrough | no mapping | ${tool} | ${model || "unknown"}`);
-      return passthrough(req, res, bodyBuffer);
+      debugContext?.log("route.selected", {
+        tool,
+        mode: "passthrough",
+        reason: "no_mapping",
+      });
+      return passthrough(req, res, bodyBuffer, null, debugContext);
     }
 
-    log(`⚡ intercept | ${tool} | ${model} → ${mappedModel}`);
-    return handlers[tool].intercept(req, res, bodyBuffer, mappedModel, passthrough);
+    const { aliasKey, models: mappedModels } = mappedSelection;
+    const strategy = getMitmAliasStrategy({ dbFile: DB_FILE });
+    const strategyTag = strategy === "round-robin" ? "rr" : "fb";
+    log(`⚡ intercept | ${tool} | mode=${strategyTag} | ${model} → ${mappedModels.join(", ")}`);
+    debugContext?.log("route.selected", {
+      tool,
+      mode: "mapped",
+      aliasKey,
+      mappedModels,
+      strategy,
+    });
+    const handled = await tryMappedModels({
+      dbFile: DB_FILE,
+      req,
+      res,
+      bodyBuffer,
+      models: mappedModels,
+      tool,
+      aliasKey,
+      strategy,
+      handlers,
+      interceptOptions: { debugContext },
+      log,
+      err,
+    });
+
+    if (!handled && !res.headersSent) {
+      debugContext?.log("mapped_models.exhausted", {
+        tool,
+        mappedModels,
+        strategy,
+      });
+      res.writeHead(502, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        error: { message: `All ${mappedModels.length} mapped models failed`, type: "mitm_error" }
+      }));
+    }
+    return;
   } catch (e) {
     err(`Unhandled error: ${e.message}`);
+    debugContext?.logError("request.unhandled_error", e);
     if (!res.headersSent) res.writeHead(500, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: { message: e.message, type: "mitm_error" } }));
   }

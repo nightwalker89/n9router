@@ -69,4 +69,8 @@ deploy*.sh
 ecosystem.config.*
 
 .npmrc
+.sisyphus
+.gitnexus
 plans
+.gh-profile
+gh

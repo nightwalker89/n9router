@@ -27,6 +27,8 @@ export {
   deleteModelAlias,
   getMitmAlias,
   setMitmAliasAll,
+  getSettings,
+  updateSettings,
   getApiKeys,
   createApiKey,
   deleteApiKey,

@@ -2,11 +2,15 @@ import crypto from "crypto";
 import { BaseExecutor } from "./base.js";
 import { PROVIDERS } from "../config/providers.js";
 import { OAUTH_ENDPOINTS, ANTIGRAVITY_HEADERS, INTERNAL_REQUEST_HEADER, AG_DEFAULT_TOOLS, AG_TOOL_SUFFIX } from "../config/appConstants.js";
-import { HTTP_STATUS } from "../config/runtimeConfig.js";
+import { HTTP_STATUS, DEFAULT_AG_503_RETRY_COUNT } from "../config/runtimeConfig.js";
 import { deriveSessionId } from "../utils/sessionManager.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 
 const MAX_RETRY_AFTER_MS = 10000;
+
+// Full-jitter backoff config for 503 retries
+const BACKOFF_503_BASE_MS = 1000;
+const BACKOFF_503_CAP_MS = 15000;
 
 export class AntigravityExecutor extends BaseExecutor {
   constructor() {
@@ -169,8 +173,11 @@ export class AntigravityExecutor extends BaseExecutor {
     let lastStatus = 0;
     const MAX_AUTO_RETRIES = 3;
     const MAX_RETRY_AFTER_RETRIES = 3;
+    // 503 retry count: resolved by auth layer (per-account → global → default)
+    const MAX_503_RETRIES = credentials?.antigravity503RetryCount ?? DEFAULT_AG_503_RETRY_COUNT;
     const retryAttemptsByUrl = {}; // Track retry attempts per URL
     const retryAfterAttemptsByUrl = {}; // Track Retry-After retries per URL
+    const retry503AttemptsByUrl = {}; // Track 503-specific retries per URL
 
     for (let urlIndex = 0; urlIndex < fallbackCount; urlIndex++) {
       const url = this.buildUrl(model, stream, urlIndex);
@@ -185,6 +192,9 @@ export class AntigravityExecutor extends BaseExecutor {
       if (!retryAfterAttemptsByUrl[urlIndex]) {
         retryAfterAttemptsByUrl[urlIndex] = 0;
       }
+      if (!retry503AttemptsByUrl[urlIndex]) {
+        retry503AttemptsByUrl[urlIndex] = 0;
+      }
 
       try {
         const response = await proxyAwareFetch(url, {
@@ -195,6 +205,19 @@ export class AntigravityExecutor extends BaseExecutor {
         }, proxyOptions);
 
         if (response.status === HTTP_STATUS.RATE_LIMITED || response.status === HTTP_STATUS.SERVICE_UNAVAILABLE) {
+          // 503-specific in-place retry with exponential backoff (before Retry-After check)
+          if (response.status === HTTP_STATUS.SERVICE_UNAVAILABLE && retry503AttemptsByUrl[urlIndex] < MAX_503_RETRIES) {
+            retry503AttemptsByUrl[urlIndex]++;
+            // Full jitter: random in [0, min(cap, base * 2^attempt)]
+            // Prevents thundering herd when multiple requests hit 503 simultaneously
+            const expCeiling = Math.min(BACKOFF_503_CAP_MS, BACKOFF_503_BASE_MS * Math.pow(2, retry503AttemptsByUrl[urlIndex] - 1));
+            const backoffMs = Math.floor(Math.random() * expCeiling);
+            log?.debug?.("RETRY", `503 retry ${retry503AttemptsByUrl[urlIndex]}/${MAX_503_RETRIES} after ${(backoffMs / 1000).toFixed(2)}s (jitter, ceil=${expCeiling / 1000}s)`);
+            await new Promise(resolve => setTimeout(resolve, backoffMs));
+            urlIndex--;
+            continue;
+          }
+
           // Try to get retry time from headers first
           let retryMs = this.parseRetryHeaders(response.headers);
 
