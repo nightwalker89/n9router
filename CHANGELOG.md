@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.16 (2026-04-24)
+
+### Features
+- Add hourly `db.json` backups with 3-day retention and a Profile settings toggle enabled by default
+
+### Fixes
+- Prevent token-swap DB writes from racing normal local DB writes by using shared locking and atomic JSON updates
+- Stop resetting `db.json` to defaults on corrupt JSON; restore from a valid backup or preserve the corrupt file for recovery
+
 ## v0.4.15 (2026-04-24)
 
 ### Features
