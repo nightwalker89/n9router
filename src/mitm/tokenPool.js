@@ -9,6 +9,7 @@ const path = require("path");
 const http = require("http");
 const { DATA_DIR } = require("./paths");
 const { log } = require("./logger");
+const { updateJsonFileSync } = require("../lib/dbFileSafety.cjs");
 
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000; // refresh 5min before expiry
@@ -511,15 +512,13 @@ function getAllActiveConnections(provider, model) {
 // patchFn receives the mutable connection object; returning false aborts.
 
 function updateConnectionInDb(connId, patchFn) {
-  if (!fs.existsSync(DB_FILE)) return false;
-  const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
-  const connections = db.providerConnections || [];
-  const index = connections.findIndex(c => c.id === connId);
-  if (index === -1) return false;
-  const result = patchFn(connections[index], db);
-  if (result === false) return false;
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
-  return true;
+  const result = updateJsonFileSync(DB_FILE, (db) => {
+    const connections = db.providerConnections || [];
+    const index = connections.findIndex(c => c.id === connId);
+    if (index === -1) return false;
+    return patchFn(connections[index], db);
+  });
+  return result.updated;
 }
 
 // ── Mark account as used (update lastUsedAt in db.json) ──
