@@ -334,6 +334,83 @@ describe("getAllActiveConnections — stored model quota exhaustion", () => {
   });
 });
 
+describe("autoDisableAccountIfSonnetQuotaZero", () => {
+  let tmp, pool;
+  beforeEach(() => {
+    tmp = createTempDb();
+    pool = loadTokenPool(tmp.DATA_DIR);
+  });
+  afterEach(() => tmp.cleanup());
+
+  it("disables an active Antigravity account when Sonnet 4.6 quota is zero", () => {
+    const conn = makeConn({
+      id: "sonnet-zero",
+      modelQuotaStatus: {
+        "claude-sonnet-4-6": {
+          remainingPercentage: 0,
+          exhausted: true,
+        },
+      },
+    });
+
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({
+      providerConnections: [conn],
+      settings: { mitmAntigravityAutoDisableOnSonnetZero: true },
+    }));
+
+    expect(pool.autoDisableAccountIfSonnetQuotaZero(conn, { statusCode: 429 })).toBe(true);
+
+    const db = JSON.parse(fs.readFileSync(tmp.dbPath, "utf8"));
+    expect(db.providerConnections[0].isActive).toBe(false);
+    expect(db.providerConnections[0].autoDisabledReason).toBe("sonnet_4_6_quota_zero");
+    expect(db.providerConnections[0].lastError).toContain("Claude Sonnet 4.6 quota is 0%");
+  });
+
+  it("does not disable when the setting is off", () => {
+    const conn = makeConn({
+      id: "setting-off",
+      modelQuotaStatus: {
+        "claude-sonnet-4-6": {
+          remainingPercentage: 0,
+          exhausted: true,
+        },
+      },
+    });
+
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({
+      providerConnections: [conn],
+      settings: { mitmAntigravityAutoDisableOnSonnetZero: false },
+    }));
+
+    expect(pool.autoDisableAccountIfSonnetQuotaZero(conn, { statusCode: 503 })).toBe(false);
+
+    const db = JSON.parse(fs.readFileSync(tmp.dbPath, "utf8"));
+    expect(db.providerConnections[0].isActive).toBe(true);
+  });
+
+  it("does not disable when Sonnet 4.6 quota is still available", () => {
+    const conn = makeConn({
+      id: "sonnet-available",
+      modelQuotaStatus: {
+        "claude-sonnet-4-6": {
+          remainingPercentage: 12,
+          exhausted: false,
+        },
+      },
+    });
+
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({
+      providerConnections: [conn],
+      settings: { mitmAntigravityAutoDisableOnSonnetZero: true },
+    }));
+
+    expect(pool.autoDisableAccountIfSonnetQuotaZero(conn, { statusCode: 429 })).toBe(false);
+
+    const db = JSON.parse(fs.readFileSync(tmp.dbPath, "utf8"));
+    expect(db.providerConnections[0].isActive).toBe(true);
+  });
+});
+
 // ── isTokenSwapEnabled ───────────────────────────────────────────────────────
 
 describe("isTokenSwapEnabled", () => {

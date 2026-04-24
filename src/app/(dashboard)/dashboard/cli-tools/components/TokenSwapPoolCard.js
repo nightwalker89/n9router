@@ -268,16 +268,16 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
     (c) => c.isActive !== false
   );
   const activeCount = activeAccounts.length;
-  const activeAccountsKey = activeAccounts.map((acc) => acc.id).join("|");
+  const providerAccountsKey = providerAccounts.map((acc) => `${acc.id}:${acc.isActive === false ? "0" : "1"}`).join("|");
   const preferredAccountId = getPreferredAccountId(activeAccounts, strategy);
 
   // Auto-fetch quotas when enabled and accounts available
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
-    if (enabled && activeCount > 0) {
-      fetchQuotas(activeAccounts);
+    if (enabled && providerAccounts.length > 0) {
+      fetchQuotas(providerAccounts);
     }
-  }, [enabled, activeCount, activeAccountsKey, fetchQuotas]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [enabled, providerAccounts.length, providerAccountsKey, fetchQuotas]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll health data every 10s when token swap is enabled
   // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -475,11 +475,11 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
   };
 
   const refreshAllQuotas = async () => {
-    if (refreshingAllQuotas || !!refreshingQuotaId || activeAccounts.length === 0) return;
+    if (refreshingAllQuotas || !!refreshingQuotaId || providerAccounts.length === 0) return;
     setRefreshingAllQuotas(true);
-    // Bust cache for all active accounts then force-fetch in parallel
-    activeAccounts.forEach((acc) => { delete quotaCacheRef.current[acc.id]; });
-    await fetchQuotas(activeAccounts, true);
+    // Bust cache for all pool accounts then force-fetch in parallel
+    providerAccounts.forEach((acc) => { delete quotaCacheRef.current[acc.id]; });
+    await fetchQuotas(providerAccounts, true);
     setRefreshingAllQuotas(false);
   };
 
@@ -669,12 +669,12 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
                   </span>
                 )}
               </div>
-              {activeAccounts.length > 0 && (
+              {providerAccounts.length > 0 && (
                 <button
                   onClick={refreshAllQuotas}
                   disabled={refreshingAllQuotas || !!refreshingQuotaId}
                   className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-1 text-[10px] font-medium text-text-main hover:border-border-alt hover:bg-surface-alt disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  title="Refresh quotas for all pool accounts"
+                  title="Refresh quotas for all pool accounts, including disabled accounts"
                 >
                   <span className={`material-symbols-outlined text-[12px] ${refreshingAllQuotas ? "animate-spin" : ""}`}>refresh</span>
                   {refreshingAllQuotas ? "Refreshing…" : "Refresh All"}
@@ -817,8 +817,11 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
                     </div>
                     <div className="mt-2 pl-6">
                       {acc.isActive === false ? (
-                        <div className="text-[10px] text-text-muted">
-                          Enable this account to include it in token rotation and load quota reset info.
+                        <div className="flex flex-col gap-1">
+                          <div className="text-[10px] text-text-muted">
+                            Disabled; excluded from token rotation.
+                          </div>
+                          {renderAccountQuota(acc.id)}
                         </div>
                       ) : (
                         renderAccountQuota(acc.id)

@@ -38,6 +38,7 @@ const DEFAULT_SETTINGS = {
   mitmRouterBaseUrl: DEFAULT_MITM_ROUTER_BASE,
   mitmAliasStrategy: "round-robin",
   mitmAliasRoundRobinState: {},
+  mitmAntigravityAutoDisableOnSonnetZero: true,
   rtkEnabled: false,
 };
 

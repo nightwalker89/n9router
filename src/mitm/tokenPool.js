@@ -17,6 +17,7 @@ const DEFAULT_COOLDOWN_MS = 2 * 60 * 1000;
 const DEFAULT_AUTH_COOLDOWN_MS = 10 * 60 * 1000;
 const DEFAULT_STRIKE_THRESHOLD = 3; // consecutive 429s before hard cooldown
 const CAPACITY_EXHAUSTED_COOLDOWN_MS = 60 * 1000;
+const SONNET_46_MODEL_KEY = "claude-sonnet-4-6";
 // Must match DEFAULT_AG_503_RETRY_COUNT in open-sse/config/runtimeConfig.js
 const DEFAULT_503_RETRY_COUNT = 3;  // default 503 retries per account before switching
 
@@ -165,6 +166,38 @@ function isStoredModelQuotaExhausted(connection, model) {
   if (!modelStatus || typeof modelStatus !== "object") return false;
 
   return modelStatus.exhausted === true || modelStatus.remainingPercentage === 0;
+}
+
+function isAntigravitySonnetZeroAutoDisableEnabled(db) {
+  return db?.settings?.mitmAntigravityAutoDisableOnSonnetZero !== false;
+}
+
+function autoDisableAccountIfSonnetQuotaZero(connection, failure = {}) {
+  if (!connection?.id || connection.provider !== "antigravity") return false;
+
+  try {
+    const now = new Date().toISOString();
+    const statusLabel = failure.statusCode ? `status ${failure.statusCode}` : "request failure";
+    const disabled = updateConnectionInDb(connection.id, (conn, db) => {
+      if (!isAntigravitySonnetZeroAutoDisableEnabled(db)) return false;
+      if (conn.isActive === false) return false;
+      if (!isStoredModelQuotaExhausted(conn, SONNET_46_MODEL_KEY)) return false;
+      Object.assign(conn, {
+        isActive: false,
+        autoDisabledAt: now,
+        autoDisabledReason: "sonnet_4_6_quota_zero",
+        lastError: `Auto-disabled after ${statusLabel}: Claude Sonnet 4.6 quota is 0%`,
+        lastErrorAt: now,
+        updatedAt: now,
+      });
+    });
+
+    if (disabled) log(`⏸ [token-pool] auto-disabled: ${connection.id.slice(0, 8)}… Claude Sonnet 4.6 quota is 0%`);
+    return disabled;
+  } catch (e) {
+    log(`⚠️ [token-pool] auto-disable check failed: ${e.message}`);
+    return false;
+  }
 }
 
 // ── Strategy reader ───────────────────────────────────────────
@@ -473,23 +506,31 @@ function getAllActiveConnections(provider, model) {
   });
 }
 
+// ── Shared DB helper ─────────────────────────────────────────
+// Read db.json, find a connection by id, apply patchFn, write back.
+// patchFn receives the mutable connection object; returning false aborts.
+
+function updateConnectionInDb(connId, patchFn) {
+  if (!fs.existsSync(DB_FILE)) return false;
+  const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
+  const connections = db.providerConnections || [];
+  const index = connections.findIndex(c => c.id === connId);
+  if (index === -1) return false;
+  const result = patchFn(connections[index], db);
+  if (result === false) return false;
+  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+  return true;
+}
+
 // ── Mark account as used (update lastUsedAt in db.json) ──
 // Round-robin selection is based on least-recently-used ordering.
 
 function markAccountUsed(connId) {
   try {
-    if (!fs.existsSync(DB_FILE)) return;
-    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
-    const connections = db.providerConnections || [];
-    const conn = connections.find(c => c.id === connId);
-    if (!conn) return;
-
-    conn.lastUsedAt = new Date().toISOString();
-    if ("consecutiveUseCount" in conn) {
-      delete conn.consecutiveUseCount;
-    }
-
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+    updateConnectionInDb(connId, (conn) => {
+      conn.lastUsedAt = new Date().toISOString();
+      if ("consecutiveUseCount" in conn) delete conn.consecutiveUseCount;
+    });
   } catch (e) {
     log(`⚠️ [token-pool] markAccountUsed error: ${e.message}`);
   }
@@ -585,6 +626,7 @@ module.exports = {
   getTokenSwapStrategy,
   parseQuotaCooldown,
   shouldImmediateQuotaCooldown,
+  autoDisableAccountIfSonnetQuotaZero,
   markAccountUsed,
   getConnectionLabel,
   maskEmail,

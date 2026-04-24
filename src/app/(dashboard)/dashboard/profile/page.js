@@ -270,6 +270,21 @@ export default function ProfilePage() {
     }
   };
 
+  const updateMitmAntigravityAutoDisableOnSonnetZero = async (enabled) => {
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mitmAntigravityAutoDisableOnSonnetZero: enabled }),
+      });
+      if (res.ok) {
+        setSettings(prev => ({ ...prev, mitmAntigravityAutoDisableOnSonnetZero: enabled }));
+      }
+    } catch (err) {
+      console.error("Failed to update mitmAntigravityAutoDisableOnSonnetZero:", err);
+    }
+  };
+
   const reloadSettings = async () => {
     try {
       const res = await fetch("/api/settings");
@@ -348,6 +363,7 @@ export default function ProfilePage() {
 
   const observabilityEnabled = settings.enableObservability === true;
   const mitmAntigravityDebugLogsEnabled = settings.mitmAntigravityDebugLogsEnabled === true;
+  const mitmAntigravityAutoDisableOnSonnetZero = settings.mitmAntigravityAutoDisableOnSonnetZero !== false;
   const mitmAntigravityDebugLogDir = settings.mitmAntigravityDebugLogDir || "";
 
   return (
@@ -699,6 +715,19 @@ export default function ProfilePage() {
               </div>
             </div>
           )}
+          <div className="flex items-center justify-between pt-4 mt-4 border-t border-border/50">
+            <div>
+              <p className="font-medium">Antigravity Auto-disable Empty Sonnet Accounts</p>
+              <p className="text-sm text-text-muted">
+                Disable an Antigravity token-rotation account after a failed request when its Claude Sonnet 4.6 quota is 0%
+              </p>
+            </div>
+            <Toggle
+              checked={mitmAntigravityAutoDisableOnSonnetZero}
+              onChange={updateMitmAntigravityAutoDisableOnSonnetZero}
+              disabled={loading}
+            />
+          </div>
         </Card>
 
         {/* App Info */}

@@ -17,6 +17,7 @@ const { isTokenSwapEnabled, getAllActiveConnections, triggerRefreshIfNeeded,
         recordStrike, recordModelStrike, clearStrikes, clearModelStrikes,
         getTokenSwapStrategy,
         parseQuotaCooldown, shouldImmediateQuotaCooldown,
+        autoDisableAccountIfSonnetQuotaZero,
         markAccountUsed, getConnectionLabel, getTokenSwapAvailabilitySummary,
         getAntigravity503RetryCount } = require("./tokenPool");
 const { createAntigravityDebugContext, maskToken } = require("./antigravityDebugLog");
@@ -288,6 +289,10 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
           const cooldownMs = parseQuotaCooldown(result.body);
           const cdLabel = cooldownMs ? ` cooldown=${Math.ceil(cooldownMs / 60000)}m` : "";
           const immediateCooldown = shouldImmediateQuotaCooldown(result.statusCode, result.body);
+          const autoDisabled = autoDisableAccountIfSonnetQuotaZero(conn, {
+            statusCode: result.statusCode,
+            model,
+          });
           lastRetryResponse = {
             statusCode: result.statusCode,
             headers: result.headers,
@@ -307,7 +312,9 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
             },
           });
 
-          if (isConsecutiveFail) {
+          if (autoDisabled) {
+            log(`⚠️ [token-swap] "${label}" → ${result.statusCode} auto-disabled because Claude Sonnet 4.6 quota is 0%, trying next...`);
+          } else if (isConsecutiveFail) {
             // 2nd consecutive fail — apply cooldown/strike as normal
             if (strategy === "sticky" && model) {
               if (immediateCooldown) {
@@ -469,6 +476,13 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
         return true;
       } catch (e) {
         err(`[token-swap] error for "${label}": ${e.message}`);
+        const autoDisabled = autoDisableAccountIfSonnetQuotaZero(conn, {
+          statusCode: "network_error",
+          model,
+        });
+        if (autoDisabled) {
+          log(`⚠️ [token-swap] "${label}" auto-disabled because Claude Sonnet 4.6 quota is 0%, trying next...`);
+        }
         debugContext?.logError("token_swap.error", e, {
           strategy,
           connectionId: conn.id || null,
