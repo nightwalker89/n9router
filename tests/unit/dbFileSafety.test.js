@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const {
   recoverCorruptJsonFileSync,
   updateJsonFileSync,
-} = require("../../src/lib/dbFileSafety.cjs");
+} = require("../../src/lib/dbFileSafety.js");
 
 const tempDirs = [];
 

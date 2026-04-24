@@ -9,7 +9,7 @@ const path = require("path");
 const http = require("http");
 const { DATA_DIR } = require("./paths");
 const { log } = require("./logger");
-const { updateJsonFileSync } = require("../lib/dbFileSafety.cjs");
+const { updateJsonFileSync } = require("../lib/dbFileSafety.js");
 
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000; // refresh 5min before expiry

@@ -285,6 +285,21 @@ export default function ProfilePage() {
     }
   };
 
+  const updatePeriodicDbBackupsEnabled = async (enabled) => {
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ periodicDbBackupsEnabled: enabled }),
+      });
+      if (res.ok) {
+        setSettings(prev => ({ ...prev, periodicDbBackupsEnabled: enabled }));
+      }
+    } catch (err) {
+      console.error("Failed to update periodicDbBackupsEnabled:", err);
+    }
+  };
+
   const reloadSettings = async () => {
     try {
       const res = await fetch("/api/settings");
@@ -365,6 +380,7 @@ export default function ProfilePage() {
   const mitmAntigravityDebugLogsEnabled = settings.mitmAntigravityDebugLogsEnabled === true;
   const mitmAntigravityAutoDisableOnSonnetZero = settings.mitmAntigravityAutoDisableOnSonnetZero !== false;
   const mitmAntigravityDebugLogDir = settings.mitmAntigravityDebugLogDir || "";
+  const periodicDbBackupsEnabled = settings.periodicDbBackupsEnabled !== false;
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -408,6 +424,17 @@ export default function ProfilePage() {
                 <p className="font-medium">Database Location</p>
                 <p className="text-sm text-text-muted font-mono">~/.n9router/db.json</p>
               </div>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-lg bg-bg border border-border">
+              <div>
+                <p className="font-medium">Hourly Database Backups</p>
+                <p className="text-sm text-text-muted">Keep hourly snapshots for 3 days in ~/.n9router/backups/db</p>
+              </div>
+              <Toggle
+                checked={periodicDbBackupsEnabled}
+                onChange={updatePeriodicDbBackupsEnabled}
+                disabled={loading}
+              />
             </div>
             <div className="flex flex-wrap gap-2">
               <Button

@@ -2,11 +2,15 @@ import { NextResponse } from "next/server";
 import { getSettings, updateSettings } from "@/lib/localDb";
 import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
 import { DATA_DIR } from "@/lib/dataDir";
+import { createRequire } from "node:module";
 import { setRtkEnabled } from "open-sse/rtk/flag.js";
 import bcrypt from "bcryptjs";
 import path from "path";
 
+const require = createRequire(import.meta.url);
+const { configureDbPeriodicBackups } = require("../../../lib/dbPeriodicBackup.js");
 const MITM_ANTIGRAVITY_DEBUG_LOG_DIR = path.join(DATA_DIR, "mitm", "logs", "antigravity");
+const DB_FILE = path.join(DATA_DIR, "db.json");
 
 export async function GET() {
   try {
@@ -76,6 +80,11 @@ export async function PATCH(request) {
     if (Object.prototype.hasOwnProperty.call(body, "rtkEnabled")) {
       setRtkEnabled(settings.rtkEnabled);
     }
+
+    if (Object.prototype.hasOwnProperty.call(body, "periodicDbBackupsEnabled")) {
+      configureDbPeriodicBackups(DB_FILE, settings.periodicDbBackupsEnabled !== false);
+    }
+
     const { password, ...safeSettings } = settings;
     return NextResponse.json({
       ...safeSettings,

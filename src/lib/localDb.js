@@ -8,7 +8,8 @@ import { createRequire } from "node:module";
 import { DATA_DIR } from "@/lib/dataDir.js";
 
 const require = createRequire(import.meta.url);
-const { createValidBackupSync, recoverCorruptJsonFileSync } = require("./dbFileSafety.cjs");
+const { createValidBackupSync, recoverCorruptJsonFileSync } = require("./dbFileSafety.js");
+const { startConfiguredDbPeriodicBackups } = require("./dbPeriodicBackup.js");
 
 const DEFAULT_MITM_ROUTER_BASE = "http://localhost:20128";
 const isCloud = typeof caches !== 'undefined' || typeof caches === 'object';
@@ -44,6 +45,7 @@ const DEFAULT_SETTINGS = {
   mitmAliasRoundRobinState: {},
   mitmAntigravityAutoDisableOnSonnetZero: true,
   rtkEnabled: false,
+  periodicDbBackupsEnabled: true,
 };
 
 function cloneDefaultData() {
@@ -64,6 +66,8 @@ function cloneDefaultData() {
 if (!isCloud && DB_FILE && !fs.existsSync(DB_FILE)) {
   fs.writeFileSync(DB_FILE, JSON.stringify(cloneDefaultData(), null, 2));
 }
+
+if (!isCloud && DB_FILE) startConfiguredDbPeriodicBackups(DB_FILE);
 
 function ensureDbShape(data) {
   const defaults = cloneDefaultData();
