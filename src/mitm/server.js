@@ -23,7 +23,7 @@ const { isTokenSwapEnabled, getAllActiveConnections, triggerRefreshIfNeeded,
 const { createAntigravityDebugContext, maskToken } = require("./antigravityDebugLog");
 const { getCertForDomain } = require("./cert/generate");
 const { buildInputOnlyRequestDetail, createTokenSwapUsageObserver, generateDetailId } = require("./usageTracker");
-const { pushHealthEvent, getLastEventStatus } = require("./healthStore");
+const { pushHealthEvent, getLastEventStatus, migrateToEmailKeys } = require("./healthStore");
 
 const { applyRtkCompression } = require("./rtkCompressor");
 
@@ -33,14 +33,14 @@ const INTERNAL_REQUEST_HEADER = { name: "x-request-source", value: "local" };
 
 /**
  * Record account health event to disk (fire-and-forget, never blocks request flow).
- * @param {string} connectionId
+ * @param {string} accountKey - Stable key (email preferred, falls back to connection ID)
  * @param {"success"|"retry_success"|"fail"} status
  * @param {number} attempts - Total attempts including retries
  * @param {string|null} model
  */
-function reportHealth(connectionId, status, attempts, model) {
+function reportHealth(accountKey, status, attempts, model) {
   try {
-    pushHealthEvent(connectionId, status, attempts || 1, model || null);
+    pushHealthEvent(accountKey, status, attempts || 1, model || null);
   } catch { /* ignore — health tracking must never affect request flow */ }
 }
 
@@ -283,7 +283,8 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
           // ── 2-consecutive-fail rule: only apply cooldown/strike if this
           // account's last health event was already a fail. A single transient
           // 429/503 burst doesn't warrant a cooldown. ──
-          const lastStatus = getLastEventStatus(conn.id);
+          const accountKey = conn.email || conn.id;
+          const lastStatus = getLastEventStatus(accountKey);
           const isConsecutiveFail = lastStatus === "fl";
 
           const cooldownMs = parseQuotaCooldown(result.body);
@@ -338,7 +339,7 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
             log(`⚠️ [token-swap] "${label}" → ${result.statusCode} (1st fail, no cooldown), trying next...`);
           }
 
-          reportHealth(conn.id, "fail", conn._quotaRetryCount || 1, model);
+          reportHealth(conn.email || conn.id, "fail", conn._quotaRetryCount || 1, model);
           break;
         }
 
@@ -391,7 +392,7 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
             },
           });
           log(`⚠️ [token-swap] "${label}" → 401 invalid_token, trying next...`);
-          reportHealth(conn.id, "fail", 1, model);
+          reportHealth(conn.email || conn.id, "fail", 1, model);
           break;
         }
 
@@ -405,7 +406,7 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
         markAccountUsed(conn.id);
         // Record health: success on first try vs retry success (429+503 quota retries both count)
         const _healthAttempts = (conn._quotaRetryCount || 0) + 1;
-        reportHealth(conn.id, _healthAttempts > 1 ? "retry_success" : (i > 0 ? "retry_success" : "success"), _healthAttempts, model);
+        reportHealth(conn.email || conn.id, _healthAttempts > 1 ? "retry_success" : (i > 0 ? "retry_success" : "success"), _healthAttempts, model);
         res.writeHead(statusCode, result.response.headers);
 
         const detailId = generateDetailId(model);
@@ -489,7 +490,7 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
           accountEmail: conn.email || null,
           accountName: conn.name || null,
         });
-        reportHealth(conn.id, "fail", 1, model);
+        reportHealth(conn.email || conn.id, "fail", 1, model);
         break;
       }
     }
@@ -704,7 +705,18 @@ const server = https.createServer(sslOptions, async (req, res) => {
   }
 });
 
-server.listen(LOCAL_PORT, () => log(`🚀 Server ready on :${LOCAL_PORT}`));
+server.listen(LOCAL_PORT, () => {
+  log(`🚀 Server ready on :${LOCAL_PORT}`);
+
+  // One-time migration: convert old UUID-keyed health data to email-keyed data
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
+      const connections = (db.providerConnections || []).filter(c => c.email);
+      if (connections.length > 0) migrateToEmailKeys(connections);
+    }
+  } catch { /* ignore — migration is best-effort */ }
+});
 
 server.on("error", (e) => {
   if (e.code === "EADDRINUSE") err(`Port ${LOCAL_PORT} already in use`);

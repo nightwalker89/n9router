@@ -827,7 +827,7 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
                         renderAccountQuota(acc.id)
                       )}
                       {/* Health pulse — last 100 call results as colored squares */}
-                      {renderHealthDots(acc.id)}
+                      {renderHealthDots(acc.email || acc.id)}
                     </div>
                   </div>
                   );

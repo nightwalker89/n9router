@@ -8,6 +8,9 @@
  *   a: total attempts (1 = first-try success)
  *   m: model (optional)
  *
+ * Keys are account emails (stable across re-adds) with fallback to
+ * connection IDs for accounts without email.
+ *
  * Runs in MITM server process (CJS, separate from Next.js).
  */
 const fs = require("fs");
@@ -26,7 +29,7 @@ const STATUS_CODE = {
 
 /**
  * Read the health store from disk. Returns {} on any read/parse error.
- * @returns {{ [connectionId: string]: Array<{ts,s,a,m?}> }}
+ * @returns {{ [accountKey: string]: Array<{ts,s,a,m?}> }}
  */
 function readStore() {
   try {
@@ -40,7 +43,7 @@ function readStore() {
 /**
  * Write the health store to disk. Silently ignores write errors
  * so request flow is never interrupted.
- * @param {{ [connectionId: string]: Array }} data
+ * @param {{ [accountKey: string]: Array }} data
  */
 function writeStore(data) {
   try {
@@ -54,18 +57,18 @@ function writeStore(data) {
 
 /**
  * Push a health event for an account.
- * Keeps only the last MAX_EVENTS events per connectionId.
+ * Keeps only the last MAX_EVENTS events per accountKey.
  *
- * @param {string} connectionId
+ * @param {string} accountKey - Stable key (email preferred, falls back to connection ID)
  * @param {"success"|"retry_success"|"fail"} status
  * @param {number} [attempts=1] - Total attempts (including retries)
  * @param {string|null} [model] - Model name (optional)
  */
-function pushHealthEvent(connectionId, status, attempts, model) {
-  if (!connectionId || !status) return;
+function pushHealthEvent(accountKey, status, attempts, model) {
+  if (!accountKey || !status) return;
 
   const store = readStore();
-  if (!store[connectionId]) store[connectionId] = [];
+  if (!store[accountKey]) store[accountKey] = [];
 
   const event = {
     ts: Date.now(),
@@ -74,11 +77,11 @@ function pushHealthEvent(connectionId, status, attempts, model) {
   };
   if (model) event.m = model;
 
-  store[connectionId].push(event);
+  store[accountKey].push(event);
 
   // Drop oldest events beyond MAX_EVENTS
-  if (store[connectionId].length > MAX_EVENTS) {
-    store[connectionId] = store[connectionId].slice(-MAX_EVENTS);
+  if (store[accountKey].length > MAX_EVENTS) {
+    store[accountKey] = store[accountKey].slice(-MAX_EVENTS);
   }
 
   writeStore(store);
@@ -86,17 +89,17 @@ function pushHealthEvent(connectionId, status, attempts, model) {
 
 /**
  * Return the compact status code of the most recent health event for
- * a connection, or null if no events exist yet.
+ * an account, or null if no events exist yet.
  * Used to implement the "2 consecutive fails = cooldown" policy.
  *
- * @param {string} connectionId
+ * @param {string} accountKey - Stable key (email preferred, falls back to connection ID)
  * @returns {"ok"|"rs"|"fl"|null}
  */
-function getLastEventStatus(connectionId) {
-  if (!connectionId) return null;
+function getLastEventStatus(accountKey) {
+  if (!accountKey) return null;
   try {
     const store = readStore();
-    const events = store[connectionId];
+    const events = store[accountKey];
     if (!events || events.length === 0) return null;
     return events[events.length - 1].s || null;
   } catch {
@@ -104,10 +107,44 @@ function getLastEventStatus(connectionId) {
   }
 }
 
+/**
+ * One-time migration: convert old UUID-keyed entries to email-keyed entries.
+ * Call at startup with the current list of connections. For each connection
+ * that has an email, if there are health events under its old `id` key,
+ * merge them into the email key and remove the old key.
+ *
+ * @param {{ id: string, email?: string }[]} connections
+ */
+function migrateToEmailKeys(connections) {
+  if (!connections || connections.length === 0) return;
+
+  const store = readStore();
+  let changed = false;
+
+  for (const conn of connections) {
+    if (!conn.email || !conn.id) continue;
+    if (conn.email === conn.id) continue; // already email-keyed
+    if (!store[conn.id]) continue;          // no old data to migrate
+
+    // Merge old events into email key (append, then trim)
+    const existing = store[conn.email] || [];
+    const merged = [...existing, ...store[conn.id]];
+    // Sort by timestamp and keep only the latest MAX_EVENTS
+    merged.sort((a, b) => a.ts - b.ts);
+    store[conn.email] = merged.slice(-MAX_EVENTS);
+
+    delete store[conn.id];
+    changed = true;
+  }
+
+  if (changed) writeStore(store);
+}
+
 module.exports = {
   pushHealthEvent,
   getLastEventStatus,
   readStore,
+  migrateToEmailKeys,
   HEALTH_FILE,
   MAX_EVENTS,
 };

@@ -57,7 +57,8 @@ function expandEvents(events) {
  * Receives a health event from the MITM process (fallback path).
  * Primary writes happen via healthStore.js (direct fs write from MITM).
  *
- * Body: { connectionId, status, attempts?, model? }
+ * Body: { accountKey, status, attempts?, model? }
+ *       (also accepts legacy `connectionId` as fallback for `accountKey`)
  */
 export async function POST(request) {
   if (request.headers.get(INTERNAL_REQUEST_HEADER.name) !== INTERNAL_REQUEST_HEADER.value) {
@@ -66,14 +67,15 @@ export async function POST(request) {
 
   try {
     const body = await request.json();
-    const { connectionId, status, attempts, model } = body ?? {};
+    const { accountKey: bodyAccountKey, connectionId, status, attempts, model } = body ?? {};
+    const accountKey = bodyAccountKey || connectionId;
 
-    if (!connectionId || !status || !STATUS_CODE[status]) {
+    if (!accountKey || !status || !STATUS_CODE[status]) {
       return NextResponse.json({ error: "invalid payload" }, { status: 400 });
     }
 
     const store = readStore();
-    if (!store[connectionId]) store[connectionId] = [];
+    if (!store[accountKey]) store[accountKey] = [];
 
     const event = {
       ts: Date.now(),
@@ -82,9 +84,9 @@ export async function POST(request) {
     };
     if (model) event.m = model;
 
-    store[connectionId].push(event);
-    if (store[connectionId].length > MAX_EVENTS) {
-      store[connectionId] = store[connectionId].slice(-MAX_EVENTS);
+    store[accountKey].push(event);
+    if (store[accountKey].length > MAX_EVENTS) {
+      store[accountKey] = store[accountKey].slice(-MAX_EVENTS);
     }
 
     writeStore(store);
@@ -98,17 +100,18 @@ export async function POST(request) {
  * GET /api/internal/account-health
  * Returns health events for the dashboard.
  *
- * ?connectionId=abc-123  → { events: [...] }   (single account)
- * (no param)             → { accounts: {...} }  (all accounts)
+ * ?accountKey=email@example.com  → { events: [...] }   (single account)
+ * ?connectionId=abc-123          → { events: [...] }   (legacy single account)
+ * (no param)                     → { accounts: {...} }  (all accounts)
  */
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
-  const connectionId = searchParams.get("connectionId");
+  const accountKey = searchParams.get("accountKey") || searchParams.get("connectionId");
 
   const store = readStore();
 
-  if (connectionId) {
-    return NextResponse.json({ events: expandEvents(store[connectionId]) });
+  if (accountKey) {
+    return NextResponse.json({ events: expandEvents(store[accountKey]) });
   }
 
   // All accounts
