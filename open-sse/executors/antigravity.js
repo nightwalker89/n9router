@@ -5,8 +5,18 @@ import { OAUTH_ENDPOINTS, ANTIGRAVITY_HEADERS, INTERNAL_REQUEST_HEADER, AG_DEFAU
 import { HTTP_STATUS } from "../config/runtimeConfig.js";
 import { deriveSessionId } from "../utils/sessionManager.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
+import { cleanJSONSchemaForAntigravity } from "../translator/helpers/geminiHelper.js";
+
+// Sanitize function name: Gemini requires [a-zA-Z_][a-zA-Z0-9_.:\-]{0,63}
+function sanitizeFunctionName(name) {
+  if (!name) return "_unknown";
+  let s = name.replace(/[^a-zA-Z0-9_.:\-]/g, "_");
+  if (!/^[a-zA-Z_]/.test(s)) s = "_" + s;
+  return s.substring(0, 64);
+}
 
 const MAX_RETRY_AFTER_MS = 10000;
+const MAX_ANTIGRAVITY_OUTPUT_TOKENS = 16384;
 
 export class AntigravityExecutor extends BaseExecutor {
   constructor() {
@@ -53,14 +63,44 @@ export class AntigravityExecutor extends BaseExecutor {
       return c;
     });
 
+    // Sanitize tool schemas and function names before sending to Antigravity.
+    let tools = body.request?.tools;
+
+    if (tools && tools.length > 0) {
+      tools = tools
+        .map(group => {
+          if (!group.functionDeclarations) return group;
+          const cleanedDeclarations = group.functionDeclarations.map(fn => ({
+            ...fn,
+            name: sanitizeFunctionName(fn.name),
+            parameters: fn.parameters
+              ? cleanJSONSchemaForAntigravity(structuredClone(fn.parameters))
+              : { type: "object", properties: { reason: { type: "string", description: "Brief explanation" } }, required: ["reason"] }
+          }));
+
+          return {
+            ...group,
+            functionDeclarations: cleanedDeclarations
+          };
+        })
+        .filter(group => group.functionDeclarations?.length > 0)
+        .slice(0, 1);
+    }
+
+    const { tools: _originalTools, toolConfig: _originalToolConfig, ...requestWithoutTools } = body.request || {};
+    const generationConfig = { ...(requestWithoutTools.generationConfig || {}) };
+    if (generationConfig.maxOutputTokens > MAX_ANTIGRAVITY_OUTPUT_TOKENS) {
+      generationConfig.maxOutputTokens = MAX_ANTIGRAVITY_OUTPUT_TOKENS;
+    }
+
     const transformedRequest = {
-      ...body.request,
+      ...requestWithoutTools,
+      generationConfig,
       ...(contents && { contents }),
+      ...(tools && { tools }),
       sessionId: body.request?.sessionId || deriveSessionId(credentials?.email || credentials?.connectionId),
       safetySettings: undefined,
-      toolConfig: body.request?.tools?.length > 0
-        ? { functionCallingConfig: { mode: "VALIDATED" } }
-        : body.request?.toolConfig
+      ...(tools?.length > 0 && { toolConfig: { functionCallingConfig: { mode: "VALIDATED" } } })
     };
 
     return {

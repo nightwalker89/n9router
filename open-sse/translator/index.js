@@ -140,14 +140,11 @@ export function translateRequest(sourceFormat, targetFormat, model, body, stream
     }
   }
 
-  // Antigravity cloaking: rename client tools + inject decoys (anti-ban)
-  // Only apply for GitHub Copilot requests so other clients are unaffected.
+  // Antigravity cloaking/tool stripping is intentionally disabled for GitHub Copilot.
+  // Keep the translated request intact; final provider-specific sanitization happens
+  // in the Antigravity executor.
   if (provider === FORMATS.ANTIGRAVITY && clientTool === "github-copilot") {
-    const { cloakedBody, toolNameMap } = AntigravityExecutor.cloakTools(result, clientTool);
-    result = cloakedBody;
-    if (toolNameMap?.size > 0) {
-      result._toolNameMap = toolNameMap;
-    }
+    // No-op
   }
 
   return result;
