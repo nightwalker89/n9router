@@ -13,7 +13,6 @@ const path = require("path");
 const { execSync } = require("child_process");
 
 const pkgRoot = path.join(__dirname, "..");
-const standaloneRoot = path.join(pkgRoot, ".next", "standalone");
 const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
 
 function info(msg) {
@@ -30,6 +29,17 @@ function pathExists(target) {
   } catch {
     return false;
   }
+}
+
+function resolveStandaloneRoot() {
+  const candidates = [
+    path.join(pkgRoot, "app"),
+    path.join(pkgRoot, ".next", "standalone"),
+  ];
+
+  return candidates.find((candidate) =>
+    pathExists(path.join(candidate, "server.js"))
+  );
 }
 
 function readMagic(binaryPath) {
@@ -139,13 +149,14 @@ function copyDirSync(src, dest) {
  * This copies it there so the source path aliases resolve correctly.
  */
 function copyOpenSse() {
-  const standaloneOpenSse = path.join(standaloneRoot, "open-sse");
-  const parentOpenSse = path.join(standaloneRoot, "..", "open-sse");
-
-  if (!pathExists(standaloneRoot)) {
-    info("Skipping open-sse copy: standalone dir not present (dev install)");
+  const standaloneRoot = resolveStandaloneRoot();
+  if (!standaloneRoot) {
+    info("Skipping open-sse copy: standalone app not present (dev install)");
     return;
   }
+
+  const standaloneOpenSse = path.join(standaloneRoot, "open-sse");
+  const parentOpenSse = path.join(standaloneRoot, "..", "open-sse");
 
   if (!pathExists(standaloneOpenSse)) {
     info("Skipping open-sse copy: open-sse not found in standalone dir");
@@ -162,16 +173,20 @@ function copyOpenSse() {
 }
 
 function main() {
+  const standaloneRoot = resolveStandaloneRoot();
   const targets = [
     {
       name: "root node_modules",
       moduleRoot: path.join(pkgRoot, "node_modules", "better-sqlite3"),
     },
-    {
-      name: ".next/standalone/node_modules",
-      moduleRoot: path.join(standaloneRoot, "node_modules", "better-sqlite3"),
-    },
   ];
+
+  if (standaloneRoot) {
+    targets.push({
+      name: `${path.relative(pkgRoot, standaloneRoot)}/node_modules`,
+      moduleRoot: path.join(standaloneRoot, "node_modules", "better-sqlite3"),
+    });
+  }
 
   for (const target of targets) {
     ensureBetterSqlite3(target.name, target.moduleRoot);

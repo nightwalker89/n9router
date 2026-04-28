@@ -1,42 +1,21 @@
 # Changelog
 
-## Upstream v0.4.8 (2026-04-28)
+## v0.4.19 (2026-04-28)
 
 ### Features
-- Add Web Search & Web Fetch providers with Combo support — chain multiple search/fetch providers as a single virtual provider
-- Add Cloudflare AI provider support
-- Add provider filter and expiry sorting to quota dashboard (#769)
+- Add Cloudflare AI provider support and enhance connection management
+- Add per-tool DNS mapping with `TOOL_HOSTS` constant and integrate into MitmToolCard (#788)
 
 ### Improvements
 - Proxy-aware token refresh across executors (Antigravity, Base, Default, Github, Kiro)
+- Refactor cloudflared process management for port-specific termination and enhanced tunnel management
+- Refactor MitmServerCard to use input field for API key selection; enhance shutdown process with synchronous DNS cleanup
 
 ### Fixes
 - Fix granular `reasoning_effort` handling for Claude models on Copilot & Anthropic backend (#791)
 - Fix Antigravity INVALID_ARGUMENT errors and Copilot agent mode parity
 - Fix quota reset timestamp parsing (#768)
-
-## Upstream v0.4.6 (2026-04-25)
-
-### Features
-- Add BytePlus Provider
-- Add Codex support to image providers
-- Enhance image and embedding provider support
-
-### Improvements
-- Cap maximum cooldown for rate limit handling in account unavailability and single-model chat flows
-- Dynamic custom model fetching for model selection
-
-## Upstream v0.4.5 (2026-04-24)
-
-### Improvements
-- Cap maximum cooldown for rate limit handling in account unavailability and single-model chat flows
-- Dynamic custom model fetching for model selection
-
-## Upstream v0.4.3 (2026-04-24)
-
-### Improvements
-- Improve in-app download/update UX on dashboard
-- Improve Codex provider rate limit handling with precise cooldown (`resetsAtMs`) and email backfill for OAuth accounts
+- Add provider filter and expiry sorting to quota dashboard (#769)
 
 ## v0.4.16 (2026-04-24)
 

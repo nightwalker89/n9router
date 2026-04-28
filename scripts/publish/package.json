@@ -1,0 +1,37 @@
+{
+  "name": "n9router",
+  "version": "0.0.0",
+  "description": "Self-hosted AI routing gateway — local proxy for Claude, Gemini, OpenAI and 40+ providers",
+  "keywords": [
+    "ai",
+    "llm",
+    "proxy",
+    "router",
+    "claude",
+    "openai",
+    "gemini",
+    "cursor"
+  ],
+  "homepage": "https://github.com/nightwalker89/n9router",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nightwalker89/n9router.git"
+  },
+  "config": {
+    "appName": "n9router"
+  },
+  "license": "MIT",
+  "bin": {
+    "n9router": "./bin/n9router.js"
+  },
+  "files": [
+    "bin/",
+    "hooks/",
+    "app/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "postinstall": "node hooks/postinstall.js"
+  }
+}

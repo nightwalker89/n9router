@@ -63,6 +63,17 @@ function compareSemver(a, b) {
   return 0;
 }
 
+function resolveAppRoot() {
+  const candidates = [
+    path.join(pkgRoot, "app"),
+    path.join(pkgRoot, ".next", "standalone"),
+  ];
+
+  return candidates.find((candidate) =>
+    fs.existsSync(path.join(candidate, "server.js"))
+  );
+}
+
 // ── --version ────────────────────────────────────────────────────────
 
 if (process.argv.includes("--version") || process.argv.includes("-v")) {
@@ -112,15 +123,17 @@ if (process.argv.includes("--update")) {
 
 // ── Start server ─────────────────────────────────────────────────────
 
-const standaloneServer = path.join(pkgRoot, ".next", "standalone", "server.js");
+const appRoot = resolveAppRoot();
+const standaloneServer = appRoot && path.join(appRoot, "server.js");
 
-if (!fs.existsSync(standaloneServer)) {
+if (!standaloneServer || !fs.existsSync(standaloneServer)) {
   console.error(
-    "[n9router] ERROR: The pre-built server was not found at:\n  " +
-      standaloneServer +
+    "[n9router] ERROR: The pre-built server was not found in:\n" +
+      "  " + path.join(pkgRoot, "app", "server.js") + "\n" +
+      "  " + path.join(pkgRoot, ".next", "standalone", "server.js") +
       "\n\n" +
       "This usually means the package was published without running `npm run build` first,\n" +
-      "or the .next/standalone directory was excluded from the package.\n\n" +
+      "or the standalone app directory was excluded from the package.\n\n" +
       "If you cloned the repo, run:\n  npm install && npm run build && node bin/n9router.js"
   );
   process.exit(1);
@@ -132,9 +145,12 @@ const baseUrl =
   process.env.NEXT_PUBLIC_BASE_URL || `http://localhost:${port}`;
 
 // The MITM server is a child process spawned at runtime — it is NOT bundled
-// by Next.js. We copy it to .next/standalone/mitm/ during publish so it
+// by Next.js. We copy it into the standalone app during publish so it
 // survives npm's src/ exclusion rules. Point manager.js straight at it.
-const mitmServerPath = path.join(pkgRoot, ".next", "standalone", "mitm", "server.js");
+const mitmServerPath = [
+  path.join(appRoot, "src", "mitm", "server.js"),
+  path.join(appRoot, "mitm", "server.js"),
+].find((candidate) => fs.existsSync(candidate));
 
 console.log(`[n9router] Starting v${CURRENT_VERSION} on ${baseUrl}`);
 
@@ -166,10 +182,10 @@ const child = spawn(
       HOSTNAME: hostname,
       NEXT_PUBLIC_BASE_URL: baseUrl,
       NODE_ENV: "production",
-      ...(fs.existsSync(mitmServerPath) && { MITM_SERVER_PATH: mitmServerPath }),
+      ...(mitmServerPath && { MITM_SERVER_PATH: mitmServerPath }),
     },
     stdio: "inherit",
-    cwd: path.join(pkgRoot, ".next", "standalone"),
+    cwd: appRoot,
   }
 );
 

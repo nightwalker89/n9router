@@ -4,7 +4,7 @@ const nextConfig = {
   // MITM runs as a separate Bun/Node process (src/mitm/server.js); standalone tracing
   // only picked up that entry file, not sibling requires (e.g. ./logger).
   outputFileTracingIncludes: {
-    "/*": ["src/mitm/**/*", "src/lib/dbFileSafety.js", "open-sse/rtk/**/*"],
+    "/*": ["src/mitm/**/*", "src/shared/constants/**/*", "src/lib/dbFileSafety.js", "open-sse/rtk/**/*"],
   },
   serverExternalPackages: ["better-sqlite3"],
   images: {

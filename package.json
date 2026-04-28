@@ -1,6 +1,6 @@
 {
   "name": "n9router",
-  "version": "0.4.17",
+  "version": "0.4.19",
   "description": "Self-hosted AI routing gateway — local proxy for Claude, Gemini, OpenAI and 40+ providers",
   "keywords": [
     "ai",
@@ -40,6 +40,7 @@
     "build:bun": "NODE_ENV=production bun --bun next build --webpack",
     "start:bun": "NODE_ENV=production bun ./.next/standalone/server.js",
     "postinstall": "node hooks/postinstall.js",
+    "publish:npm:local": "./scripts/publish-npm.sh --local",
     "publish:npm": "./scripts/publish-npm.sh",
     "publish:npm:dry": "./scripts/publish-npm.sh --dry-run",
     "publish:npm:next": "./scripts/publish-npm.sh --tag next"
