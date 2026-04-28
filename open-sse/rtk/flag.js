@@ -1,5 +1,5 @@
 // Synchronous RTK toggle cache. Updated by /api/settings PATCH handler
-// and initialized from DB on server boot.
+// and used by MITM paths that do not pass the setting explicitly.
 let enabled = false;
 
 export function setRtkEnabled(value) {

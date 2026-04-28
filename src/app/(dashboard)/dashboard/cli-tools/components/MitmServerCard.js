@@ -178,22 +178,20 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
               <div className="flex items-center gap-2">
                 <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">API Key</span>
                 <span className="material-symbols-outlined text-text-muted text-[14px]">arrow_forward</span>
-                {apiKeys?.length > 0 ? (
-                  <select
-                    value={selectedApiKey}
-                    onChange={(e) => setSelectedApiKey(e.target.value)}
-                    className="flex-1 min-w-0 px-2 py-1.5 bg-surface rounded text-xs border border-border text-text-main focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  >
+                <input
+                  type="text"
+                  list="mitm-api-keys"
+                  value={selectedApiKey}
+                  onChange={(e) => setSelectedApiKey(e.target.value)}
+                  placeholder={cloudEnabled ? "Enter or pick API key" : "sk_9router (default)"}
+                  className="flex-1 min-w-0 px-2 py-1.5 bg-surface rounded border border-border text-xs text-text-main focus:outline-none focus:ring-1 focus:ring-primary/50"
+                />
+                {apiKeys?.length > 0 && (
+                  <datalist id="mitm-api-keys">
                     {apiKeys.map((key) => (
-                      <option key={key.id} value={key.key}>
-                        {key.key}
-                      </option>
+                      <option key={key.id} value={key.key}>{key.name || key.key}</option>
                     ))}
-                  </select>
-                ) : (
-                  <span className="flex-1 px-2 py-1.5 text-xs text-text-muted">
-                    {cloudEnabled ? "No API keys — create one in Keys page" : "sk_9router (default)"}
-                  </span>
+                  </datalist>
                 )}
               </div>
             )}

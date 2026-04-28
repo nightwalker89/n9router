@@ -725,8 +725,17 @@ server.on("error", (e) => {
   process.exit(1);
 });
 
-const shutdown = () => server.close(() => process.exit(0));
 process.setMaxListeners(0);
+const { removeAllDNSEntriesSync } = require("./dns/dnsConfig");
+let isShuttingDown = false;
+const shutdown = () => {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  // Strip tool hosts from /etc/hosts so other apps aren't broken after exit
+  removeAllDNSEntriesSync();
+  const forceExit = setTimeout(() => process.exit(0), 1500);
+  server.close(() => { clearTimeout(forceExit); process.exit(0); });
+};
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 if (process.platform === "win32") process.on("SIGBREAK", shutdown);

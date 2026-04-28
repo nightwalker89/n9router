@@ -2,6 +2,7 @@ import { getProviderConnectionById, updateProviderConnection } from "@/lib/local
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { testProxyUrl } from "@/lib/network/proxyTest";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
+import { PROVIDER_ENDPOINTS } from "@/shared/constants/config";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
 import { resolveOllamaLocalHost } from "open-sse/config/providers.js";
 import {
@@ -366,6 +367,19 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
 
   try {
     switch (connection.provider) {
+      case "cloudflare-ai": {
+        const psd = connection.providerSpecificData || {};
+        const accountId = psd.accountId;
+        if (!accountId) return { valid: false, error: "Missing Account ID" };
+        const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`;
+        const res = await fetchWithConnectionProxy(url, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${connection.apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ model: getDefaultModel("cloudflare-ai"), messages: [{ role: "user", content: "test" }], max_tokens: 1 }),
+        }, effectiveProxy);
+        const valid = res.status !== 401 && res.status !== 403 && res.status !== 404;
+        return { valid, error: valid ? null : "Invalid API token or Account ID" };
+      }
       case "azure": {
         const psd = connection.providerSpecificData || {};
         const endpoint = (psd.azureEndpoint || "").replace(/\/$/, "");
@@ -454,8 +468,9 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
         const valid = res.status !== 401 && res.status !== 403;
         return { valid, error: valid ? null : "Invalid API key" };
       }
-      case "volcengine-ark": {
-        const res = await fetchWithConnectionProxy("https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions", {
+      case "volcengine-ark":
+      case "byteplus": {
+        const res = await fetchWithConnectionProxy(PROVIDER_ENDPOINTS[connection.provider], {
           method: "POST",
           headers: { "Authorization": `Bearer ${connection.apiKey}`, "content-type": "application/json" },
           body: JSON.stringify({ model: getDefaultModel(connection.provider), max_tokens: 1, messages: [{ role: "user", content: "test" }] }),

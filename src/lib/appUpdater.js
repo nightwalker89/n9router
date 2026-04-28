@@ -78,48 +78,44 @@ function collectAppPids() {
   return pids;
 }
 
-// Build the .bat content for Windows update flow
-function buildWindowsScript(packageName) {
-  return `@echo off
-timeout /t 3 /nobreak >nul
-echo Installing new version...
-npm install -g ${packageName}@latest --prefer-online
-if %ERRORLEVEL% EQU 0 (
-  echo.
-  echo Update completed. Run "${packageName}" to start.
-) else (
-  echo.
-  echo Update failed. Try manually: npm install -g ${packageName}@latest
-)
-pause
-`;
+// Copy updater.js into DATA_DIR so npm -g can overwrite node_modules safely
+function getDataDir() {
+  if (process.env.DATA_DIR) return process.env.DATA_DIR;
+  if (process.platform === "win32") {
+    return path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "9router");
+  }
+  return path.join(os.homedir(), ".9router");
 }
 
-// Build the .sh content for macOS/Linux update flow
-function buildUnixScript(packageName) {
-  return `#!/bin/bash
-echo "Installing new version..."
-sleep 2
+function resolveBundledUpdaterPath() {
+  if (process.env.UPDATER_SCRIPT_PATH && fs.existsSync(process.env.UPDATER_SCRIPT_PATH)) {
+    return process.env.UPDATER_SCRIPT_PATH;
+  }
+  // Production standalone: cwd is binAppDir (see bin/cli.js)
+  // Dev: cwd is app/
+  const fromCwd = path.join(process.cwd(), "src", "lib", "updater", "updater.js");
+  if (fs.existsSync(fromCwd)) return fromCwd;
+  const fromParent = path.join(process.cwd(), "..", "src", "lib", "updater", "updater.js");
+  if (fs.existsSync(fromParent)) return fromParent;
+  return fromCwd;
+}
 
-npm cache clean --force 2>/dev/null
-EXIT_CODE=1
-for i in 1 2 3; do
-  npm install -g ${packageName}@latest --prefer-online 2>&1
-  EXIT_CODE=$?
-  [ $EXIT_CODE -eq 0 ] && break
-  echo "Retry $i/3..."
-  sleep 5
-done
-
-if [ $EXIT_CODE -eq 0 ]; then
-  echo ""
-  echo "Update completed. Run \\"${packageName}\\" to start."
-else
-  echo ""
-  echo "Update failed (exit code: $EXIT_CODE)"
-  echo "Try manually: npm install -g ${packageName}@latest"
-fi
-`;
+function ensureRuntimeUpdater(bundledPath) {
+  try {
+    if (!bundledPath || !fs.existsSync(bundledPath)) return bundledPath;
+    const runtimeDir = path.join(getDataDir(), "runtime", "updater");
+    const runtimePath = path.join(runtimeDir, "updater.js");
+    if (fs.existsSync(runtimePath)) {
+      try {
+        if (fs.statSync(bundledPath).size === fs.statSync(runtimePath).size) return runtimePath;
+      } catch { /* recopy */ }
+    }
+    fs.mkdirSync(runtimeDir, { recursive: true });
+    fs.copyFileSync(bundledPath, runtimePath);
+    return runtimePath;
+  } catch {
+    return bundledPath;
+  }
 }
 
 // Kill all app-related processes to release file locks (esp. on Windows)
@@ -143,26 +139,43 @@ export async function killAppProcesses() {
   }
 }
 
-// Spawn detached updater script and schedule current process to exit
-export function spawnUpdaterAndExit(packageName = UPDATER_CONFIG.npmPackageName) {
-  const platform = process.platform;
+// Resolve npx/9router binary to relaunch after update (cross-platform)
+function resolveRelaunchCommand() {
+  const isWin = process.platform === "win32";
+  // Prefer `npx 9router` — works regardless of global bin path changes after npm i -g
+  const npx = isWin ? "npx.cmd" : "npx";
+  return { cmd: npx, args: [UPDATER_CONFIG.npmPackageName] };
+}
 
-  if (platform === "win32") {
-    const scriptPath = path.join(os.tmpdir(), `${packageName}-update.bat`);
-    fs.writeFileSync(scriptPath, buildWindowsScript(packageName));
-    spawn("cmd", ["/c", "start", "", "cmd", "/c", scriptPath], {
-      detached: true,
-      stdio: "ignore",
-      windowsHide: false,
-    }).unref();
-  } else {
-    const scriptPath = path.join(os.tmpdir(), `${packageName}-update.sh`);
-    fs.writeFileSync(scriptPath, buildUnixScript(packageName), { mode: 0o755 });
-    spawn("sh", [scriptPath], {
-      detached: true,
-      stdio: "inherit",
-    }).unref();
-  }
+// Spawn detached headless updater (Node process) then exit current server
+export function spawnUpdaterAndExit(packageName = UPDATER_CONFIG.npmPackageName) {
+  const updaterPath = ensureRuntimeUpdater(resolveBundledUpdaterPath());
+  const isTray = process.env.TRAY_MODE === "1";
+  const relaunch = resolveRelaunchCommand();
+  // Only relaunch in tray/background mode — foreground CLI loses TTY on exit
+  const relaunchArgs = isTray ? [...relaunch.args, "--tray", "--skip-update"] : [];
+
+  spawn(process.execPath, [updaterPath], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+    env: {
+      ...process.env,
+      UPDATER_PKG_NAME: packageName,
+      UPDATER_PORT: String(UPDATER_CONFIG.statusPort),
+      UPDATER_TAIL_LINES: String(UPDATER_CONFIG.statusLogTailLines),
+      UPDATER_RETRIES: String(UPDATER_CONFIG.installRetries),
+      UPDATER_RETRY_DELAY_MS: String(UPDATER_CONFIG.installRetryDelayMs),
+      UPDATER_LINGER_MS: String(UPDATER_CONFIG.lingerAfterDoneMs),
+      UPDATER_WAIT_MIN_MS: String(UPDATER_CONFIG.waitForExitMinMs),
+      UPDATER_WAIT_MAX_MS: String(UPDATER_CONFIG.waitForExitMaxMs),
+      UPDATER_WAIT_CHECK_MS: String(UPDATER_CONFIG.waitForExitCheckMs),
+      UPDATER_APP_PORT: String(UPDATER_CONFIG.appPort),
+      UPDATER_RELAUNCH: isTray ? "1" : "0",
+      UPDATER_RELAUNCH_CMD: relaunch.cmd,
+      UPDATER_RELAUNCH_ARGS: JSON.stringify(relaunchArgs),
+    },
+  }).unref();
 
   setTimeout(() => process.exit(0), UPDATER_CONFIG.exitDelayMs);
 }

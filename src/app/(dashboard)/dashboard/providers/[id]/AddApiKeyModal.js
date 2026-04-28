@@ -14,6 +14,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
     : "";
 
   const isAzure = provider === "azure";
+  const isCloudflareAi = provider === "cloudflare-ai";
 
   const [formData, setFormData] = useState({
     name: "",
@@ -28,6 +29,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
     deployment: "",
     organization: "",
   });
+  const [cloudflareData, setCloudflareData] = useState({ accountId: "" });
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -43,6 +45,9 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
         deployment: azureData.deployment,
         organization: azureData.organization,
       };
+    }
+    if (isCloudflareAi) {
+      return { accountId: cloudflareData.accountId };
     }
     return undefined;
   };
@@ -180,6 +185,20 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
             }
           </p>
         )}
+        {isCloudflareAi && (
+          <div className="bg-sidebar/50 p-4 rounded-lg border border-accent/20">
+            <h3 className="font-semibold mb-3 text-sm">Cloudflare Workers AI</h3>
+            <Input
+              label="Account ID"
+              value={cloudflareData.accountId}
+              onChange={(e) => setCloudflareData({ ...cloudflareData, accountId: e.target.value })}
+              placeholder="abc123def456..."
+            />
+            <p className="text-xs text-text-muted mt-2">
+              Find your Account ID in the right sidebar of <a href="https://dash.cloudflare.com" target="_blank" rel="noopener noreferrer" className="text-primary underline">dash.cloudflare.com</a>
+            </p>
+          </div>
+        )}
         {isAzure && (
           <div className="bg-sidebar/50 p-4 rounded-lg border border-accent/20">
             <h3 className="font-semibold mb-3 text-sm">Azure OpenAI Configuration</h3>
@@ -241,7 +260,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
         </p>
 
         <div className="flex gap-2">
-          <Button onClick={handleSubmit} fullWidth disabled={saving || (!isOllamaLocal && (!formData.name || !formData.apiKey)) || (isAzure && (!azureData.azureEndpoint || !azureData.deployment || !azureData.organization))}>
+          <Button onClick={handleSubmit} fullWidth disabled={saving || (!isOllamaLocal && (!formData.name || !formData.apiKey)) || (isAzure && (!azureData.azureEndpoint || !azureData.deployment || !azureData.organization)) || (isCloudflareAi && !cloudflareData.accountId)}>
 
             {saving ? "Saving..." : "Save"}
           </Button>

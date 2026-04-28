@@ -3,14 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { log, err } = require("../logger");
-
-// Per-tool DNS hosts mapping
-const TOOL_HOSTS = {
-  antigravity: ["daily-cloudcode-pa.googleapis.com", "cloudcode-pa.googleapis.com"],
-  copilot: ["api.individual.githubcopilot.com"],
-  kiro: ["q.us-east-1.amazonaws.com", "codewhisperer.us-east-1.amazonaws.com"],
-  cursor: ["api2.cursor.sh"],
-};
+const { TOOL_HOSTS } = require("../../shared/constants/mitmToolHosts");
 
 const IS_WIN = process.platform === "win32";
 const IS_MAC = process.platform === "darwin";
@@ -143,7 +136,7 @@ function flushWindowsDns() {
 function executeElevatedPowerShell(psScriptPath, timeoutMs = 30000) {
   const flagFile = path.join(os.tmpdir(), `ps_done_${Date.now()}.flag`);
   const psSQ = (s) => s.replace(/'/g, "''");
-  
+
   let psContent = fs.readFileSync(psScriptPath, "utf8");
   psContent += `\nSet-Content -Path '${psSQ(flagFile)}' -Value 'done' -Encoding UTF8\n`;
   fs.writeFileSync(psScriptPath, psContent, "utf8");
@@ -361,11 +354,35 @@ async function removeAllDNSEntries(sudoPassword) {
   }
 }
 
+/**
+ * Sync removal of ALL tool DNS entries — for use during process shutdown
+ * when async ops aren't safe. Assumes caller already has root/admin rights.
+ */
+function removeAllDNSEntriesSync() {
+  try {
+    if (!fs.existsSync(HOSTS_FILE)) return;
+    const allHosts = Object.values(TOOL_HOSTS).flat();
+    const content = fs.readFileSync(HOSTS_FILE, "utf8");
+    const eol = IS_WIN ? "\r\n" : "\n";
+    const filtered = content.split(/\r?\n/).filter(l => !allHosts.some(h => l.includes(h))).join(eol);
+    if (filtered === content) return;
+    fs.writeFileSync(HOSTS_FILE, filtered, "utf8");
+    if (IS_WIN) {
+      try { execSync("ipconfig /flushdns", { windowsHide: true, stdio: "ignore" }); } catch { /* ignore */ }
+    } else if (IS_MAC) {
+      try { execSync("dscacheutil -flushcache && killall -HUP mDNSResponder", { stdio: "ignore" }); } catch { /* ignore */ }
+    } else {
+      try { execSync("resolvectl flush-caches 2>/dev/null || true", { stdio: "ignore" }); } catch { /* ignore */ }
+    }
+  } catch { /* best effort during shutdown */ }
+}
+
 module.exports = {
   TOOL_HOSTS,
   addDNSEntry,
   removeDNSEntry,
   removeAllDNSEntries,
+  removeAllDNSEntriesSync,
   execWithPassword,
   isSudoAvailable,
   executeElevatedPowerShell,

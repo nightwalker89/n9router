@@ -600,6 +600,7 @@ export async function createCombo(data) {
     id: uuidv4(),
     name: data.name,
     models: data.models || [],
+    kind: data.kind || null,
     createdAt: now,
     updatedAt: now,
   };

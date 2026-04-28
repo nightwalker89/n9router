@@ -8,9 +8,9 @@ export const UNSUPPORTED_SCHEMA_CONSTRAINTS = [
   // Claude rejects these in VALIDATED mode
   "default", "examples",
   // JSON Schema meta keywords
-  "$schema", "$defs", "definitions", "const", "$ref",
+  "$schema", "$defs", "definitions", "const", "$ref", "$comment",
   // Object validation keywords (not supported)
-  "additionalProperties", "propertyNames", "patternProperties",
+  "additionalProperties", "propertyNames", "patternProperties", "enumDescriptions",
   // Complex schema keywords (handled by flattenAnyOfOneOf/mergeAllOf)
   "anyOf", "oneOf", "allOf", "not",
   // Dependency keywords (not supported)
@@ -111,16 +111,18 @@ function removeUnsupportedKeywords(obj, keywords) {
     for (const item of obj) {
       removeUnsupportedKeywords(item, keywords);
     }
-  } else {
-    for (const key of Object.keys(obj)) {
-      if (keywords.includes(key) || key.startsWith("x-")) {
-        delete obj[key];
-      }
+    return;
+  }
+
+  for (const key of Object.keys(obj)) {
+    if (keywords.includes(key) || key.startsWith("x-")) {
+      delete obj[key];
+      continue;
     }
-    for (const value of Object.values(obj)) {
-      if (value && typeof value === "object") {
-        removeUnsupportedKeywords(value, keywords);
-      }
+
+    const value = obj[key];
+    if (value && typeof value === "object") {
+      removeUnsupportedKeywords(value, keywords);
     }
   }
 }

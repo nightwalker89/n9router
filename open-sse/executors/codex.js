@@ -121,6 +121,31 @@ export class CodexExecutor extends BaseExecutor {
     return super.execute(args);
   }
 
+  // Parse Codex usage_limit_reached to extract precise resetsAtMs; fallback to default otherwise
+  parseError(response, bodyText) {
+    if (response.status === 429 && bodyText) {
+      try {
+        const json = JSON.parse(bodyText);
+        const err = json?.error;
+        if (err?.type === "usage_limit_reached") {
+          const now = Date.now();
+          let resetsAtMs = null;
+          if (typeof err.resets_at === "number" && err.resets_at > 0) {
+            const ms = err.resets_at * 1000;
+            if (ms > now) resetsAtMs = ms;
+          }
+          if (!resetsAtMs && typeof err.resets_in_seconds === "number" && err.resets_in_seconds > 0) {
+            resetsAtMs = now + err.resets_in_seconds * 1000;
+          }
+          if (resetsAtMs) {
+            return { status: 429, message: err.message || bodyText, resetsAtMs };
+          }
+        }
+      } catch { /* fall through to default */ }
+    }
+    return super.parseError(response, bodyText);
+  }
+
   /**
    * Transform request before sending - inject default instructions if missing.
    * Image fetching is handled separately in prefetchImages() so this stays sync.
