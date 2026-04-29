@@ -44,6 +44,8 @@ const DEFAULT_SETTINGS = {
   mitmAliasStrategy: "round-robin",
   mitmAliasRoundRobinState: {},
   mitmAntigravityAutoDisableOnSonnetZero: true,
+  mitmAntigravityIdeVersionOverrideEnabled: false,
+  mitmAntigravityIdeVersion: "1.23.2",
   rtkEnabled: false,
   periodicDbBackupsEnabled: true,
 };

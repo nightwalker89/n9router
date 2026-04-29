@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.4.20 (2026-04-29)
+
+### Features
+- Add Antigravity MITM token-swap IDE version override with Profile settings toggle and configurable version, defaulting to `1.23.2`
+
+### Improvements
+- Rewrite both Antigravity request `metadata.ideVersion` and `user-agent` version when the override is enabled
+- Route `/v1internal:loadCodeAssist` through Antigravity MITM token swap so eligibility-check requests can use the override
+- Add a Profile settings notice that IDE version spoofing is used at your own risk
+
 ## v0.4.19 (2026-04-28)
 
 ### Features

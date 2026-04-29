@@ -26,6 +26,9 @@ export default function ProfilePage() {
   const [proxyStatus, setProxyStatus] = useState({ type: "", message: "" });
   const [proxyLoading, setProxyLoading] = useState(false);
   const [proxyTestLoading, setProxyTestLoading] = useState(false);
+  const [antigravityIdeVersionDraft, setAntigravityIdeVersionDraft] = useState("1.23.2");
+  const [antigravityIdeVersionStatus, setAntigravityIdeVersionStatus] = useState({ type: "", message: "" });
+  const [antigravityIdeVersionLoading, setAntigravityIdeVersionLoading] = useState(false);
 
   useEffect(() => {
     fetch("/api/settings")
@@ -37,6 +40,7 @@ export default function ProfilePage() {
           outboundProxyUrl: data?.outboundProxyUrl || "",
           outboundNoProxy: data?.outboundNoProxy || "",
         });
+        setAntigravityIdeVersionDraft(data?.mitmAntigravityIdeVersion || "1.23.2");
         setLoading(false);
       })
       .catch((err) => {
@@ -285,6 +289,49 @@ export default function ProfilePage() {
     }
   };
 
+  const updateMitmAntigravityIdeVersionOverrideEnabled = async (enabled) => {
+    setAntigravityIdeVersionStatus({ type: "", message: "" });
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mitmAntigravityIdeVersionOverrideEnabled: enabled }),
+      });
+      if (res.ok) {
+        setSettings(prev => ({ ...prev, mitmAntigravityIdeVersionOverrideEnabled: enabled }));
+      }
+    } catch (err) {
+      console.error("Failed to update mitmAntigravityIdeVersionOverrideEnabled:", err);
+    }
+  };
+
+  const updateMitmAntigravityIdeVersion = async (event) => {
+    event.preventDefault();
+    const version = antigravityIdeVersionDraft.trim() || "1.23.2";
+    setAntigravityIdeVersionLoading(true);
+    setAntigravityIdeVersionStatus({ type: "", message: "" });
+
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mitmAntigravityIdeVersion: version }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setSettings(prev => ({ ...prev, ...data }));
+        setAntigravityIdeVersionDraft(data?.mitmAntigravityIdeVersion || version);
+        setAntigravityIdeVersionStatus({ type: "success", message: "Antigravity IDE version saved" });
+      } else {
+        setAntigravityIdeVersionStatus({ type: "error", message: data.error || "Failed to save Antigravity IDE version" });
+      }
+    } catch (err) {
+      setAntigravityIdeVersionStatus({ type: "error", message: "An error occurred" });
+    } finally {
+      setAntigravityIdeVersionLoading(false);
+    }
+  };
+
   const updatePeriodicDbBackupsEnabled = async (enabled) => {
     try {
       const res = await fetch("/api/settings", {
@@ -306,6 +353,7 @@ export default function ProfilePage() {
       if (!res.ok) return;
       const data = await res.json();
       setSettings(data);
+      setAntigravityIdeVersionDraft(data?.mitmAntigravityIdeVersion || "1.23.2");
     } catch (err) {
       console.error("Failed to reload settings:", err);
     }
@@ -379,6 +427,7 @@ export default function ProfilePage() {
   const observabilityEnabled = settings.enableObservability === true;
   const mitmAntigravityDebugLogsEnabled = settings.mitmAntigravityDebugLogsEnabled === true;
   const mitmAntigravityAutoDisableOnSonnetZero = settings.mitmAntigravityAutoDisableOnSonnetZero !== false;
+  const mitmAntigravityIdeVersionOverrideEnabled = settings.mitmAntigravityIdeVersionOverrideEnabled === true;
   const mitmAntigravityDebugLogDir = settings.mitmAntigravityDebugLogDir || "";
   const periodicDbBackupsEnabled = settings.periodicDbBackupsEnabled !== false;
 
@@ -754,6 +803,51 @@ export default function ProfilePage() {
               onChange={updateMitmAntigravityAutoDisableOnSonnetZero}
               disabled={loading}
             />
+          </div>
+          <div className="pt-4 mt-4 border-t border-border/50">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="font-medium">Antigravity IDE Version Override</p>
+                <p className="text-sm text-text-muted">
+                  Replace Antigravity token-swap request metadata and user-agent version
+                </p>
+                <p className="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+                  Use this feature at your own risk. Spoofing IDE versions may affect account eligibility, upstream behavior, or request reliability.
+                </p>
+              </div>
+              <Toggle
+                checked={mitmAntigravityIdeVersionOverrideEnabled}
+                onChange={updateMitmAntigravityIdeVersionOverrideEnabled}
+                disabled={loading}
+              />
+            </div>
+            {mitmAntigravityIdeVersionOverrideEnabled && (
+              <form onSubmit={updateMitmAntigravityIdeVersion} className="mt-4 flex flex-col gap-3">
+                <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+                  <Input
+                    label="Antigravity IDE Version"
+                    value={antigravityIdeVersionDraft}
+                    onChange={(event) => setAntigravityIdeVersionDraft(event.target.value)}
+                    placeholder="1.23.2"
+                    inputMode="decimal"
+                    disabled={antigravityIdeVersionLoading}
+                    className="flex-1"
+                  />
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    disabled={antigravityIdeVersionLoading}
+                  >
+                    {antigravityIdeVersionLoading ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+                {antigravityIdeVersionStatus.message && (
+                  <p className={`text-sm ${antigravityIdeVersionStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                    {antigravityIdeVersionStatus.message}
+                  </p>
+                )}
+              </form>
+            )}
           </div>
         </Card>
 

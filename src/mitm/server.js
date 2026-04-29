@@ -26,6 +26,7 @@ const { buildInputOnlyRequestDetail, createTokenSwapUsageObserver, generateDetai
 const { pushHealthEvent, getLastEventStatus, migrateToEmailKeys } = require("./healthStore");
 
 const { applyRtkCompression } = require("./rtkCompressor");
+const { applyAntigravityIdeVersionOverride } = require("./antigravityIdeVersion");
 
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const LOCAL_PORT = 443;
@@ -191,8 +192,14 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
   const targetIP = await resolveTargetIP(targetHost);
   let lastRetryResponse = null;
 
+  const versionOverride = provider === "antigravity"
+    ? applyAntigravityIdeVersionOverride(bodyBuffer, req.headers, DB_FILE, log)
+    : { bodyBuffer, headers: req.headers };
+  const bodyForForwarding = versionOverride.bodyBuffer;
+  const headersForForwarding = versionOverride.headers;
+
   // ── RTK compression (see src/mitm/rtkCompressor.js) ──
-  const effectiveBody = await applyRtkCompression(bodyBuffer, DB_FILE, log);
+  const effectiveBody = await applyRtkCompression(bodyForForwarding, DB_FILE, log);
 
   for (let i = 0; i < connections.length; i++) {
     const originalConn = connections[i];
@@ -219,11 +226,11 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
       });
 
       const swappedHeaders = {
-        ...req.headers,
+        ...headersForForwarding,
         host: targetHost,
         authorization: `Bearer ${conn.accessToken}`
       };
-      // Update Content-Length if RTK compressed the body
+      // Update Content-Length if the MITM changed the request body.
       if (effectiveBody !== bodyBuffer) {
         swappedHeaders['content-length'] = String(effectiveBody.length);
       }
