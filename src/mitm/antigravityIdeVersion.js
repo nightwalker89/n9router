@@ -41,7 +41,7 @@ function applyAntigravityIdeVersionOverride(bodyBuffer, headers, dbFile, log = (
     const parsed = JSON.parse(bodyBuffer.toString());
     if (!shouldRewriteMetadata(parsed?.metadata)) {
       if (userAgentChanged) {
-        log(`🛰️ [token-swap] Antigravity user-agent version override → ${settings.version}`);
+        log(`🛰️ [antigravity] user-agent version override → ${settings.version}`);
       }
       return { bodyBuffer, headers: nextHeaders, applied: userAgentChanged, version: settings.version };
     }
@@ -50,7 +50,7 @@ function applyAntigravityIdeVersionOverride(bodyBuffer, headers, dbFile, log = (
     parsed.metadata.ideVersion = settings.version;
 
     const nextBodyBuffer = Buffer.from(JSON.stringify(parsed));
-    log(`🛰️ [token-swap] Antigravity IDE version override: ${previousVersion || "unknown"} → ${settings.version}`);
+    log(`🛰️ [antigravity] IDE version override: ${previousVersion || "unknown"} → ${settings.version}`);
     return {
       bodyBuffer: nextBodyBuffer,
       headers: nextHeaders,
@@ -59,10 +59,10 @@ function applyAntigravityIdeVersionOverride(bodyBuffer, headers, dbFile, log = (
     };
   } catch (e) {
     if (userAgentChanged) {
-      log(`🛰️ [token-swap] Antigravity user-agent version override → ${settings.version}`);
+      log(`🛰️ [antigravity] user-agent version override → ${settings.version}`);
       return { bodyBuffer, headers: nextHeaders, applied: true, version: settings.version };
     }
-    log(`🛰️ [token-swap] Antigravity IDE version override skipped: ${e.message}`);
+    log(`🛰️ [antigravity] IDE version override skipped: ${e.message}`);
     return { bodyBuffer, headers: nextHeaders, applied: false, version: settings.version };
   }
 }

@@ -149,13 +149,25 @@ async function passthrough(req, res, bodyBuffer, onResponse, debugContext = null
   const rewrittenHost = getAntigravityHostRewriteTarget(targetHost, DB_FILE);
   if (rewrittenHost !== targetHost) targetHost = rewrittenHost;
   const targetIP = await resolveTargetIP(targetHost);
+  const tool = getToolForHost(req.headers.host);
+  const versionOverride = tool === "antigravity"
+    ? applyAntigravityIdeVersionOverride(bodyBuffer, req.headers, DB_FILE, log)
+    : { bodyBuffer, headers: req.headers };
+  const bodyForForwarding = versionOverride.bodyBuffer;
+  const headersForForwarding = {
+    ...versionOverride.headers,
+    host: targetHost,
+  };
+  if (bodyForForwarding !== bodyBuffer) {
+    headersForForwarding["content-length"] = String(bodyForForwarding.length);
+  }
 
   const forwardReq = https.request({
     hostname: targetIP,
     port: 443,
     path: req.url,
     method: req.method,
-    headers: { ...req.headers, host: targetHost },
+    headers: headersForForwarding,
     servername: targetHost,
     rejectUnauthorized: false
   }, (forwardRes) => {
@@ -186,7 +198,7 @@ async function passthrough(req, res, bodyBuffer, onResponse, debugContext = null
     res.end("Bad Gateway");
   });
 
-  if (bodyBuffer.length > 0) forwardReq.write(bodyBuffer);
+  if (bodyForForwarding.length > 0) forwardReq.write(bodyForForwarding);
   forwardReq.end();
 }
 
