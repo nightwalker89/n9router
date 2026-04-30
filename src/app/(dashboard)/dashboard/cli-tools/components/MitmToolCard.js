@@ -55,6 +55,7 @@ export default function MitmToolCard({
 
   const mitmHosts = TOOL_HOSTS[tool.id] ?? [];
   const isWindows = typeof navigator !== "undefined" && navigator.userAgent?.includes("Windows");
+  const showCollapsedHeaderActions = tool.id === "antigravity" && !isExpanded;
 
   useEffect(() => {
     if (isExpanded) loadSavedMappings();
@@ -112,7 +113,7 @@ export default function MitmToolCard({
   return (
     <>
       <Card padding="xs" className="overflow-hidden">
-        <div className="flex items-center justify-between hover:cursor-pointer" onClick={onToggle}>
+        <div className="flex items-center justify-between gap-3 hover:cursor-pointer" onClick={onToggle}>
           <div className="flex items-center gap-3">
             <div className="size-8 flex items-center justify-center shrink-0">
               <Image
@@ -146,9 +147,23 @@ export default function MitmToolCard({
               <p className="text-xs text-text-muted">Model routing — remap model IDs in intercepted requests</p>
             </div>
           </div>
-          <span className={`material-symbols-outlined text-text-muted text-[20px] transition-transform ${isExpanded ? "rotate-180" : ""}`}>
-            expand_more
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            {showCollapsedHeaderActions && (
+              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                <IdeLaunchAction compact />
+                <DnsToggleButton
+                  dnsActive={dnsActive}
+                  loading={loading}
+                  serverRunning={serverRunning}
+                  onClick={handleDnsToggle}
+                  compact
+                />
+              </div>
+            )}
+            <span className={`material-symbols-outlined text-text-muted text-[20px] transition-transform ${isExpanded ? "rotate-180" : ""}`}>
+              expand_more
+            </span>
+          </div>
         </div>
 
         {isExpanded && (
@@ -193,25 +208,12 @@ export default function MitmToolCard({
 
             {/* Start / Stop DNS button */}
             <div className="flex flex-col gap-2 items-start">
-              {dnsActive ? (
-                <button
-                  onClick={handleDnsToggle}
-                  disabled={!serverRunning || loading}
-                  className="px-4 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-500 font-medium text-xs flex items-center gap-1.5 hover:bg-red-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <span className="material-symbols-outlined text-[16px]">stop_circle</span>
-                  Stop DNS
-                </button>
-              ) : (
-                <button
-                  onClick={handleDnsToggle}
-                  disabled={!serverRunning || loading}
-                  className="px-4 py-1.5 rounded-lg bg-primary/10 border border-primary/30 text-primary font-medium text-xs flex items-center gap-1.5 hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <span className="material-symbols-outlined text-[16px]">play_circle</span>
-                  Start DNS
-                </button>
-              )}
+              <DnsToggleButton
+                dnsActive={dnsActive}
+                loading={loading}
+                serverRunning={serverRunning}
+                onClick={handleDnsToggle}
+              />
 
               {/* Warning below button */}
               {warning && (
@@ -301,31 +303,61 @@ export default function MitmToolCard({
   );
 }
 
+function DnsToggleButton({ dnsActive, loading, serverRunning, onClick, compact = false }) {
+  const isDisabled = !serverRunning || loading;
+  const icon = loading ? "progress_activity" : dnsActive ? "stop_circle" : "play_circle";
+  const label = dnsActive ? "Stop DNS" : "Start DNS";
+  const colorClass = dnsActive
+    ? "bg-red-500/10 border-red-500/30 text-red-500 hover:bg-red-500/20"
+    : "bg-primary/10 border-primary/30 text-primary hover:bg-primary/20";
+  const sizeClass = compact ? "px-2.5 py-1.5" : "px-4 py-1.5";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={isDisabled}
+      className={`${sizeClass} rounded-lg border font-medium text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${colorClass}`}
+      title={!serverRunning ? "MITM server is not running" : label}
+    >
+      <span className={`material-symbols-outlined text-[16px] ${loading ? "animate-spin" : ""}`}>{icon}</span>
+      <span className={compact ? "hidden sm:inline" : ""}>{loading ? "Working..." : label}</span>
+    </button>
+  );
+}
+
 /**
  * Sub-component: Close Antigravity IDE
  */
-function IdeLaunchAction() {
+function IdeLaunchAction({ compact = false }) {
   const [status, setStatus] = useState(null);
   const [closing, setClosing] = useState(false);
   const [result, setResult] = useState(null);
 
-  const fetchStatus = useCallback(async () => {
+  const fetchStatus = useCallback(async ({ signal } = {}) => {
     try {
-      const res = await fetch("/api/antigravity-ide");
+      const res = await fetch("/api/antigravity-ide", { signal });
       if (res.ok) setStatus(await res.json());
-    } catch { /* ignore */ }
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+    }
   }, []);
 
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const res = await fetch("/api/antigravity-ide");
-        if (res.ok && mounted) setStatus(await res.json());
-      } catch { /* ignore */ }
-    })();
-    return () => { mounted = false; };
-  }, []);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      fetchStatus({ signal: controller.signal });
+    }, 0);
+    const intervalId = window.setInterval(() => {
+      fetchStatus({ signal: controller.signal });
+    }, 5000);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
+    };
+  }, [fetchStatus]);
 
   const handleClose = async () => {
     setClosing(true);
@@ -346,8 +378,9 @@ function IdeLaunchAction() {
   };
 
   return (
-    <div className="flex items-center gap-2 px-1">
+    <div className={`flex items-center gap-2 ${compact ? "" : "px-1"}`}>
       <button
+        type="button"
         onClick={handleClose}
         disabled={closing || !status?.running}
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-red-500/30 text-red-500 bg-red-500/5 hover:bg-red-500/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -356,12 +389,12 @@ function IdeLaunchAction() {
         <span className={`material-symbols-outlined text-[14px] ${closing ? "animate-spin" : ""}`}>
           {closing ? "progress_activity" : "close"}
         </span>
-        {closing ? "Closing…" : "Close IDE"}
+        <span className={compact ? "hidden sm:inline" : ""}>{closing ? "Closing..." : "Close IDE"}</span>
       </button>
 
       {/* Status indicator */}
       {status && (
-        <span className="flex items-center gap-1 text-[10px] text-text-muted">
+        <span className={`flex items-center gap-1 text-text-muted whitespace-nowrap ${compact ? "text-[11px]" : "text-[10px]"}`}>
           <span className={`inline-block w-1.5 h-1.5 rounded-full ${
             !status.installed ? "bg-gray-400" : status.running ? "bg-green-500" : "bg-red-400"
           }`} />
@@ -370,7 +403,7 @@ function IdeLaunchAction() {
       )}
 
       {/* Result feedback */}
-      {result && !closing && (
+      {result && !closing && !compact && (
         <span className={`text-[10px] ${result.success ? "text-green-500" : "text-red-400"}`}>
           {result.success ? "✓" : "✗"} {result.message || result.error}
         </span>
