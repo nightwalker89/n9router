@@ -32,22 +32,20 @@ async function fetchRouter(openaiBody, path = "/v1/chat/completions", clientHead
     body: JSON.stringify(openaiBody)
   });
 
-  if (!response.ok) {
-    const errText = await response.text().catch(() => "");
-    throw new Error(`[${response.status}]: ${errText}`);
-  }
-
+  // Forward response as-is (status + body). pipeSSE will propagate status.
   return response;
 }
 
 /**
- * Pipe SSE stream from router directly to client response
+ * Pipe SSE stream from router directly to client response.
+ * Optional dumper tees the stream into a debug file.
  */
 async function pipeSSE(routerRes, res, debugContext = null) {
   const ct = routerRes.headers.get("content-type") || "application/json";
+  const status = routerRes.status || 200;
   const resHeaders = { "Content-Type": ct, "Cache-Control": "no-cache", "Connection": "keep-alive" };
   if (ct.includes("text/event-stream")) resHeaders["X-Accel-Buffering"] = "no";
-  res.writeHead(200, resHeaders);
+  res.writeHead(status, resHeaders);
 
   if (!routerRes.body) {
     const bodyText = await routerRes.text().catch(() => "");

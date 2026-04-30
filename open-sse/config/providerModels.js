@@ -105,6 +105,9 @@ export const PROVIDER_MODELS = {
     { id: "grok-code-fast-1", name: "Grok Code Fast 1" },
     { id: "oswe-vscode-prime", name: "Raptor Mini" },
     { id: "goldeneye-free-auto", name: "GoldenEye" },
+    // GitHub Copilot - Embedding models
+    { id: "text-embedding-3-small", name: "Text Embedding 3 Small (GitHub)", type: "embedding" },
+    { id: "text-embedding-3-large", name: "Text Embedding 3 Large (GitHub)", type: "embedding" },
   ],
   kr: [  // Kiro AI
     // { id: "claude-opus-4.5", name: "Claude Opus 4.5" },
@@ -378,6 +381,7 @@ export const PROVIDER_MODELS = {
     { id: "mistral-large-latest", name: "Mistral Large 3" },
     { id: "codestral-latest", name: "Codestral" },
     { id: "mistral-medium-latest", name: "Mistral Medium 3" },
+    { id: "mistral-embed", name: "Mistral Embed", type: "embedding" },
   ],
   perplexity: [
     { id: "sonar-pro", name: "Sonar Pro" },
@@ -388,11 +392,14 @@ export const PROVIDER_MODELS = {
     { id: "deepseek-ai/DeepSeek-R1", name: "DeepSeek R1" },
     { id: "Qwen/Qwen3-235B-A22B", name: "Qwen3 235B" },
     { id: "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8", name: "Llama 4 Maverick" },
+    { id: "BAAI/bge-large-en-v1.5", name: "BGE Large EN v1.5", type: "embedding" },
+    { id: "togethercomputer/m2-bert-80M-8k-retrieval", name: "M2 BERT 80M 8K", type: "embedding" },
   ],
   fireworks: [
     { id: "accounts/fireworks/models/deepseek-v3p1", name: "DeepSeek V3.1" },
     { id: "accounts/fireworks/models/llama-v3p3-70b-instruct", name: "Llama 3.3 70B" },
     { id: "accounts/fireworks/models/qwen3-235b-a22b", name: "Qwen3 235B" },
+    { id: "nomic-ai/nomic-embed-text-v1.5", name: "Nomic Embed Text v1.5", type: "embedding" },
   ],
   cerebras: [
     { id: "gpt-oss-120b", name: "GPT OSS 120B" },
@@ -410,9 +417,20 @@ export const PROVIDER_MODELS = {
   nvidia: [
     { id: "moonshotai/kimi-k2.5", name: "Kimi K2.5" },
     { id: "z-ai/glm4.7", name: "GLM 4.7" },
+    { id: "nvidia/nv-embedqa-e5-v5", name: "NV EmbedQA E5 v5", type: "embedding" },
   ],
   nebius: [
     { id: "meta-llama/Llama-3.3-70B-Instruct", name: "Llama 3.3 70B Instruct" },
+    { id: "Qwen/Qwen3-Embedding-8B", name: "Qwen3 Embedding 8B", type: "embedding" },
+  ],
+  "voyage-ai": [
+    { id: "voyage-3-large", name: "Voyage 3 Large", type: "embedding" },
+    { id: "voyage-3.5", name: "Voyage 3.5", type: "embedding" },
+    { id: "voyage-3.5-lite", name: "Voyage 3.5 Lite", type: "embedding" },
+    { id: "voyage-code-3", name: "Voyage Code 3", type: "embedding" },
+    { id: "voyage-finance-2", name: "Voyage Finance 2", type: "embedding" },
+    { id: "voyage-law-2", name: "Voyage Law 2", type: "embedding" },
+    { id: "voyage-multilingual-2", name: "Voyage Multilingual 2", type: "embedding" },
   ],
   siliconflow: [
     { id: "deepseek-ai/DeepSeek-V3.2", name: "DeepSeek V3.2" },

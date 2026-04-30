@@ -52,6 +52,7 @@ const TOOL_TO_PROVIDER = {
   // kiro: "kiro",         // future
 };
 
+
 // Load handlers — dev/ overrides handlers/ for private implementations
 function loadHandler(name) {
   try { return require(`./dev/${name}`); } catch {}
@@ -68,13 +69,17 @@ const handlers = {
 // ── SSL / SNI ─────────────────────────────────────────────────
 
 const certCache = new Map();
+let rootCAPem;
 
 function sniCallback(servername, cb) {
   try {
     if (certCache.has(servername)) return cb(null, certCache.get(servername));
     const certData = getCertForDomain(servername);
     if (!certData) return cb(new Error(`Failed to generate cert for ${servername}`));
-    const ctx = require("tls").createSecureContext({ key: certData.key, cert: certData.cert });
+    const ctx = require("tls").createSecureContext({
+      key: certData.key,
+      cert: `${certData.cert}\n${rootCAPem}`
+    });
     certCache.set(servername, ctx);
     log(`🔐 Cert generated: ${servername}`);
     cb(null, ctx);
@@ -86,11 +91,10 @@ function sniCallback(servername, cb) {
 
 let sslOptions;
 try {
-  sslOptions = {
-    key: fs.readFileSync(path.join(MITM_DIR, "rootCA.key")),
-    cert: fs.readFileSync(path.join(MITM_DIR, "rootCA.crt")),
-    SNICallback: sniCallback
-  };
+  const rootKey = fs.readFileSync(path.join(MITM_DIR, "rootCA.key"));
+  const rootCert = fs.readFileSync(path.join(MITM_DIR, "rootCA.crt"));
+  rootCAPem = rootCert.toString("utf8");
+  sslOptions = { key: rootKey, cert: rootCert, SNICallback: sniCallback };
 } catch (e) {
   err(`Root CA not found: ${e.message}`);
   process.exit(1);

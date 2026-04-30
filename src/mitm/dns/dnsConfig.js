@@ -4,6 +4,7 @@ const path = require("path");
 const os = require("os");
 const { log, err } = require("../logger");
 const { TOOL_HOSTS } = require("../../shared/constants/mitmToolHosts");
+const { runElevatedPowerShell, quotePs } = require("../winElevated.js");
 
 const IS_WIN = process.platform === "win32";
 const IS_MAC = process.platform === "darwin";
@@ -269,11 +270,13 @@ async function addDNSEntry(tool, sudoPassword) {
   try {
     log(`🌐 DNS ${tool}: enabling (${entriesToAdd.join(", ")})`);
     if (IS_WIN) {
-      ensureWindowsDnsAccess(tool, "Enable Windows DNS override", entriesToAdd);
-      const toAppend = entriesToAdd.map(h => `127.0.0.1 ${h}`).join("\r\n") + "\r\n";
-      log(`🌐 DNS ${tool}: appending entries to ${HOSTS_FILE}`);
-      fs.appendFileSync(HOSTS_FILE, toAppend, "utf8");
-      flushWindowsDns();
+      const toAppend = entriesToAdd.map(h => `127.0.0.1 ${h}`).join("`r`n");
+      // Single elevated script: append to hosts + flush DNS (1 UAC popup, or zero if admin)
+      const script = `
+        Add-Content -LiteralPath ${quotePs(HOSTS_FILE)} -Value ${quotePs(toAppend)}
+        ipconfig /flushdns | Out-Null
+      `;
+      await runElevatedPowerShell(script);
       verifyDnsEntriesPresent(tool, true);
     } else {
       await execWithPassword(`echo "${entries}" >> ${HOSTS_FILE}`, sudoPassword);
@@ -310,12 +313,19 @@ async function removeDNSEntry(tool, sudoPassword) {
   try {
     log(`🌐 DNS ${tool}: disabling (${entriesToRemove.join(", ")})`);
     if (IS_WIN) {
-      ensureWindowsDnsAccess(tool, "Disable Windows DNS override", entriesToRemove);
-      const content = fs.readFileSync(HOSTS_FILE, "utf8");
-      const filtered = content.split(/\r?\n/).filter(l => !entriesToRemove.some(h => l.includes(h))).join("\r\n");
-      log(`🌐 DNS ${tool}: rewriting ${HOSTS_FILE} without ${entriesToRemove.join(", ")}`);
-      fs.writeFileSync(HOSTS_FILE, filtered, "utf8");
-      flushWindowsDns();
+      // Build PowerShell list literal of hosts to strip
+      const hostsList = entriesToRemove.map(quotePs).join(",");
+      const script = `
+        $hosts = @(${hostsList})
+        $lines = Get-Content -LiteralPath ${quotePs(HOSTS_FILE)}
+        $filtered = $lines | Where-Object {
+          $line = $_
+          -not ($hosts | Where-Object { $line -match [regex]::Escape($_) })
+        }
+        Set-Content -LiteralPath ${quotePs(HOSTS_FILE)} -Value $filtered
+        ipconfig /flushdns | Out-Null
+      `;
+      await runElevatedPowerShell(script);
       verifyDnsEntriesPresent(tool, false);
     } else {
       for (const host of entriesToRemove) {
@@ -385,7 +395,6 @@ module.exports = {
   removeAllDNSEntriesSync,
   execWithPassword,
   isSudoAvailable,
-  executeElevatedPowerShell,
   checkDNSEntry,
   checkAllDNSStatus,
   buildWindowsAdminHint,

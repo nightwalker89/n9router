@@ -74,3 +74,4 @@ ecosystem.config.*
 plans
 .gh-profile
 gh
+scripts/agSniffer/*

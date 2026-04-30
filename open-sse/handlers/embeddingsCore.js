@@ -7,6 +7,19 @@ import { refreshWithRetry } from "../services/tokenRefresh.js";
 // Google AI (Gemini) provider aliases / identifiers
 const GEMINI_PROVIDERS = new Set(["gemini", "google_ai_studio"]);
 
+// Static map: provider id → embeddings endpoint (OpenAI-compatible body format)
+const EMBEDDING_URLS = {
+  openai: "https://api.openai.com/v1/embeddings",
+  openrouter: "https://openrouter.ai/api/v1/embeddings",
+  mistral: "https://api.mistral.ai/v1/embeddings",
+  "voyage-ai": "https://api.voyageai.com/v1/embeddings",
+  fireworks: "https://api.fireworks.ai/inference/v1/embeddings",
+  together: "https://api.together.xyz/v1/embeddings",
+  nebius: "https://api.tokenfactory.nebius.com/v1/embeddings",
+  github: "https://models.github.ai/inference/embeddings",
+  nvidia: "https://integrate.api.nvidia.com/v1/embeddings",
+};
+
 /**
  * Check whether a provider targets the Google AI (Gemini) embeddings API.
  * @param {string} provider
@@ -77,22 +90,16 @@ function buildEmbeddingsUrl(provider, model, credentials, input) {
     return `https://generativelanguage.googleapis.com/v1beta/${modelPath}:embedContent?key=${encodeURIComponent(apiKey)}`;
   }
 
-  switch (provider) {
-    case "openai":
-      return "https://api.openai.com/v1/embeddings";
-    case "openrouter":
-      return "https://openrouter.ai/api/v1/embeddings";
-    default:
-      // openai-compatible & custom-embedding providers: use their baseUrl + /embeddings
-      if (provider?.startsWith?.("openai-compatible-") || provider?.startsWith?.("custom-embedding-")) {
-        const rawBaseUrl = credentials?.providerSpecificData?.baseUrl || "https://api.openai.com/v1";
-        // Defensive: strip trailing slash and accidental /embeddings to avoid double-append
-        const baseUrl = rawBaseUrl.replace(/\/$/, "").replace(/\/embeddings$/, "");
-        return `${baseUrl}/embeddings`;
-      }
-      // For other providers, attempt to use their base URL pattern with /embeddings path
-      return null;
+  if (EMBEDDING_URLS[provider]) return EMBEDDING_URLS[provider];
+
+  // openai-compatible & custom-embedding providers: use their baseUrl + /embeddings
+  if (provider?.startsWith?.("openai-compatible-") || provider?.startsWith?.("custom-embedding-")) {
+    const rawBaseUrl = credentials?.providerSpecificData?.baseUrl || "https://api.openai.com/v1";
+    // Defensive: strip trailing slash and accidental /embeddings to avoid double-append
+    const baseUrl = rawBaseUrl.replace(/\/$/, "").replace(/\/embeddings$/, "");
+    return `${baseUrl}/embeddings`;
   }
+  return null;
 }
 
 /**

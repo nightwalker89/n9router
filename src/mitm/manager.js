@@ -593,14 +593,31 @@ async function stopServer(sudoPassword) {
   serverPid = null;
 
   if (IS_WIN) {
-    // Process already has admin rights — edit hosts file directly
     const hostsFile = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "drivers", "etc", "hosts");
     const allHosts = Object.values(TOOL_HOSTS).flat();
     try {
-      const hostsContent = fs.readFileSync(hostsFile, "utf8");
-      const filtered = hostsContent.split(/\r?\n/).filter(l => !allHosts.some(h => l.includes(h))).join("\r\n");
-      fs.writeFileSync(hostsFile, filtered, "utf8");
-      require("child_process").execSync("ipconfig /flushdns", { windowsHide: true });
+      const { isAdmin, runElevatedPowerShell, quotePs } = require("./winElevated.js");
+      if (isAdmin()) {
+        // Direct fs write — bypass PowerShell to avoid parser pitfalls
+        const content = fs.readFileSync(hostsFile, "utf8");
+        const filtered = content.split(/\r?\n/).filter(l => !allHosts.some(h => l.includes(h))).join("\r\n");
+        if (filtered !== content) fs.writeFileSync(hostsFile, filtered, "utf8");
+        try { require("child_process").execSync("ipconfig /flushdns", { windowsHide: true, stdio: "ignore" }); } catch { /* ignore */ }
+        log("🌐 DNS: ✅ all tool hosts removed");
+      } else {
+        const hostsList = allHosts.map(quotePs).join(",");
+        const script = `
+          $hosts = @(${hostsList})
+          $lines = Get-Content -LiteralPath ${quotePs(hostsFile)}
+          $filtered = $lines | Where-Object {
+            $line = $_
+            -not ($hosts | Where-Object { $line -match [regex]::Escape($_) })
+          }
+          Set-Content -LiteralPath ${quotePs(hostsFile)} -Value $filtered
+          ipconfig /flushdns | Out-Null
+        `;
+        await runElevatedPowerShell(script);
+      }
     } catch (e) { err(`Failed to clean hosts: ${e.message}`); }
   } else {
     await removeAllDNSEntries(sudoPassword);

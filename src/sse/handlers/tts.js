@@ -7,10 +7,15 @@ import { getModelInfo } from "../services/model.js";
 import { handleTtsCore } from "open-sse/handlers/ttsCore.js";
 import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
+import { AI_PROVIDERS } from "@/shared/constants/providers";
 import * as log from "../utils/logger.js";
 
-// Providers that require stored credentials (not noAuth)
-const CREDENTIALED_PROVIDERS = new Set(["openai", "elevenlabs", "openrouter"]);
+// Derived from providers.js: any TTS provider not noAuth requires stored credentials
+const CREDENTIALED_PROVIDERS = new Set(
+  Object.entries(AI_PROVIDERS)
+    .filter(([, p]) => p.serviceKinds?.includes("tts") && !p.noAuth && p.ttsConfig?.authType !== "none")
+    .map(([id]) => id)
+);
 
 export async function handleTts(request) {
   let body;

@@ -8,6 +8,8 @@ const FIELD_SCHEMA = {
   defaultModel:     { label: "Model",      format: (v) => v, mono: true },
   baseUrl:          { label: "Endpoint",   format: (v) => v, isLink: true, mono: true },
   costPerQuery:     { label: "Cost / call", format: (v) => v === 0 ? "Free" : `$${v.toFixed(4)}` },
+  pricingUrl:       { label: "Pricing",    format: () => "View pricing", isLink: true },
+  freeTier:         { label: "Free tier",  format: (v) => v },
   freeMonthlyQuota: { label: "Free quota",  format: (v) => v === 0 ? "—" : v >= 999999 ? "Unlimited" : `${v.toLocaleString()} / mo` },
   searchTypes:      { label: "Types",      format: (v) => v.join(", ") },
   formats:          { label: "Formats",    format: (v) => v.join(", ") },
@@ -30,6 +32,7 @@ export default function ProviderInfoCard({ config, provider, title = "Provider I
     }));
 
   const signupUrl = provider?.notice?.apiKeyUrl || provider?.website;
+  const noticeText = provider?.notice?.text;
 
   return (
     <Card>
@@ -67,6 +70,12 @@ export default function ProviderInfoCard({ config, provider, title = "Provider I
             )}
           </div>
         ))}
+        {noticeText && (
+          <div className="flex items-start gap-3 min-w-0 sm:col-span-2">
+            <span className="text-xs text-text-muted w-28 shrink-0 mt-0.5">Notice</span>
+            <span className="text-sm text-text-main leading-relaxed">{noticeText}</span>
+          </div>
+        )}
       </div>
     </Card>
   );
