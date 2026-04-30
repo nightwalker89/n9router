@@ -1,28 +1,13 @@
 "use strict";
 
-const fs = require("fs");
-
-const DEFAULT_ANTIGRAVITY_IDE_VERSION = "1.23.2";
-
-function normalizeAntigravityIdeVersion(value) {
-  const trimmed = typeof value === "string" ? value.trim() : "";
-  return trimmed || DEFAULT_ANTIGRAVITY_IDE_VERSION;
-}
+const {
+  DEFAULT_ANTIGRAVITY_IDE_VERSION,
+  getAntigravityIdeVersionSettings,
+  normalizeAntigravityIdeVersion,
+} = require("./mitmSettings");
 
 function loadAntigravityIdeVersionSettings(dbFile) {
-  try {
-    const db = JSON.parse(fs.readFileSync(dbFile, "utf-8"));
-    const settings = db?.settings || {};
-    return {
-      enabled: settings.mitmAntigravityIdeVersionOverrideEnabled === true,
-      version: normalizeAntigravityIdeVersion(settings.mitmAntigravityIdeVersion),
-    };
-  } catch {
-    return {
-      enabled: false,
-      version: DEFAULT_ANTIGRAVITY_IDE_VERSION,
-    };
-  }
+  return getAntigravityIdeVersionSettings(dbFile);
 }
 
 function shouldRewriteMetadata(metadata) {
@@ -36,10 +21,6 @@ function rewriteAntigravityUserAgent(userAgent, version) {
   if (typeof userAgent !== "string" || !userAgent.includes("antigravity/")) {
     return userAgent;
   }
-  // TODO: remove for debugging only once we're confident the override is working
-  console.log("original> user-agent", userAgent);
-  console.log("original> version", version);
-  console.log("new> user-agent", userAgent.replace(/antigravity\/[^\s]+/, `antigravity/${version}`));
   return userAgent.replace(/antigravity\/[^\s]+/, `antigravity/${version}`);
 }
 

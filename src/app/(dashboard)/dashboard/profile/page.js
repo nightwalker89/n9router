@@ -305,6 +305,21 @@ export default function ProfilePage() {
     }
   };
 
+  const updateMitmAntigravityHostRewriteEnabled = async (enabled) => {
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mitmAntigravityHostRewriteEnabled: enabled }),
+      });
+      if (res.ok) {
+        setSettings(prev => ({ ...prev, mitmAntigravityHostRewriteEnabled: enabled }));
+      }
+    } catch (err) {
+      console.error("Failed to update mitmAntigravityHostRewriteEnabled:", err);
+    }
+  };
+
   const updateMitmAntigravityIdeVersion = async (event) => {
     event.preventDefault();
     const version = antigravityIdeVersionDraft.trim() || "1.23.2";
@@ -428,6 +443,7 @@ export default function ProfilePage() {
   const mitmAntigravityDebugLogsEnabled = settings.mitmAntigravityDebugLogsEnabled === true;
   const mitmAntigravityAutoDisableOnSonnetZero = settings.mitmAntigravityAutoDisableOnSonnetZero !== false;
   const mitmAntigravityIdeVersionOverrideEnabled = settings.mitmAntigravityIdeVersionOverrideEnabled === true;
+  const mitmAntigravityHostRewriteEnabled = settings.mitmAntigravityHostRewriteEnabled !== false;
   const mitmAntigravityDebugLogDir = settings.mitmAntigravityDebugLogDir || "";
   const periodicDbBackupsEnabled = settings.periodicDbBackupsEnabled !== false;
 
@@ -801,6 +817,19 @@ export default function ProfilePage() {
             <Toggle
               checked={mitmAntigravityAutoDisableOnSonnetZero}
               onChange={updateMitmAntigravityAutoDisableOnSonnetZero}
+              disabled={loading}
+            />
+          </div>
+          <div className="flex items-center justify-between pt-4 mt-4 border-t border-border/50">
+            <div>
+              <p className="font-medium">Antigravity Host Rewrite</p>
+              <p className="text-sm text-text-muted">
+                Rewrite Antigravity requests from cloudcode-pa.googleapis.com to daily-cloudcode-pa.googleapis.com to avoid 429 rate limits
+              </p>
+            </div>
+            <Toggle
+              checked={mitmAntigravityHostRewriteEnabled}
+              onChange={updateMitmAntigravityHostRewriteEnabled}
               disabled={loading}
             />
           </div>

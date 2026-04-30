@@ -20,13 +20,14 @@ const { isTokenSwapEnabled, getAllActiveConnections, triggerRefreshIfNeeded,
         autoDisableAccountIfSonnetQuotaZero,
         markAccountUsed, getConnectionLabel, getTokenSwapAvailabilitySummary,
         getAntigravity503RetryCount } = require("./tokenPool");
-const { createAntigravityDebugContext, maskToken } = require("./antigravityDebugLog");
+const { createAntigravityDebugContext, extractBearerToken, maskToken } = require("./antigravityDebugLog");
 const { getCertForDomain } = require("./cert/generate");
 const { buildInputOnlyRequestDetail, createTokenSwapUsageObserver, generateDetailId } = require("./usageTracker");
 const { pushHealthEvent, getLastEventStatus, migrateToEmailKeys } = require("./healthStore");
 
 const { applyRtkCompression } = require("./rtkCompressor");
 const { applyAntigravityIdeVersionOverride } = require("./antigravityIdeVersion");
+const { getAntigravityHostRewriteTarget } = require("./mitmSettings");
 
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const LOCAL_PORT = 443;
@@ -144,7 +145,9 @@ function extractModel(url, body) {
  * so it's both forwarded to client AND passed to the callback for inspection.
  */
 async function passthrough(req, res, bodyBuffer, onResponse, debugContext = null) {
-  const targetHost = (req.headers.host || TARGET_HOSTS[0]).split(":")[0];
+  let targetHost = (req.headers.host || TARGET_HOSTS[0]).split(":")[0];
+  const rewrittenHost = getAntigravityHostRewriteTarget(targetHost, DB_FILE);
+  if (rewrittenHost !== targetHost) targetHost = rewrittenHost;
   const targetIP = await resolveTargetIP(targetHost);
 
   const forwardReq = https.request({
@@ -192,7 +195,9 @@ async function passthrough(req, res, bodyBuffer, onResponse, debugContext = null
 // piping to client — enabling auto-retry on 429/503.
 
 async function tokenSwapForward(req, res, bodyBuffer, connections, model, strategy, provider, requestStartTime, debugContext = null) {
-  const targetHost = (req.headers.host || TARGET_HOSTS[0]).split(":")[0];
+  let targetHost = (req.headers.host || TARGET_HOSTS[0]).split(":")[0];
+  const rewrittenHost = getAntigravityHostRewriteTarget(targetHost, DB_FILE);
+  if (rewrittenHost !== targetHost) targetHost = rewrittenHost;
   const targetIP = await resolveTargetIP(targetHost);
   let lastRetryResponse = null;
 

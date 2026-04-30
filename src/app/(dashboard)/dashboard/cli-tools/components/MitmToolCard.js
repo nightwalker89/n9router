@@ -191,30 +191,6 @@ export default function MitmToolCard({
               )}
             </div>
 
-            {tool.defaultModels?.length > 0 && (
-              <MultiModelMappingEditor
-                tool={tool}
-                mappings={modelMappings}
-                strategy={selectedStrategy}
-                dnsActive={dnsActive}
-                hasActiveProviders={hasActiveProviders}
-                onChangeEntry={handleModelMappingChange}
-                onBlurEntry={handleMappingBlur}
-                onOpenSelector={openModelSelector}
-                onAddEntry={(alias) => handleAddMapping(alias, `${tool.id}/model-id`)}
-                onRemoveEntry={handleRemoveMapping}
-                onReorderEntry={handleReorderMapping}
-                onChangeStrategy={handleStrategyChange}
-                feedback={mappingFeedback}
-              />
-            )}
-
-            {tool.defaultModels?.length === 0 && (
-              <p className="text-xs text-text-muted px-1">Model mappings will be available soon.</p>
-            )}
-
-
-
             {/* Start / Stop DNS button */}
             <div className="flex flex-col gap-2 items-start">
               {dnsActive ? (
@@ -251,6 +227,28 @@ export default function MitmToolCard({
                 </div>
               )}
             </div>
+
+            {tool.defaultModels?.length > 0 && (
+              <MultiModelMappingEditor
+                tool={tool}
+                mappings={modelMappings}
+                strategy={selectedStrategy}
+                dnsActive={dnsActive}
+                hasActiveProviders={hasActiveProviders}
+                onChangeEntry={handleModelMappingChange}
+                onBlurEntry={handleMappingBlur}
+                onOpenSelector={openModelSelector}
+                onAddEntry={(alias) => handleAddMapping(alias, `${tool.id}/model-id`)}
+                onRemoveEntry={handleRemoveMapping}
+                onReorderEntry={handleReorderMapping}
+                onChangeStrategy={handleStrategyChange}
+                feedback={mappingFeedback}
+              />
+            )}
+
+            {tool.defaultModels?.length === 0 && (
+              <p className="text-xs text-text-muted px-1">Model mappings will be available soon.</p>
+            )}
           </div>
         )}
       </Card>
