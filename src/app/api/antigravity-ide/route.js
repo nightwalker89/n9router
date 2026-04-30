@@ -35,6 +35,7 @@ const PROCESS_SEARCH = {
 // Debug port range for --remote-debugging-port
 const DEBUG_PORT_START = 9400;
 const DEBUG_PORT_END = 9499;
+let lastObservedRunning = null;
 
 /**
  * Check if a port is in use by querying for PIDs listening on it.
@@ -93,8 +94,7 @@ function detectCli() {
   for (const tpl of installPaths) {
     const resolved = resolveEnvPath(tpl);
     if (resolved && fs.existsSync(resolved)) {
-      console.log(`[antigravity-ide] Found CLI at install path: ${resolved}`);
-      return { found: true, command: resolved };
+      return { found: true, command: resolved, source: "install-path" };
     }
   }
 
@@ -104,11 +104,20 @@ function detectCli() {
   for (const cmd of commands) {
     try {
       const result = execSync(`${whichCmd} ${cmd}`, { encoding: "utf8", stdio: "pipe", timeout: 5000 }).trim();
-      if (result) return { found: true, command: result };
+      if (result) return { found: true, command: result, source: "path" };
     } catch { /* not in PATH */ }
   }
 
-  return { found: false, command: null };
+  return { found: false, command: null, source: null };
+}
+
+function logCliInstallPathOnRunningChange(cli, running) {
+  const changed = lastObservedRunning !== null && lastObservedRunning !== running;
+  lastObservedRunning = running;
+
+  if (changed && cli?.source === "install-path" && cli.command) {
+    console.log(`[antigravity-ide] Found CLI at install path: ${cli.command}`);
+  }
 }
 
 /**
@@ -313,6 +322,7 @@ function launchIde(command, args = []) {
 export async function GET() {
   const cli = detectCli();
   const proc = detectProcesses();
+  logCliInstallPathOnRunningChange(cli, proc.running);
 
   return Response.json({
     installed: cli.found,
