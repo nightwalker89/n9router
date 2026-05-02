@@ -66,6 +66,22 @@ function cloneDefaultData() {
   };
 }
 
+function normalizeObservabilitySettings(settings) {
+  let changed = false;
+
+  if (typeof settings.observabilityEnabled !== "boolean" && typeof settings.enableObservability === "boolean") {
+    settings.observabilityEnabled = settings.enableObservability;
+    changed = true;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(settings, "enableObservability")) {
+    delete settings.enableObservability;
+    changed = true;
+  }
+
+  return changed;
+}
+
 if (!isCloud && DB_FILE && !fs.existsSync(DB_FILE)) {
   fs.writeFileSync(DB_FILE, JSON.stringify(cloneDefaultData(), null, 2));
 }
@@ -91,6 +107,8 @@ function ensureDbShape(data) {
     }
 
     if (key === "settings" && typeof next.settings === "object" && !Array.isArray(next.settings)) {
+      changed = normalizeObservabilitySettings(next.settings) || changed;
+
       for (const [settingKey, settingDefault] of Object.entries(defaultValue)) {
         if (next.settings[settingKey] === undefined) {
           // Backward-compat: if proxy URL was saved, default outboundProxyEnabled to true
@@ -744,7 +762,9 @@ export async function getSettings() {
 
 export async function updateSettings(updates) {
   const db = await getDb();
-  db.data.settings = { ...db.data.settings, ...updates };
+  const normalizedUpdates = { ...updates };
+  normalizeObservabilitySettings(normalizedUpdates);
+  db.data.settings = { ...db.data.settings, ...normalizedUpdates };
   await safeWrite(db);
   return db.data.settings;
 }
@@ -759,14 +779,17 @@ export async function importDb(payload) {
     throw new Error("Invalid database payload");
   }
 
+  const importedSettings = payload.settings && typeof payload.settings === "object" && !Array.isArray(payload.settings)
+    ? { ...payload.settings }
+    : {};
+  normalizeObservabilitySettings(importedSettings);
+
   const nextData = {
     ...cloneDefaultData(),
     ...payload,
     settings: {
       ...cloneDefaultData().settings,
-      ...(payload.settings && typeof payload.settings === "object" && !Array.isArray(payload.settings)
-        ? payload.settings
-        : {}),
+      ...importedSettings,
     },
   };
 

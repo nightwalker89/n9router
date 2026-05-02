@@ -249,13 +249,13 @@ export default function ProfilePage() {
       const res = await fetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enableObservability: enabled }),
+        body: JSON.stringify({ observabilityEnabled: enabled }),
       });
       if (res.ok) {
-        setSettings(prev => ({ ...prev, enableObservability: enabled }));
+        setSettings(prev => ({ ...prev, observabilityEnabled: enabled }));
       }
     } catch (err) {
-      console.error("Failed to update enableObservability:", err);
+      console.error("Failed to update observabilityEnabled:", err);
     }
   };
 
@@ -439,7 +439,7 @@ export default function ProfilePage() {
     }
   };
 
-  const observabilityEnabled = settings.enableObservability === true;
+  const observabilityEnabled = settings.observabilityEnabled !== false;
   const mitmAntigravityDebugLogsEnabled = settings.mitmAntigravityDebugLogsEnabled === true;
   const mitmAntigravityAutoDisableOnSonnetZero = settings.mitmAntigravityAutoDisableOnSonnetZero !== false;
   const mitmAntigravityIdeVersionOverrideEnabled = settings.mitmAntigravityIdeVersionOverrideEnabled === true;

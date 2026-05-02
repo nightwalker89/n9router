@@ -620,12 +620,8 @@ export async function getUsageStats(period = "all") {
     })
     .slice(0, 20);
 
-  const lifetimeTotalRequests = typeof db.data.totalRequestsLifetime === "number"
-    ? db.data.totalRequestsLifetime
-    : history.length;
-
   const stats = {
-    totalRequests: lifetimeTotalRequests,
+    totalRequests: 0,
     totalPromptTokens: 0, totalCompletionTokens: 0, totalCachedTokens: 0, totalCost: 0,
     byProvider: {}, byModel: {}, byAccount: {}, byApiKey: {}, byEndpoint: {},
     last10Minutes: [],
@@ -695,6 +691,7 @@ export async function getUsageStats(period = "all") {
 
     for (const dateKey of dateKeys) {
       const day = dailySummary[dateKey];
+      stats.totalRequests += day.requests || 0;
       stats.totalPromptTokens += day.promptTokens || 0;
       stats.totalCompletionTokens += day.completionTokens || 0;
       stats.totalCachedTokens += day.cachedTokens || 0;
@@ -827,6 +824,7 @@ export async function getUsageStats(period = "all") {
       const entryCost = entry.cost || 0;
       const providerDisplayName = providerNodeNameMap[entry.provider] || entry.provider;
 
+      stats.totalRequests += 1;
       stats.totalPromptTokens += promptTokens;
       stats.totalCompletionTokens += completionTokens;
       stats.totalCachedTokens += cachedTokens;

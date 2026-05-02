@@ -43,13 +43,44 @@ describe("usageDb cached token stats", () => {
     });
 
     const dailyStats = await getUsageStats("7d");
+    expect(dailyStats.totalRequests).toBe(2);
     expect(dailyStats.totalCachedTokens).toBe(425);
     expect(dailyStats.byProvider.openai.cachedTokens).toBe(425);
     expect(dailyStats.byModel["gpt-4 (openai)"].cachedTokens).toBe(425);
 
     const liveStats = await getUsageStats("24h");
+    expect(liveStats.totalRequests).toBe(2);
     expect(liveStats.totalCachedTokens).toBe(425);
     expect(liveStats.byEndpoint["/v1/chat/completions|gpt-4|openai"].cachedTokens).toBe(425);
+  });
+
+  it("filters total requests by the selected usage period", async () => {
+    const { saveRequestUsage, getUsageStats } = await import("@/lib/usageDb.js");
+    const now = Date.now();
+
+    await saveRequestUsage({
+      provider: "openai",
+      model: "gpt-4",
+      tokens: { prompt_tokens: 100, completion_tokens: 20 },
+      timestamp: new Date(now).toISOString(),
+    });
+    await saveRequestUsage({
+      provider: "openai",
+      model: "gpt-4",
+      tokens: { prompt_tokens: 100, completion_tokens: 20 },
+      timestamp: new Date(now - 2 * 86400000).toISOString(),
+    });
+    await saveRequestUsage({
+      provider: "openai",
+      model: "gpt-4",
+      tokens: { prompt_tokens: 100, completion_tokens: 20 },
+      timestamp: new Date(now - 10 * 86400000).toISOString(),
+    });
+
+    expect((await getUsageStats("24h")).totalRequests).toBe(1);
+    expect((await getUsageStats("7d")).totalRequests).toBe(2);
+    expect((await getUsageStats("30d")).totalRequests).toBe(3);
+    expect((await getUsageStats("all")).totalRequests).toBe(3);
   });
 
   it("backfills cached tokens into existing daily summaries", async () => {
