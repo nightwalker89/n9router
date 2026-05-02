@@ -2,11 +2,13 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { exec, execFileSync } = require("child_process");
 const { execWithPassword, isSudoAvailable } = require("../dns/dnsConfig.js");
+const { runElevatedPowerShell, quotePs } = require("../winElevated.js");
 const { log, err } = require("../logger");
 
 const IS_WIN = process.platform === "win32";
 const IS_MAC = process.platform === "darwin";
 const LINUX_CERT_DIR = "/usr/local/share/ca-certificates";
+const ROOT_CA_CN = "9Router MITM Root CA";
 
 /** macOS Keychain CLI — always use absolute path (sudo/sh often has a minimal PATH). */
 const SECURITY = "/usr/bin/security";
@@ -86,20 +88,18 @@ function checkCertInstalledMac(certPath) {
 function checkCertInstalledWindows(certPath) {
   const cu = certutilExecutable();
   return new Promise((resolve) => {
-    // Consider trusted if installed in LocalMachine OR CurrentUser Root store.
-    exec(`${cu} -store Root "9Router MITM Root CA"`, { windowsHide: true }, (machineError) => {
+    // Check by SHA1 fingerprint — detects stale cert with same CN but different key.
+    // Also handle WSL where Node runs on Linux but browsers use Windows store.
+    let fingerprint;
+    try {
+      fingerprint = getCertFingerprint(certPath).replace(/:/g, "");
+    } catch {
+      return resolve(false);
+    }
+    exec(`${cu} -store Root ${fingerprint}`, { windowsHide: true }, (machineError) => {
       if (!machineError) return resolve(true);
-      exec(`${cu} -user -store Root "9Router MITM Root CA"`, { windowsHide: true }, (userError) => {
-        if (!userError) return resolve(true);
-        const ps = [
-          "$m = Get-ChildItem -Path Cert:\\LocalMachine\\Root -ErrorAction SilentlyContinue | Where-Object { $_.Subject -like '*CN=9Router MITM Root CA*' } | Select-Object -First 1",
-          "$u = Get-ChildItem -Path Cert:\\CurrentUser\\Root -ErrorAction SilentlyContinue | Where-Object { $_.Subject -like '*CN=9Router MITM Root CA*' } | Select-Object -First 1",
-          "if ($m -or $u) { exit 0 } else { exit 1 }",
-        ].join("; ");
-        const psExe = isWSL() ? "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" : "powershell";
-        exec(`${psExe} -NoProfile -NonInteractive -Command "${ps}"`, { windowsHide: true }, (psError) => {
-          resolve(!psError);
-        });
+      exec(`${cu} -user -store Root ${fingerprint}`, { windowsHide: true }, (userError) => {
+        resolve(!userError);
       });
     });
   });
@@ -150,10 +150,27 @@ async function installCertMac(sudoPassword, certPath) {
 }
 
 async function installCertWindows(certPath) {
+  // On native Windows: auto-elevate via UAC popup (single popup, no admin probe).
+  if (IS_WIN) {
+    const script = `
+      certutil -delstore Root ${quotePs(ROOT_CA_CN)} 2>$null | Out-Null
+      $exit = & certutil -addstore Root ${quotePs(certPath)} 2>&1
+      if ($LASTEXITCODE -ne 0) { throw "certutil exit $LASTEXITCODE" }
+    `;
+    try {
+      await runElevatedPowerShell(script);
+      log("🔐 Cert: ✅ installed to Windows Root store");
+    } catch (e) {
+      throw new Error(`Failed to install certificate: ${e.message}`);
+    }
+    return;
+  }
+
+  // WSL fallback: Node runs on Linux, no UAC available. Use certutil.exe directly
+  // and fall back from LocalMachine to CurrentUser Root store.
   const cu = certutilExecutable();
   const winPath = pathForWindowsCertutil(certPath);
-  const psExe = isWSL() ? "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" : "powershell";
-  // Prefer LocalMachine Root (admin). Fallback to CurrentUser Root for non-admin sessions.
+  const psExe = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe";
   return new Promise((resolve, reject) => {
     exec(`${cu} -addstore Root "${winPath}"`, { windowsHide: true }, (machineError, _out, machineStderr) => {
       if (!machineError) {
@@ -210,12 +227,24 @@ async function uninstallCertMac(sudoPassword, certPath) {
 }
 
 async function uninstallCertWindows() {
+  // On native Windows: auto-elevate via UAC popup
+  if (IS_WIN) {
+    const script = `certutil -delstore Root ${quotePs(ROOT_CA_CN)}`;
+    try {
+      await runElevatedPowerShell(script);
+      log("🔐 Cert: ✅ uninstalled from Windows Root store");
+    } catch (e) {
+      throw new Error(`Failed to uninstall certificate: ${e.message}`);
+    }
+    return;
+  }
+
+  // WSL fallback: remove from both machine and user stores; "not found" is treated as success.
   const cu = certutilExecutable();
-  const psExe = isWSL() ? "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" : "powershell";
-  // Remove from both machine and user stores; "not found" is treated as success.
+  const psExe = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe";
   return new Promise((resolve, reject) => {
-    exec(`${cu} -delstore Root "9Router MITM Root CA"`, { windowsHide: true }, () => {
-      exec(`${cu} -user -delstore Root "9Router MITM Root CA"`, { windowsHide: true }, () => {
+    exec(`${cu} -delstore Root "${ROOT_CA_CN}"`, { windowsHide: true }, () => {
+      exec(`${cu} -user -delstore Root "${ROOT_CA_CN}"`, { windowsHide: true }, () => {
         const ps = [
           "$m = Get-ChildItem -Path Cert:\\LocalMachine\\Root -ErrorAction SilentlyContinue | Where-Object { $_.Subject -like '*CN=9Router MITM Root CA*' }",
           "$u = Get-ChildItem -Path Cert:\\CurrentUser\\Root -ErrorAction SilentlyContinue | Where-Object { $_.Subject -like '*CN=9Router MITM Root CA*' }",

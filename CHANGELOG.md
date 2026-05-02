@@ -1,21 +1,27 @@
 # Changelog
 
-## v0.4.19 (2026-04-28)
+## v0.4.21 (2026-04-30)
 
 ### Features
-- Add Cloudflare AI provider support and enhance connection management
-- Add per-tool DNS mapping with `TOOL_HOSTS` constant and integrate into MitmToolCard (#788)
+- Add Antigravity host rewrite setting to avoid rate limits — toggle in Profile settings rewrites upstream host on each request
 
 ### Improvements
-- Proxy-aware token refresh across executors (Antigravity, Base, Default, Github, Kiro)
-- Refactor cloudflared process management for port-specific termination and enhanced tunnel management
-- Refactor MitmServerCard to use input field for API key selection; enhance shutdown process with synchronous DNS cleanup
+- Centralize MITM settings into a dedicated `mitmSettings.js` module for cleaner settings management
+- Refactor `MitmToolCard` with a `DnsToggleButton` sub-component, improved DNS toggle UI, and abort signal support in fetch logic
+- Refactor Antigravity logging to use consistent terminology and clear forced passthrough model list
 
 ### Fixes
-- Fix granular `reasoning_effort` handling for Claude models on Copilot & Anthropic backend (#791)
-- Fix Antigravity INVALID_ARGUMENT errors and Copilot agent mode parity
-- Fix quota reset timestamp parsing (#768)
-- Add provider filter and expiry sorting to quota dashboard (#769)
+- Rewrite Antigravity MITM handler to use direct `fetchRouter`/`pipeSSE` pipeline with proper SSE and non-SSE error responses — prevents SDK from hanging when an error occurs mid-stream
+
+## v0.4.20 (2026-04-29)
+
+### Features
+- Add Antigravity MITM token-swap IDE version override with Profile settings toggle and configurable version, defaulting to `1.23.2`
+
+### Improvements
+- Rewrite both Antigravity request `metadata.ideVersion` and `user-agent` version when the override is enabled
+- Route `/v1internal:loadCodeAssist` through Antigravity MITM token swap so eligibility-check requests can use the override
+- Add a Profile settings notice that IDE version spoofing is used at your own risk
 
 ## v0.4.16 (2026-04-24)
 

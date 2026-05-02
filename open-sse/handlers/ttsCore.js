@@ -455,7 +455,209 @@ async function handleOpenAiTts({ model, input, credentials, responseFormat = "mp
   return createTtsResponse(base64, "mp3", responseFormat);
 }
 
-// ── TTS Provider Registry (DRY) ────────────────────────────────
+// ── Generic TTS Format Handlers (config-driven via ttsConfig.format) ──────
+// Parse `model` string as "modelId/voiceId" or "modelId" (modelId may contain slashes — match against known list)
+function parseModelVoice(model, defaultModel = "", defaultVoice = "", knownModels = []) {
+  if (!model) return { modelId: defaultModel, voiceId: defaultVoice };
+  // Find longest known model id that prefixes `model`
+  const known = knownModels.map((m) => m.id || m).filter(Boolean).sort((a, b) => b.length - a.length);
+  for (const id of known) {
+    if (model === id) return { modelId: id, voiceId: defaultVoice };
+    if (model.startsWith(`${id}/`)) return { modelId: id, voiceId: model.slice(id.length + 1) };
+  }
+  // Fallback: split on last "/" so "vendor/model/voice" → model="vendor/model", voice="voice"
+  const idx = model.lastIndexOf("/");
+  if (idx > 0) return { modelId: model.slice(0, idx), voiceId: model.slice(idx + 1) };
+  return { modelId: defaultModel || model, voiceId: defaultVoice || model };
+}
+
+// Convert upstream Response (binary audio) to { base64, format }
+async function responseToBase64(res, defaultFormat = "mp3") {
+  const buf = await res.arrayBuffer();
+  if (buf.byteLength < 100) throw new Error("Upstream returned empty audio");
+  const ctype = res.headers.get("content-type") || "";
+  let format = defaultFormat;
+  if (ctype.includes("wav")) format = "wav";
+  else if (ctype.includes("mpeg") || ctype.includes("mp3")) format = "mp3";
+  else if (ctype.includes("ogg")) format = "ogg";
+  return { base64: Buffer.from(buf).toString("base64"), format };
+}
+
+async function throwUpstreamError(res) {
+  const text = await res.text().catch(() => "");
+  let msg = `Upstream error (${res.status})`;
+  try {
+    const parsed = JSON.parse(text);
+    msg = parsed?.error?.message || parsed?.message || parsed?.detail?.message || (typeof parsed?.detail === "string" ? parsed.detail : null) || text || msg;
+  } catch { msg = text || msg; }
+  throw new Error(msg);
+}
+
+// Hyperbolic: POST { text } → { audio: base64 }
+async function ttsHyperbolic({ baseUrl, apiKey, text }) {
+  const res = await fetch(baseUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) await throwUpstreamError(res);
+  const data = await res.json();
+  return { base64: data.audio, format: "mp3" };
+}
+
+// Deepgram: model via query, Token auth, returns binary
+async function ttsDeepgram({ baseUrl, apiKey, text, modelId }) {
+  const url = new URL(baseUrl);
+  url.searchParams.set("model", modelId || "aura-asteria-en");
+  const res = await fetch(url.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Token ${apiKey}` },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) await throwUpstreamError(res);
+  return responseToBase64(res, "mp3");
+}
+
+// Nvidia NIM: POST { input: { text }, voice, model } → binary
+async function ttsNvidia({ baseUrl, apiKey, text, modelId, voiceId }) {
+  const res = await fetch(baseUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+    body: JSON.stringify({ input: { text }, voice: voiceId || "default", model: modelId }),
+  });
+  if (!res.ok) await throwUpstreamError(res);
+  return responseToBase64(res, "wav");
+}
+
+// HuggingFace: POST {baseUrl}/{modelId} { inputs: text } → binary
+async function ttsHuggingFace({ baseUrl, apiKey, text, modelId }) {
+  if (!modelId || modelId.includes("..")) throw new Error("Invalid HuggingFace model ID");
+  const res = await fetch(`${baseUrl}/${modelId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+    body: JSON.stringify({ inputs: text }),
+  });
+  if (!res.ok) await throwUpstreamError(res);
+  return responseToBase64(res, "wav");
+}
+
+// Inworld: POST { text, voiceId, modelId, audioConfig } → JSON { audioContent }
+async function ttsInworld({ baseUrl, apiKey, text, modelId, voiceId }) {
+  const res = await fetch(baseUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Basic ${apiKey}` },
+    body: JSON.stringify({
+      text,
+      voiceId: voiceId || "Alex",
+      modelId: modelId || "inworld-tts-1.5-mini",
+      audioConfig: { audioEncoding: "MP3" },
+    }),
+  });
+  if (!res.ok) await throwUpstreamError(res);
+  const data = await res.json();
+  if (!data.audioContent) throw new Error("Inworld TTS returned no audio");
+  return { base64: data.audioContent, format: "mp3" };
+}
+
+// Cartesia: POST { model_id, transcript, voice, output_format } → binary
+async function ttsCartesia({ baseUrl, apiKey, text, modelId, voiceId }) {
+  const res = await fetch(baseUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-Key": apiKey,
+      "Cartesia-Version": "2024-06-10",
+    },
+    body: JSON.stringify({
+      model_id: modelId || "sonic-2",
+      transcript: text,
+      ...(voiceId ? { voice: { mode: "id", id: voiceId } } : {}),
+      output_format: { container: "mp3", bit_rate: 128000, sample_rate: 44100 },
+    }),
+  });
+  if (!res.ok) await throwUpstreamError(res);
+  return responseToBase64(res, "mp3");
+}
+
+// PlayHT: token format "userId:apiKey", voice = s3 URL
+async function ttsPlayHt({ baseUrl, apiKey, text, modelId, voiceId }) {
+  const [userId, key] = (apiKey || ":").split(":");
+  const res = await fetch(baseUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "audio/mpeg",
+      "X-USER-ID": userId || "",
+      "Authorization": `Bearer ${key || apiKey}`,
+    },
+    body: JSON.stringify({
+      text,
+      voice: voiceId || "s3://voice-cloning-zero-shot/d9ff78ba-d016-47f6-b0ef-dd630f59414e/female-cs/manifest.json",
+      voice_engine: modelId || "PlayDialog",
+      output_format: "mp3",
+      speed: 1,
+    }),
+  });
+  if (!res.ok) await throwUpstreamError(res);
+  return responseToBase64(res, "mp3");
+}
+
+// Coqui (local, noAuth): POST { text, speaker_id } → WAV
+async function ttsCoqui({ baseUrl, text, voiceId }) {
+  const res = await fetch(baseUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, ...(voiceId ? { speaker_id: voiceId } : {}) }),
+  });
+  if (!res.ok) await throwUpstreamError(res);
+  return responseToBase64(res, "wav");
+}
+
+// Tortoise (local, noAuth): POST { text, voice } → binary
+async function ttsTortoise({ baseUrl, text, voiceId }) {
+  const res = await fetch(baseUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, voice: voiceId || "random" }),
+  });
+  if (!res.ok) await throwUpstreamError(res);
+  return responseToBase64(res, "wav");
+}
+
+// OpenAI-compatible (qwen3-tts, openai-compat): POST { model, input, voice } → binary
+async function ttsOpenAiCompat({ baseUrl, apiKey, text, modelId, voiceId }) {
+  const headers = { "Content-Type": "application/json" };
+  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+  const res = await fetch(baseUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model: modelId,
+      input: text,
+      voice: voiceId || "alloy",
+      response_format: "mp3",
+      speed: 1.0,
+    }),
+  });
+  if (!res.ok) await throwUpstreamError(res);
+  return responseToBase64(res, "mp3");
+}
+
+// Format → handler dispatcher (DRY)
+const FORMAT_HANDLERS = {
+  hyperbolic:        ttsHyperbolic,
+  deepgram:          ttsDeepgram,
+  "nvidia-tts":      ttsNvidia,
+  "huggingface-tts": ttsHuggingFace,
+  inworld:           ttsInworld,
+  cartesia:          ttsCartesia,
+  playht:            ttsPlayHt,
+  coqui:             ttsCoqui,
+  tortoise:          ttsTortoise,
+  openai:            ttsOpenAiCompat,
+};
+
+// ── TTS Provider Registry (legacy noAuth + special providers) ──────────
 const TTS_PROVIDERS = {
   "google-tts": {
     synthesize: async (text, model) => {
@@ -480,15 +682,10 @@ const TTS_PROVIDERS = {
   },
   "elevenlabs": {
     synthesize: async (text, model, credentials) => {
-      if (!credentials?.apiKey) {
-        throw new Error("ElevenLabs API key required");
-      }
-      // model format: "voice_id" or "model_id/voice_id"
+      if (!credentials?.apiKey) throw new Error("ElevenLabs API key required");
       let modelId = "eleven_flash_v2_5";
       let voiceId = model;
-      if (model && model.includes("/")) {
-        [modelId, voiceId] = model.split("/");
-      }
+      if (model && model.includes("/")) [modelId, voiceId] = model.split("/");
       const base64 = await elevenlabsTts(text, voiceId, credentials.apiKey, modelId);
       return { base64, format: "mp3" };
     },
@@ -508,15 +705,24 @@ const TTS_PROVIDERS = {
   },
 };
 
+// ── Generic dispatcher: providers with ttsConfig.format ────────────────
+// Resolves to TTS_PROVIDERS first; falls back to ttsConfig.format dispatch.
+async function synthesizeViaConfig(provider, text, model, credentials) {
+  const { AI_PROVIDERS } = await import("@/shared/constants/providers");
+  const cfg = AI_PROVIDERS[provider]?.ttsConfig;
+  if (!cfg) return null;
+  const handler = FORMAT_HANDLERS[cfg.format];
+  if (!handler) return null;
+  const apiKey = credentials?.apiKey;
+  if (cfg.authType !== "none" && !apiKey) throw new Error(`${provider} API key required`);
+  const defaultModel = cfg.models?.[0]?.id || "";
+  const { modelId, voiceId } = parseModelVoice(model, defaultModel, "", cfg.models || []);
+  return handler({ baseUrl: cfg.baseUrl, apiKey, text, modelId, voiceId });
+}
+
 // ── Core handler ───────────────────────────────────────────────
 /**
  * Synthesize text to audio.
- * @param {object} options
- * @param {string} options.provider     - "google-tts" | "edge-tts" | "local-device" | "openai"
- * @param {string} options.model        - voice/lang id
- * @param {string} options.input        - text to synthesize
- * @param {object} [options.credentials] - required for openai
- * @param {string} [options.responseFormat] - "mp3" (default) | "json" (base64)
  * @returns {Promise<{success, response, status?, error?}>}
  */
 export async function handleTtsCore({ provider, model, input, credentials, responseFormat = "mp3" }) {
@@ -525,18 +731,20 @@ export async function handleTtsCore({ provider, model, input, credentials, respo
   }
 
   const ttsProvider = TTS_PROVIDERS[provider];
-  if (!ttsProvider) {
-    return createErrorResult(HTTP_STATUS.BAD_REQUEST, `Provider '${provider}' does not support TTS via this route.`);
-  }
 
   try {
-    const result = await ttsProvider.synthesize(input.trim(), model, credentials, responseFormat);
-    
-    // OpenAI returns full response object
-    if (result.success !== undefined) return result;
-    
-    // Other providers return { base64, format }
-    return createTtsResponse(result.base64, result.format, responseFormat);
+    // Legacy/special providers (google-tts, edge-tts, local-device, elevenlabs, openai, openrouter)
+    if (ttsProvider) {
+      const result = await ttsProvider.synthesize(input.trim(), model, credentials, responseFormat);
+      if (result.success !== undefined) return result;
+      return createTtsResponse(result.base64, result.format, responseFormat);
+    }
+
+    // Generic config-driven dispatcher (hyperbolic, deepgram, nvidia, huggingface, inworld, cartesia, playht, coqui, tortoise, qwen, ...)
+    const result = await synthesizeViaConfig(provider, input.trim(), model, credentials);
+    if (result) return createTtsResponse(result.base64, result.format, responseFormat);
+
+    return createErrorResult(HTTP_STATUS.BAD_REQUEST, `Provider '${provider}' does not support TTS via this route.`);
   } catch (err) {
     return createErrorResult(HTTP_STATUS.BAD_GATEWAY, err.message || "TTS synthesis failed");
   }

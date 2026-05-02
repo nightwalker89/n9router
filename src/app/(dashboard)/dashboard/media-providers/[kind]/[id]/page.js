@@ -364,6 +364,8 @@ function TtsExampleCard({ providerId }) {
   const [countryVoices, setCountryVoices]     = useState([]);
   const [selectedLang, setSelectedLang]       = useState("");
   const [selectedModel, setSelectedModel]     = useState(() => {
+    const cfgModels = AI_PROVIDERS[providerId]?.ttsConfig?.models;
+    if (cfgModels?.length) return cfgModels[0].id;
     if (config.hasModelSelector && config.modelKey) {
       const models = getModelsByProviderId(config.modelKey);
       return models?.[0]?.id || "";
@@ -430,6 +432,8 @@ function TtsExampleCard({ providerId }) {
       }
     }
     // api-language (edge-tts, local-device, elevenlabs): NO default load, wait for user to pick language
+    // config (nvidia, hyperbolic, deepgram, huggingface, cartesia, playht, coqui, tortoise, inworld, qwen):
+    // use ttsConfig.models for model selector; voice is empty by default (backend uses provider default)
   }, [providerId]);
 
   // Update voices when model changes (voicesPerModel providers)
@@ -501,11 +505,14 @@ function TtsExampleCard({ providerId }) {
     : languages;
 
   const endpoint = useTunnel ? tunnelEndpoint : localEndpoint;
-  // For ElevenLabs: use voiceId (editable) instead of selectedVoice
-  const activeVoiceId = config.hasVoiceIdInput ? voiceId : selectedVoice;
-  const modelFull = config.hasModelSelector && activeVoiceId && selectedModel
-    ? `${providerAlias}/${selectedModel}/${activeVoiceId}`
-    : activeVoiceId ? `${providerAlias}/${activeVoiceId}` : "";
+  // For ElevenLabs/config-driven: prefer manual voiceId (if any), else fall back to selectedVoice
+  const activeVoiceId = config.hasVoiceIdInput ? (voiceId || selectedVoice) : selectedVoice;
+  const modelFull = (() => {
+    if (config.hasModelSelector && selectedModel && activeVoiceId) return `${providerAlias}/${selectedModel}/${activeVoiceId}`;
+    if (config.hasModelSelector && selectedModel) return `${providerAlias}/${selectedModel}`;
+    if (activeVoiceId) return `${providerAlias}/${activeVoiceId}`;
+    return "";
+  })();
 
   const curlSnippet = `curl -X POST ${endpoint}/v1/audio/speech${responseFormat === "json" ? "?response_format=json" : ""} \\
   -H "Content-Type: application/json" \\
@@ -584,15 +591,17 @@ function TtsExampleCard({ providerId }) {
             </span>
           </Row>
 
-          {/* Model selector (OpenAI, ElevenLabs) */}
-          {config.hasModelSelector && config.modelKey && (
+          {/* Model selector — prefer ttsConfig.models, else providerModels via modelKey */}
+          {config.hasModelSelector && (config.modelKey || AI_PROVIDERS[providerId]?.ttsConfig?.models?.length) && (
             <Row label="Model">
               <select
                 value={selectedModel}
                 onChange={(e) => setSelectedModel(e.target.value)}
                 className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
               >
-                {(getModelsByProviderId(config.modelKey) || []).map((m) => (
+                {((AI_PROVIDERS[providerId]?.ttsConfig?.models?.length
+                  ? AI_PROVIDERS[providerId].ttsConfig.models
+                  : getModelsByProviderId(config.modelKey)) || []).map((m) => (
                   <option key={m.id} value={m.id}>{m.name || m.id}</option>
                 ))}
               </select>
@@ -1446,13 +1455,14 @@ export default function MediaProviderDetailPage() {
         />
       )}
 
-      {/* Provider Info — config-driven, supports searchConfig, fetchConfig, searchViaChat */}
-      {!isCustom && (provider.searchConfig || provider.fetchConfig || provider.searchViaChat) && (
+      {/* Provider Info — config-driven, supports searchConfig, fetchConfig, ttsConfig, embeddingConfig, searchViaChat */}
+      {!isCustom && (provider.searchConfig || provider.fetchConfig || provider.ttsConfig || provider.embeddingConfig || provider.searchViaChat) && (
         <ProviderInfoCard
           config={
-            kind === "webFetch"
-              ? provider.fetchConfig
-              : provider.searchConfig || { mode: "chat-completions", defaultModel: provider.searchViaChat?.defaultModel, costPerQuery: 0 }
+            kind === "webFetch" ? provider.fetchConfig
+              : kind === "tts" ? provider.ttsConfig
+              : kind === "embedding" ? provider.embeddingConfig
+              : provider.searchConfig || { mode: "chat-completions", defaultModel: provider.searchViaChat?.defaultModel, pricingUrl: provider.searchViaChat?.pricingUrl, freeTier: provider.searchViaChat?.freeTier }
           }
           provider={provider}
           title={`${kindConfig.label} Config`}

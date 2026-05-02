@@ -1,14 +1,11 @@
 import { BaseExecutor } from "./base.js";
 import { PROVIDERS } from "../config/providers.js";
+import { injectReasoningContent } from "../utils/reasoningContentInjector.js";
 
 // Models that use /zen/go/v1/messages (Anthropic/Claude format + x-api-key auth)
 const CLAUDE_FORMAT_MODELS = new Set(["minimax-m2.5", "minimax-m2.7"]);
 
 const BASE = "https://opencode.ai/zen/go/v1";
-
-// Kimi (Moonshot) requires reasoning_content on assistant tool_call messages when thinking is on.
-// OpenAI-format clients don't send it -> upstream 400. Inject a non-empty placeholder.
-const KIMI_REASONING_PLACEHOLDER = " ";
 
 export class OpenCodeGoExecutor extends BaseExecutor {
   constructor() {
@@ -39,13 +36,6 @@ export class OpenCodeGoExecutor extends BaseExecutor {
   }
 
   transformRequest(model, body) {
-    if (!model?.startsWith?.("kimi-") || !body?.messages) return body;
-    const messages = body.messages.map(m => {
-      if (m?.role === "assistant" && Array.isArray(m.tool_calls) && !("reasoning_content" in m)) {
-        return { ...m, reasoning_content: KIMI_REASONING_PLACEHOLDER };
-      }
-      return m;
-    });
-    return { ...body, messages };
+    return injectReasoningContent({ provider: this.provider, model, body });
   }
 }

@@ -40,6 +40,43 @@ async function probeWebProvider(provider, apiKey) {
   return res.status !== 401 && res.status !== 403;
 }
 
+// Probe a tts/embedding provider using ttsConfig/embeddingConfig.
+// Returns true if API key is accepted (status !== 401 && !== 403); null to skip.
+async function probeMediaProvider(provider, apiKey) {
+  const p = AI_PROVIDERS[provider];
+  if (!p) return null;
+  // Only probe providers that are media-only (not LLM dual-purpose, let LLM validate handle those)
+  const kinds = p.serviceKinds || ["llm"];
+  const isMediaOnly = kinds.every((k) => k === "tts" || k === "embedding" || k === "stt");
+  if (!isMediaOnly) return null;
+  const cfg = p.ttsConfig || p.embeddingConfig;
+  if (!cfg) return null;
+  if (p.noAuth || cfg.authType === "none") return true;
+  // Skip auth schemes that need provider-specific data
+  if (cfg.authHeader === "playht" || cfg.authHeader === "aws-sigv4") return null;
+
+  const headers = { "Content-Type": "application/json" };
+
+  // Apply auth based on authHeader
+  switch (cfg.authHeader) {
+    case "bearer":     headers["Authorization"] = `Bearer ${apiKey}`; break;
+    case "x-api-key":  headers["x-api-key"] = apiKey; break;
+    case "xi-api-key": headers["xi-api-key"] = apiKey; break;
+    case "token":      headers["Authorization"] = `Token ${apiKey}`; break;
+    case "basic":      headers["Authorization"] = `Basic ${apiKey}`; break;
+    default: return null;
+  }
+
+  // Minimal POST body — server will reject auth before validating body
+  const res = await fetch(cfg.baseUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ input: "ping", text: "ping", model: cfg.models?.[0]?.id || "test" }),
+    signal: AbortSignal.timeout(8000),
+  });
+  return res.status !== 401 && res.status !== 403;
+}
+
 // POST /api/providers/validate - Validate API key with provider
 export async function POST(request) {
   try {
@@ -189,6 +226,15 @@ export async function POST(request) {
         return NextResponse.json({
           valid: webResult,
           error: webResult ? null : "Invalid API key",
+        });
+      }
+
+      // Generic probe for tts/embedding providers (config-driven)
+      const mediaResult = await probeMediaProvider(provider, apiKey);
+      if (mediaResult !== null) {
+        return NextResponse.json({
+          valid: mediaResult,
+          error: mediaResult ? null : "Invalid API key",
         });
       }
 
