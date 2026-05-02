@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.4.22 (2026-05-02)
+
+### Fixes
+- Treat Antigravity MITM token-swap `403` IAM permission errors as retryable account fallback events, matching the existing `429`/`503` retry path
+
 ## v0.4.21 (2026-04-30)
 
 ### Features
