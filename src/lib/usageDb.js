@@ -5,12 +5,11 @@ import path from "path";
 import fs from "fs";
 import { DATA_DIR } from "@/lib/dataDir.js";
 
-const isCloud = typeof caches !== 'undefined' || typeof caches === 'object';
-const DB_FILE = isCloud ? null : path.join(DATA_DIR, "usage.json");
-const LOG_FILE = isCloud ? null : path.join(DATA_DIR, "log.txt");
+const DB_FILE = path.join(DATA_DIR, "usage.json");
+const LOG_FILE = path.join(DATA_DIR, "log.txt");
 
 // Ensure data directory exists
-if (!isCloud && fs && typeof fs.existsSync === "function") {
+if (fs && typeof fs.existsSync === "function") {
   try {
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -293,15 +292,6 @@ export async function getActiveRequests() {
  * Get usage database instance (singleton)
  */
 export async function getUsageDb() {
-  if (isCloud) {
-    // Return in-memory DB for Workers
-    if (!dbInstance) {
-      dbInstance = new Low({ read: async () => {}, write: async () => {} }, defaultData);
-      dbInstance.data = defaultData;
-    }
-    return dbInstance;
-  }
-
   if (!dbInstance) {
     const adapter = new JSONFile(DB_FILE);
     dbInstance = new Low(adapter, defaultData);
@@ -350,8 +340,6 @@ export async function getUsageDb() {
  * @param {object} entry - Usage entry { provider, model, tokens: { prompt_tokens, completion_tokens, ... }, connectionId?, apiKey? }
  */
 export async function saveRequestUsage(entry) {
-  if (isCloud) return; // Skip saving in Workers
-
   try {
     const db = await getUsageDb();
 
@@ -437,8 +425,6 @@ function formatLogDate(date = new Date()) {
  * Format: datetime(dd-mm-yyyy h:m:s) | model | provider | account | tokens sent | tokens received | status
  */
 export async function appendRequestLog({ model, provider, connectionId, tokens, status }) {
-  if (isCloud) return; // Skip logging in Workers
-
   try {
     const timestamp = formatLogDate();
     const p = provider?.toUpperCase() || "-";
@@ -477,8 +463,6 @@ export async function appendRequestLog({ model, provider, connectionId, tokens, 
  * Get last N lines of log.txt
  */
 export async function getRecentLogs(limit = 200) {
-  if (isCloud) return []; // Skip in Workers
-  
   // Runtime check: ensure fs module is available
   if (!fs || typeof fs.existsSync !== "function") {
     console.error("[usageDb] fs module not available in this environment");

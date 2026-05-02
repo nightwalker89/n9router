@@ -80,6 +80,7 @@ export async function PATCH(request) {
     // Invalidate combo rotation state when strategy settings change
     if (
       Object.prototype.hasOwnProperty.call(body, "comboStrategy") ||
+      Object.prototype.hasOwnProperty.call(body, "comboStickyRoundRobinLimit") ||
       Object.prototype.hasOwnProperty.call(body, "comboStrategies")
     ) {
       resetComboRotation();

@@ -14,6 +14,12 @@ const TUNNEL_BENEFITS = [
 
 const TUNNEL_PING_INTERVAL_MS = 2000;
 const TUNNEL_PING_MAX_MS = 300000;
+
+const CAVEMAN_LEVELS = [
+  { id: "lite", label: "Lite", desc: "Drop filler, keep grammar" },
+  { id: "full", label: "Full", desc: "Drop articles, fragments OK" },
+  { id: "ultra", label: "Ultra", desc: "Telegraphic, max compression" },
+];
 export default function APIPageClient({ machineId }) {
   const [keys, setKeys] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -26,6 +32,8 @@ export default function APIPageClient({ machineId }) {
   const [hasPassword, setHasPassword] = useState(true);
   const [tunnelDashboardAccess, setTunnelDashboardAccess] = useState(false);
   const [rtkEnabled, setRtkEnabledState] = useState(true);
+  const [cavemanEnabled, setCavemanEnabled] = useState(false);
+  const [cavemanLevel, setCavemanLevel] = useState("full");
 
   // Cloudflare Tunnel state
   const [tunnelChecking, setTunnelChecking] = useState(true);
@@ -82,6 +90,8 @@ export default function APIPageClient({ machineId }) {
         setHasPassword(data.hasPassword || false);
         setTunnelDashboardAccess(data.tunnelDashboardAccess || false);
         setRtkEnabledState(data.rtkEnabled !== false);
+        setCavemanEnabled(!!data.cavemanEnabled);
+        setCavemanLevel(data.cavemanLevel || "full");
       }
       if (statusRes.ok) {
         const data = await statusRes.json();
@@ -180,6 +190,28 @@ export default function APIPageClient({ machineId }) {
     } catch (error) {
       console.log("Error updating rtkEnabled:", error);
     }
+  };
+
+  const patchSetting = async (patch) => {
+    try {
+      await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+    } catch (error) {
+      console.log("Error updating setting:", error);
+    }
+  };
+
+  const handleCavemanEnabled = (value) => {
+    setCavemanEnabled(value);
+    patchSetting({ cavemanEnabled: value });
+  };
+
+  const handleCavemanLevel = (level) => {
+    setCavemanLevel(level);
+    patchSetting({ cavemanLevel: level });
   };
 
   const fetchData = async () => {
@@ -813,16 +845,26 @@ export default function APIPageClient({ machineId }) {
         )}
       </Card>
 
-      {/* Token Saver (RTK) */}
+      {/* Token Saver (RTK + Caveman) */}
       <Card id="rtk">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-lg font-semibold">Token Saver</h2>
         </div>
-        <div className="flex items-center justify-between pt-2">
+        <div className="flex items-center justify-between pt-2 pb-4 border-b border-border">
           <div className="pr-4">
-            <p className="font-medium">Compress tool output</p>
+            <p className="font-medium">
+              Compress tool output{" "}
+              <a
+                href="https://github.com/rtk-ai/rtk"
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-normal text-primary underline hover:opacity-80"
+              >
+                (RTK)
+              </a>
+            </p>
             <p className="text-sm text-text-muted">
-              Auto-compress tool output (git diff/grep/ls/tree/logs) before sending to LLM to save tokens. Disable if you see issues.
+              Auto-compress tool output (git diff/grep/ls/tree/logs) before sending to LLM (60-90% fewer input tokens on common dev commands). Disable if you see issues.
             </p>
           </div>
           <Toggle
@@ -830,6 +872,46 @@ export default function APIPageClient({ machineId }) {
             onChange={() => handleRtkEnabled(!rtkEnabled)}
           />
         </div>
+        <div className="flex items-center justify-between pt-4">
+          <div className="pr-4">
+            <p className="font-medium">
+              Compress LLM output{" "}
+              <a
+                href="https://github.com/JuliusBrussee/caveman"
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-normal text-primary underline hover:opacity-80"
+              >
+                (Caveman)
+              </a>
+            </p>
+            <p className="text-sm text-text-muted">
+              Inject a terse-style instruction into the system prompt so the LLM replies shorter (~65% fewer output tokens on average, up to 87%). Code, errors and warnings stay exact.
+            </p>
+          </div>
+          <Toggle
+            checked={cavemanEnabled}
+            onChange={() => handleCavemanEnabled(!cavemanEnabled)}
+          />
+        </div>
+        {cavemanEnabled && (
+          <div className="mt-3 flex items-center gap-2">
+            {CAVEMAN_LEVELS.map((lvl) => (
+              <button
+                key={lvl.id}
+                onClick={() => handleCavemanLevel(lvl.id)}
+                className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
+                  cavemanLevel === lvl.id
+                    ? "bg-primary text-white border-primary"
+                    : "bg-transparent border-border text-text-muted hover:bg-black/5 dark:hover:bg-white/5"
+                }`}
+                title={lvl.desc}
+              >
+                {lvl.label}
+              </button>
+            ))}
+          </div>
+        )}
       </Card>
 
       {/* API Keys */}

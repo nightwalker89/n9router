@@ -362,22 +362,59 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
   return (
     <Modal isOpen={isOpen} title={`Connect ${providerInfo.name}`} onClose={handleClose} size="lg">
       <div className="flex flex-col gap-4">
-        {/* Waiting Step (Localhost - popup mode) */}
-        {step === "waiting" && !isDeviceCode && (
-          <div className="text-center py-6">
-            <div className="size-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
-              <span className="material-symbols-outlined text-3xl text-primary animate-spin">
+        {/* Waiting + Manual Input combined (non-device-code) */}
+        {(step === "waiting" || step === "input") && !isDeviceCode && (
+          <>
+            {/* Option A: Auto via popup */}
+            <div className="flex items-center gap-2 px-3 py-2 border border-border rounded-lg bg-sidebar/50">
+              <span className="material-symbols-outlined text-base text-primary animate-spin">
                 progress_activity
               </span>
+              <span className="text-sm">Waiting for popup authorization…</span>
             </div>
-            <h3 className="text-lg font-semibold mb-2">Waiting for Authorization</h3>
-            <p className="text-sm text-text-muted mb-4">
-              Complete the authorization in the popup window.
-            </p>
-            <Button variant="ghost" onClick={() => setStep("input")}>
-              Popup blocked? Enter URL manually
-            </Button>
-          </div>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3 my-1">
+              <div className="flex-1 h-px bg-border" />
+              <span className="text-xs text-text-muted uppercase tracking-wider">Or paste callback URL manually</span>
+              <div className="flex-1 h-px bg-border" />
+            </div>
+
+            {/* Option B: Manual paste */}
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm font-medium mb-2">Step 1: Open this URL in your browser</p>
+                <div className="flex gap-2">
+                  <Input value={authData?.authUrl || ""} readOnly className="flex-1 font-mono text-xs" />
+                  <Button variant="secondary" icon={copied === "auth_url" ? "check" : "content_copy"} onClick={() => copy(authData?.authUrl, "auth_url")} disabled={!authData?.authUrl}>
+                    Copy
+                  </Button>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-medium mb-2">Step 2: Paste the callback URL here</p>
+                <p className="text-xs text-text-muted mb-2">
+                  After authorization, copy the full URL from your browser.
+                </p>
+                <Input
+                  value={callbackUrl}
+                  onChange={(e) => setCallbackUrl(e.target.value)}
+                  placeholder={placeholderUrl}
+                  className="font-mono text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button onClick={handleManualSubmit} fullWidth disabled={!callbackUrl}>
+                Connect
+              </Button>
+              <Button onClick={handleClose} variant="ghost" fullWidth>
+                Cancel
+              </Button>
+            </div>
+          </>
         )}
 
         {/* Device Code Flow - Waiting */}
@@ -428,45 +465,6 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
                 Waiting for authorization...
               </div>
             )}
-          </>
-        )}
-
-        {/* Manual Input Step */}
-        {step === "input" && !isDeviceCode && (
-          <>
-            <div className="space-y-4">
-              <div>
-                <p className="text-sm font-medium mb-2">Step 1: Open this URL in your browser</p>
-                <div className="flex gap-2">
-                  <Input value={authData?.authUrl || ""} readOnly className="flex-1 font-mono text-xs" />
-                  <Button variant="secondary" icon={copied === "auth_url" ? "check" : "content_copy"} onClick={() => copy(authData?.authUrl, "auth_url")}>
-                    Copy
-                  </Button>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-sm font-medium mb-2">Step 2: Paste the callback URL here</p>
-                <p className="text-xs text-text-muted mb-2">
-                  After authorization, copy the full URL from your browser.
-                </p>
-                <Input
-                  value={callbackUrl}
-                  onChange={(e) => setCallbackUrl(e.target.value)}
-                  placeholder={placeholderUrl}
-                  className="font-mono text-xs"
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <Button onClick={handleManualSubmit} fullWidth disabled={!callbackUrl}>
-                Connect
-              </Button>
-              <Button onClick={handleClose} variant="ghost" fullWidth>
-                Cancel
-              </Button>
-            </div>
           </>
         )}
 

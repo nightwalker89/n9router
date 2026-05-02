@@ -82,7 +82,6 @@ function sniCallback(servername, cb) {
       cert: `${certData.cert}\n${rootCAPem}`
     });
     certCache.set(servername, ctx);
-    log(`🔐 Cert generated: ${servername}`);
     cb(null, ctx);
   } catch (e) {
     err(`SNI error for ${servername}: ${e.message}`);
@@ -669,12 +668,9 @@ const server = https.createServer(sslOptions, async (req, res) => {
       }
     }
 
-    log(`🔍 [${tool}] url=${req.url} | bodyLen=${bodyBuffer.length}`);
-
     // Cursor uses binary proto — model extraction not possible at this layer.
     // Delegate directly to handler which decodes proto internally.
     if (tool === "cursor") {
-      log(`⚡ intercept | cursor | proto`);
       return handlers[tool].intercept(req, res, bodyBuffer, null, passthrough);
     }
 

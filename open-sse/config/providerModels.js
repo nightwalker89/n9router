@@ -415,7 +415,7 @@ export const PROVIDER_MODELS = {
     { id: "command-a-03-2025", name: "Command A (Mar 2025)" },
   ],
   nvidia: [
-    { id: "moonshotai/kimi-k2.5", name: "Kimi K2.5" },
+    { id: "minimaxai/minimax-m2.7", name: "Minimax M2.7" },
     { id: "z-ai/glm4.7", name: "GLM 4.7" },
     { id: "nvidia/nv-embedqa-e5-v5", name: "NV EmbedQA E5 v5", type: "embedding" },
   ],
@@ -443,6 +443,12 @@ export const PROVIDER_MODELS = {
     { id: "zai-org/GLM-4.7", name: "GLM 4.7" },
     { id: "openai/gpt-oss-120b", name: "GPT OSS 120B" },
     { id: "baidu/ERNIE-4.5-300B-A47B", name: "ERNIE 4.5 300B" },
+  ],
+  "xiaomi-mimo": [
+    { id: "mimo-v2.5-pro", name: "MiMo V2.5 Pro" },
+    { id: "mimo-v2.5", name: "MiMo V2.5" },
+    { id: "mimo-v2-omni", name: "MiMo V2 Omni" },
+    { id: "mimo-v2-flash", name: "MiMo V2 Flash" },
   ],
   hyperbolic: [
     { id: "Qwen/QwQ-32B", name: "QwQ 32B" },

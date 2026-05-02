@@ -372,6 +372,10 @@ export const PROVIDERS = {
     baseUrl: "https://api.cloudflare.com/client/v4/accounts/{accountId}/ai/v1/chat/completions",
     format: "openai"
   },
+  "xiaomi-mimo": {
+    baseUrl: "https://api.xiaomimimo.com/v1/chat/completions",
+    format: "openai"
+  },
 };
 
 export const OLLAMA_LOCAL_DEFAULT_HOST = "http://localhost:11434";

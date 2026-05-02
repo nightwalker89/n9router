@@ -71,24 +71,17 @@ export class AntigravityExecutor extends BaseExecutor {
     let tools = body.request?.tools;
 
     if (tools && tools.length > 0) {
-      tools = tools
-        .map(group => {
-          if (!group.functionDeclarations) return group;
-          const cleanedDeclarations = group.functionDeclarations.map(fn => ({
-            ...fn,
-            name: sanitizeFunctionName(fn.name),
-            parameters: fn.parameters
-              ? cleanJSONSchemaForAntigravity(structuredClone(fn.parameters))
-              : { type: "object", properties: { reason: { type: "string", description: "Brief explanation" } }, required: ["reason"] }
-          }));
-
-          return {
-            ...group,
-            functionDeclarations: cleanedDeclarations
-          };
-        })
-        .filter(group => group.functionDeclarations?.length > 0)
-        .slice(0, 1);
+      // Merge all groups into a single functionDeclarations group (Gemini expects 1 group)
+      const allDeclarations = tools.flatMap(group =>
+        (group.functionDeclarations || []).map(fn => ({
+          ...fn,
+          name: sanitizeFunctionName(fn.name),
+          parameters: fn.parameters
+            ? cleanJSONSchemaForAntigravity(structuredClone(fn.parameters))
+            : { type: "object", properties: { reason: { type: "string", description: "Brief explanation" } }, required: ["reason"] }
+        }))
+      );
+      tools = allDeclarations.length > 0 ? [{ functionDeclarations: allDeclarations }] : [];
     }
 
     const { tools: _originalTools, toolConfig: _originalToolConfig, ...requestWithoutTools } = body.request || {};
