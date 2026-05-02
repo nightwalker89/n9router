@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.4.23 (2026-05-02)
+
+### Features
+- Add Xiaomi MiMo provider support with built-in model metadata, validation endpoint, and provider icon
+- Add Caveman prompt injection controls in the RTK request path, applied just before provider dispatch
+- Add sticky round-robin support for combo routing so each combo model can receive multiple requests before rotating
+
+### Improvements
+- Move RTK compression to the final dispatch body so it works for both translated and native passthrough requests
+- Add API key setup URLs across provider cards and improve responsive dashboard layouts for CLI tools, providers, usage, profile, and endpoint pages
+- Add cached-token usage metrics and richer provider limit/topology displays in the usage dashboard
+
+### Fixes
+- Normalize Claude text-only content arrays to OpenAI-safe strings and parse raw NDJSON stream lines without requiring an explicit Ollama format
+- Strip unsupported Anthropic `output_config` for MiniMax Claude-compatible requests while preserving it for Anthropic
+- Merge Antigravity tool declaration groups into a single Gemini-compatible group before token-swap dispatch
+
 ## v0.4.22 (2026-05-02)
 
 ### Fixes
