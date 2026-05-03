@@ -87,13 +87,6 @@ const getPageInfo = (pathname) => {
       icon: "bar_chart",
       breadcrumbs: [],
     };
-  if (pathname.includes("/auth-files"))
-    return {
-      title: "Auth Files",
-      description: "Map provider credentials stored in the local database",
-      icon: "vpn_key",
-      breadcrumbs: [],
-    };
   if (pathname.includes("/quota"))
     return {
       title: "Quota Tracker",
