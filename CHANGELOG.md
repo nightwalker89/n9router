@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.4.23 (2026-05-02)
+## v0.4.24 (2026-05-02)
 
 ### Features
 - Add Xiaomi MiMo provider support with built-in model metadata, validation endpoint, and provider icon
@@ -17,7 +17,7 @@
 - Strip unsupported Anthropic `output_config` for MiniMax Claude-compatible requests while preserving it for Anthropic
 - Merge Antigravity tool declaration groups into a single Gemini-compatible group before token-swap dispatch
 
-## v0.4.22 (2026-05-02)
+## v0.4.23 (2026-05-02)
 
 ### Fixes
 - Treat Antigravity MITM token-swap `403` IAM permission errors as retryable account fallback events, matching the existing `429`/`503` retry path
