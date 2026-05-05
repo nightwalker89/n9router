@@ -5,7 +5,7 @@ const os = require("os");
 const net = require("net");
 const https = require("https");
 const crypto = require("crypto");
-const { addDNSEntry, removeDNSEntry, removeAllDNSEntries, checkAllDNSStatus, TOOL_HOSTS, isSudoAvailable } = require("./dns/dnsConfig");
+const { addDNSEntry, removeDNSEntry, removeAllDNSEntries, removeAllDNSEntriesSync, checkAllDNSStatus, TOOL_HOSTS, isSudoAvailable } = require("./dns/dnsConfig");
 
 const IS_WIN = process.platform === "win32";
 const IS_MAC = process.platform === "darwin";
@@ -672,6 +672,10 @@ async function disableToolDNS(tool, sudoPassword) {
   return { success: true, dnsStatus: updatedStatus };
 }
 
+async function restoreToolDNS() {
+  return { success: true, dnsStatus: checkAllDNSStatus() };
+}
+
 /**
  * Install Root CA to system trust store (standalone, no server start)
  */
@@ -698,6 +702,8 @@ module.exports = {
   stopServer,
   enableToolDNS,
   disableToolDNS,
+  restoreToolDNS,
+  removeAllDNSEntriesSync,
   trustCert,
   // Legacy
   startMitm,
