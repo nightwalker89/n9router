@@ -1,5 +1,48 @@
 # Changelog
 
+## v0.4.25 (2026-05-05)
+
+### Features
+- Add STT (Speech-to-Text) support with multiple providers (Edge TTS, ElevenLabs, Google TTS, OpenAI, OpenRouter, Local Device)
+- Add Gemini TTS integration and expand usage tracking with additional metrics
+- Add Skills feature for reusable AI interaction patterns
+- Add browser-local endpoint presets for CLI tools
+- Add RTK compression filter in the request path, applied just before provider dispatch
+- Add Caveman prompt injection controls for Gemini-compatible requests
+- Add OpenCode Go provider support with custom models
+- Add Azure OpenAI provider support with built-in model metadata
+- Add built-in Volcengine Ark provider support
+- Add Grok Web and Perplexity Web providers
+- Add Xiaomi MiMo provider support
+- Add Hermes tool to CLI tools with updated components
+- Add review model quota support for Codex
+- Add sticky round-robin support for combo routing
+
+### Improvements
+- Refactor global styles and enhance MITM functionality
+- Refactor proxyFetch and enhance MediaProviderDetailPage layout
+- Refactor token refresh logic and improve MITM server handling
+- Enhance mobile layouts and restore Cloudflare provider
+- Improve zh-CN translations
+- Add API key setup URLs across provider cards and improve responsive dashboard layouts
+- Add cached-token usage metrics and richer provider limit/topology displays
+- Move RTK compression to the final dispatch body for both translated and native passthrough requests
+- Support custom host URL for remote Ollama servers
+
+### Fixes
+- Strip stream_options for Qwen non-streaming Claude Code requests
+- Preserve reasoning_effort for non-Claude models in GitHub provider
+- Update Qwen OAuth URLs from chat.qwen.ai to qwen.ai
+- Force Agent mode in Cursor protobuf when User-Agent contains Claude Code
+- Prevent SSE listener leak in console-logs stream
+- Redirect ~/.9router to DATA_DIR in Docker to persist usage data across updates
+- Gate sudo prompts on server platform in MITM
+- Fix custom provider prefix conflicts with built-in alias
+- Normalize Claude text-only content arrays to OpenAI-safe strings
+- Strip unsupported Anthropic output_config for MiniMax Claude-compatible requests
+- Merge Antigravity tool declaration groups into a single Gemini-compatible group
+- Cap maximum cooldown for rate limit handling in account unavailability
+
 ## v0.4.24 (2026-05-02)
 
 ### Features
