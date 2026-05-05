@@ -1,6 +1,6 @@
 import PropTypes from "prop-types";
 
-export default function ModelRow({ model, fullModel, alias, copied, onCopy, testStatus, isCustom, isFree, onDeleteAlias, onTest, isTesting }) {
+export default function ModelRow({ model, fullModel, alias, copied, onCopy, testStatus, isCustom, isFree, onDeleteAlias, onTest, isTesting, onDisable }) {
   const borderColor = testStatus === "ok"
     ? "border-green-500/40"
     : testStatus === "error"
@@ -55,7 +55,7 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
             {copied === `model-${model.id}` ? "Copied!" : "Copy"}
           </span>
         </div>
-        {isCustom && (
+        {isCustom ? (
           <button
             onClick={onDeleteAlias}
             className="ml-auto rounded p-0.5 text-text-muted opacity-100 transition-opacity hover:bg-red-500/10 hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100"
@@ -63,7 +63,15 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
           >
             <span className="material-symbols-outlined text-sm">close</span>
           </button>
-        )}
+        ) : onDisable ? (
+          <button
+            onClick={onDisable}
+            className="ml-auto rounded p-0.5 text-text-muted opacity-100 transition-opacity hover:bg-red-500/10 hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100"
+            title="Disable this model"
+          >
+            <span className="material-symbols-outlined text-sm">close</span>
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -83,4 +91,5 @@ ModelRow.propTypes = {
   onDeleteAlias: PropTypes.func,
   onTest: PropTypes.func,
   isTesting: PropTypes.bool,
+  onDisable: PropTypes.func,
 };

@@ -152,8 +152,10 @@ export function spawnUpdaterAndExit(packageName = UPDATER_CONFIG.npmPackageName)
   const updaterPath = ensureRuntimeUpdater(resolveBundledUpdaterPath());
   const isTray = process.env.TRAY_MODE === "1";
   const relaunch = resolveRelaunchCommand();
-  // Only relaunch in tray/background mode — foreground CLI loses TTY on exit
-  const relaunchArgs = isTray ? [...relaunch.args, "--tray", "--skip-update"] : [];
+  // Relaunch matching original env: tray stays tray, foreground stays foreground
+  const relaunchArgs = isTray
+    ? [...relaunch.args, "--tray", "--skip-update"]
+    : [...relaunch.args, "--skip-update"];
 
   spawn(process.execPath, [updaterPath], {
     detached: true,
@@ -171,7 +173,7 @@ export function spawnUpdaterAndExit(packageName = UPDATER_CONFIG.npmPackageName)
       UPDATER_WAIT_MAX_MS: String(UPDATER_CONFIG.waitForExitMaxMs),
       UPDATER_WAIT_CHECK_MS: String(UPDATER_CONFIG.waitForExitCheckMs),
       UPDATER_APP_PORT: String(UPDATER_CONFIG.appPort),
-      UPDATER_RELAUNCH: isTray ? "1" : "0",
+      UPDATER_RELAUNCH: "1",
       UPDATER_RELAUNCH_CMD: relaunch.cmd,
       UPDATER_RELAUNCH_ARGS: JSON.stringify(relaunchArgs),
     },

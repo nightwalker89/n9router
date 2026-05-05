@@ -41,9 +41,9 @@ export default function QuotaTable({ quotas = [], compact = false }) {
     return null;
   }
 
-  const cellPad = compact ? "py-1.5 px-2" : "py-2 px-3";
-  const nameText = compact ? "text-xs" : "text-sm";
-  const resetPrimary = compact ? "text-xs" : "text-sm";
+  const cellPad = compact ? "py-1 px-1.5" : "py-2 px-3";
+  const nameText = compact ? "text-[11px]" : "text-sm";
+  const resetPrimary = compact ? "text-[11px]" : "text-sm";
   const resetSecondary = compact ? "text-[10px] leading-tight" : "text-xs";
 
   return (
@@ -102,18 +102,27 @@ export default function QuotaTable({ quotas = [], compact = false }) {
                 {/* Reset Time */}
                 <td className={`${cellPad} w-[25%]`}>
                   {countdown !== "-" || resetDisplay ? (
-                    <div className="space-y-0.5">
-                      {countdown !== "-" && (
-                        <div className={`${resetPrimary} text-text-primary font-medium`}>
-                          in {countdown}
-                        </div>
-                      )}
-                      {resetDisplay && (
-                        <div className={`${resetSecondary} text-text-muted`}>
-                          {resetDisplay}
-                        </div>
-                      )}
-                    </div>
+                    compact ? (
+                      <div
+                        className={`${resetPrimary} text-text-primary font-medium truncate`}
+                        title={resetDisplay || ""}
+                      >
+                        {countdown !== "-" ? `in ${countdown}` : resetDisplay}
+                      </div>
+                    ) : (
+                      <div className="space-y-0.5">
+                        {countdown !== "-" && (
+                          <div className={`${resetPrimary} text-text-primary font-medium`}>
+                            in {countdown}
+                          </div>
+                        )}
+                        {resetDisplay && (
+                          <div className={`${resetSecondary} text-text-muted`}>
+                            {resetDisplay}
+                          </div>
+                        )}
+                      </div>
+                    )
                   ) : (
                     <div className={`${resetPrimary} text-text-muted italic`}>N/A</div>
                   )}

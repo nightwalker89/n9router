@@ -7,13 +7,15 @@ const IS_WIN = process.platform === "win32";
  * Uses `net session` which only succeeds when elevated.
  */
 function isAdmin() {
-  if (!IS_WIN) return false;
-  try {
-    execSync("net session >nul 2>&1", { windowsHide: true, stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
+  if (IS_WIN) {
+    try {
+      execSync("net session >nul 2>&1", { windowsHide: true, stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
   }
+  return typeof process.getuid === "function" && process.getuid() === 0;
 }
 
 /**

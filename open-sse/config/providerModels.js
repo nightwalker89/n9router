@@ -5,6 +5,27 @@ import { buildTtsProviderModels } from "./ttsModels.js";
 // Key = alias (cc, cx, gc, qw, if, ag, gh for OAuth; id for API Key)
 // Field "provider" for special cases (e.g. AntiGravity models that call different backends)
 
+const CODEX_REVIEW_SUFFIX = "-review";
+
+function withCodexReviewModels(models) {
+  return models.flatMap((model) => {
+    if ((model.type || "llm") !== "llm" || model.id.endsWith(CODEX_REVIEW_SUFFIX)) {
+      return [model];
+    }
+
+    return [
+      model,
+      {
+        ...model,
+        id: `${model.id}${CODEX_REVIEW_SUFFIX}`,
+        name: `${model.name} Review`,
+        upstreamModelId: model.upstreamModelId || model.id,
+        quotaFamily: "review",
+      },
+    ];
+  });
+}
+
 export const PROVIDER_MODELS = {
   // OAuth Providers (using alias)
   cc: [  // Claude Code
@@ -15,7 +36,7 @@ export const PROVIDER_MODELS = {
     { id: "claude-sonnet-4-5-20250929", name: "Claude 4.5 Sonnet" },
     { id: "claude-haiku-4-5-20251001", name: "Claude 4.5 Haiku" },
   ],
-  cx: [  // OpenAI Codex
+  cx: withCodexReviewModels([  // OpenAI Codex
     { id: "gpt-5.5", name: "GPT 5.5" },
     { id: "gpt-5.4", name: "GPT 5.4" },
     // GPT 5.3 Codex - all thinking levels
@@ -40,7 +61,7 @@ export const PROVIDER_MODELS = {
     { id: "gpt-5.4-image", name: "GPT 5.4 Image", type: "image", capabilities: ["text2img", "edit"], params: ["size", "quality", "background", "image_detail", "output_format"] },
     { id: "gpt-5.3-image", name: "GPT 5.3 Image", type: "image", capabilities: ["text2img", "edit"], params: ["size", "quality", "background", "image_detail", "output_format"] },
     { id: "gpt-5.2-image", name: "GPT 5.2 Image", type: "image", capabilities: ["text2img", "edit"], params: ["size", "quality", "background", "image_detail", "output_format"] },
-  ],
+  ]),
   gc: [  // Gemini CLI
     { id: "gemini-3-flash-preview", name: "Gemini 3 Flash Preview" },
     { id: "gemini-3-pro-preview", name: "Gemini 3 Pro Preview" },
@@ -135,6 +156,7 @@ export const PROVIDER_MODELS = {
     { id: "gpt-5.3-codex", name: "GPT 5.3 Codex" },
   ],
   kmc: [  // Kimi Coding
+    { id: "kimi-k2.6", name: "Kimi K2.6" },
     { id: "kimi-k2.5", name: "Kimi K2.5" },
     { id: "kimi-k2.5-thinking", name: "Kimi K2.5 Thinking" },
     { id: "kimi-latest", name: "Kimi Latest" },
@@ -212,6 +234,10 @@ export const PROVIDER_MODELS = {
     { id: "tts-1", name: "TTS-1", type: "tts" },
     { id: "tts-1-hd", name: "TTS-1 HD", type: "tts" },
     { id: "gpt-4o-mini-tts", name: "GPT-4o Mini TTS", type: "tts" },
+    // STT models
+    { id: "whisper-1", name: "Whisper 1", type: "stt", params: ["language", "response_format", "temperature", "prompt"] },
+    { id: "gpt-4o-transcribe", name: "GPT-4o Transcribe", type: "stt", params: ["language", "response_format", "temperature", "prompt"] },
+    { id: "gpt-4o-mini-transcribe", name: "GPT-4o Mini Transcribe", type: "stt", params: ["language", "response_format", "temperature", "prompt"] },
     // Image models
     { id: "gpt-image-1", name: "GPT Image 1", type: "image", params: ["n", "size", "quality", "response_format"] },
     { id: "dall-e-3", name: "DALL-E 3", type: "image", params: ["size", "quality", "style", "response_format"] },
@@ -246,6 +272,11 @@ export const PROVIDER_MODELS = {
     { id: "gemini-3.1-flash-image-preview", name: "Gemini 3.1 Flash Image (Nano Banana 2)", type: "image", params: [] },
     { id: "gemini-3-pro-image-preview", name: "Gemini 3 Pro Image (Nano Banana Pro)", type: "image", params: [] },
     { id: "gemini-2.5-flash-image", name: "Gemini 2.5 Flash Image (Nano Banana)", type: "image", params: [] },
+    // STT models (multimodal generateContent)
+    { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro (Best)", type: "stt", params: ["language", "prompt"] },
+    { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", type: "stt", params: ["language", "prompt"] },
+    { id: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash Lite (Cheapest)", type: "stt", params: ["language", "prompt"] },
+    { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", type: "stt", params: ["language", "prompt"] },
   ],
   openrouter: [
     // Embedding models
@@ -280,6 +311,7 @@ export const PROVIDER_MODELS = {
     { id: "glm-4.5-air", name: "GLM-4.5-Air" },
   ],
   kimi: [
+    { id: "kimi-k2.6", name: "Kimi K2.6" },
     { id: "kimi-k2.5", name: "Kimi K2.5" },
     { id: "kimi-k2.5-thinking", name: "Kimi K2.5 Thinking" },
     { id: "kimi-latest", name: "Kimi Latest" },
@@ -348,8 +380,19 @@ export const PROVIDER_MODELS = {
     { id: "DeepSeek-V3.2", name: "DeepSeek-V3.2" },
   ],
   "cloudflare-ai": [
+    { id: "@cf/meta/llama-3.2-1b-instruct", name: "Llama 3.2 1B Instruct" },
+    { id: "@cf/meta/llama-3.2-3b-instruct", name: "Llama 3.2 3B Instruct" },
+    { id: "@cf/meta/llama-3.1-8b-instruct-fp8-fast", name: "Llama 3.1 8B Instruct FP8 Fast" },
+    { id: "@cf/meta/llama-3.1-8b-instruct-awq", name: "Llama 3.1 8B Instruct AWQ" },
+    { id: "@cf/mistralai/mistral-small-3.1-24b-instruct", name: "Mistral Small 3.1 24B Instruct" },
+    { id: "@cf/meta/llama-3.1-70b-instruct-fp8-fast", name: "Llama 3.1 70B Instruct FP8 Fast" },
+    { id: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", name: "Llama 3.3 70B Instruct FP8 Fast" },
+    { id: "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b", name: "DeepSeek R1 Distill Qwen 32B" },
+    { id: "@cf/moonshotai/kimi-k2.5", name: "Kimi K2.5" },
     { id: "@cf/moonshotai/kimi-k2.6", name: "Kimi K2.6" },
     { id: "@cf/zai-org/glm-4.7-flash", name: "GLM 4.7 Flash" },
+    { id: "@cf/qwen/qwq-32b", name: "QwQ 32B" },
+    { id: "@cf/qwen/qwen2.5-coder-32b-instruct", name: "Qwen 2.5 Coder 32B Instruct" },
   ],
   byteplus: [
     { id: "seed-2-0-pro-260328", name: "Seed 2.0 Pro" },
@@ -370,6 +413,10 @@ export const PROVIDER_MODELS = {
     { id: "meta-llama/llama-4-maverick-17b-128e-instruct", name: "Llama 4 Maverick" },
     { id: "qwen/qwen3-32b", name: "Qwen3 32B" },
     { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B" },
+    // STT models
+    { id: "whisper-large-v3", name: "Whisper Large v3", type: "stt", params: ["language", "response_format", "temperature", "prompt"] },
+    { id: "whisper-large-v3-turbo", name: "Whisper Large v3 Turbo", type: "stt", params: ["language", "response_format", "temperature", "prompt"] },
+    { id: "distil-whisper-large-v3-en", name: "Distil Whisper Large v3 EN", type: "stt", params: ["language", "response_format", "temperature", "prompt"] },
   ],
   xai: [
     { id: "grok-4", name: "Grok 4" },
@@ -418,6 +465,8 @@ export const PROVIDER_MODELS = {
     { id: "minimaxai/minimax-m2.7", name: "Minimax M2.7" },
     { id: "z-ai/glm4.7", name: "GLM 4.7" },
     { id: "nvidia/nv-embedqa-e5-v5", name: "NV EmbedQA E5 v5", type: "embedding" },
+    // STT models
+    { id: "nvidia/parakeet-ctc-1.1b-asr", name: "Parakeet CTC 1.1B", type: "stt", params: ["language"] },
   ],
   nebius: [
     { id: "meta-llama/Llama-3.3-70B-Instruct", name: "Llama 3.3 70B Instruct" },
@@ -523,6 +572,52 @@ export const PROVIDER_MODELS = {
   huggingface: [
     { id: "black-forest-labs/FLUX.1-schnell", name: "FLUX.1 Schnell", type: "image", params: [] },
     { id: "stabilityai/stable-diffusion-xl-base-1.0", name: "SDXL Base 1.0", type: "image", params: [] },
+    // STT models
+    { id: "openai/whisper-large-v3", name: "Whisper Large v3 (HF)", type: "stt", params: ["language"] },
+    { id: "openai/whisper-small", name: "Whisper Small (HF)", type: "stt", params: ["language"] },
+  ],
+  deepgram: [
+    { id: "nova-3", name: "Nova 3", type: "stt", params: ["language"] },
+    { id: "nova-2", name: "Nova 2", type: "stt", params: ["language"] },
+    { id: "whisper-large", name: "Whisper Large", type: "stt", params: ["language"] },
+  ],
+  assemblyai: [
+    { id: "universal-3-pro", name: "Universal 3 Pro", type: "stt", params: ["language"] },
+    { id: "universal-2", name: "Universal 2", type: "stt", params: ["language"] },
+  ],
+  "fal-ai": [
+    { id: "fal-ai/flux/schnell", name: "FLUX Schnell", type: "image", params: ["n", "size"] },
+    { id: "fal-ai/flux/dev", name: "FLUX Dev", type: "image", params: ["n", "size"] },
+    { id: "fal-ai/flux-pro/v1.1", name: "FLUX Pro v1.1", type: "image", params: ["n", "size"] },
+    { id: "fal-ai/flux-pro/v1.1-ultra", name: "FLUX Pro v1.1 Ultra", type: "image", params: ["n", "size"] },
+    { id: "fal-ai/recraft-v3", name: "Recraft V3", type: "image", params: ["n", "size", "style"] },
+    { id: "fal-ai/ideogram/v2", name: "Ideogram V2", type: "image", params: ["n", "size", "style"] },
+    { id: "fal-ai/stable-diffusion-v35-large", name: "SD 3.5 Large", type: "image", params: ["n", "size"] },
+  ],
+  "stability-ai": [
+    { id: "stable-image-ultra", name: "Stable Image Ultra", type: "image", params: ["size"] },
+    { id: "stable-image-core", name: "Stable Image Core", type: "image", params: ["size", "style"] },
+    { id: "sd3.5-large", name: "Stable Diffusion 3.5 Large", type: "image", params: ["size"] },
+    { id: "sd3.5-large-turbo", name: "Stable Diffusion 3.5 Large Turbo", type: "image", params: ["size"] },
+    { id: "sd3.5-medium", name: "Stable Diffusion 3.5 Medium", type: "image", params: ["size"] },
+  ],
+  "black-forest-labs": [
+    { id: "flux-pro-1.1", name: "FLUX Pro 1.1", type: "image", params: ["n", "size"] },
+    { id: "flux-pro-1.1-ultra", name: "FLUX Pro 1.1 Ultra", type: "image", params: ["size"] },
+    { id: "flux-pro", name: "FLUX Pro", type: "image", params: ["n", "size"] },
+    { id: "flux-dev", name: "FLUX Dev", type: "image", params: ["n", "size"] },
+    { id: "flux-kontext-pro", name: "FLUX Kontext Pro (Edit)", type: "image", params: ["size"], capabilities: ["edit"] },
+    { id: "flux-kontext-max", name: "FLUX Kontext Max (Edit)", type: "image", params: ["size"], capabilities: ["edit"] },
+  ],
+  recraft: [
+    { id: "recraftv3", name: "Recraft V3", type: "image", params: ["n", "size", "style"] },
+    { id: "recraftv2", name: "Recraft V2", type: "image", params: ["n", "size", "style"] },
+  ],
+  runwayml: [
+    { id: "gen4_image", name: "Gen-4 Image", type: "image", params: ["size"] },
+    { id: "gen4_image_turbo", name: "Gen-4 Image Turbo", type: "image", params: ["size"] },
+    { id: "gen4_turbo", name: "Gen-4 Turbo", type: "video", params: [] },
+    { id: "gen3a_turbo", name: "Gen-3 Alpha Turbo", type: "video", params: [] },
   ],
 };
 
@@ -555,6 +650,22 @@ export function getModelTargetFormat(aliasOrId, modelId) {
   if (!models) return null;
   const found = models.find(m => m.id === modelId);
   return found?.targetFormat || null;
+}
+
+export function getModelUpstreamId(aliasOrId, modelId) {
+  const models = PROVIDER_MODELS[aliasOrId];
+  const found = models?.find(m => m.id === modelId);
+  if (found?.upstreamModelId) return found.upstreamModelId;
+  if (aliasOrId === "cx" && typeof modelId === "string" && modelId.endsWith(CODEX_REVIEW_SUFFIX)) {
+    return modelId.slice(0, -CODEX_REVIEW_SUFFIX.length);
+  }
+  return modelId;
+}
+
+export function getModelQuotaFamily(aliasOrId, modelId) {
+  const models = PROVIDER_MODELS[aliasOrId];
+  const found = models?.find(m => m.id === modelId);
+  return found?.quotaFamily || "normal";
 }
 
 // OAuth providers that use short aliases (everything else: alias = id)

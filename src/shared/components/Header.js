@@ -6,6 +6,8 @@ import Link from "next/link";
 import PropTypes from "prop-types";
 import ProviderIcon from "@/shared/components/ProviderIcon";
 import HeaderMenu from "@/shared/components/HeaderMenu";
+import ThemeToggle from "@/shared/components/ThemeToggle";
+import { useHeaderSearchStore } from "@/store/headerSearchStore";
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS } from "@/shared/constants/config";
 import { MEDIA_PROVIDER_KINDS, AI_PROVIDERS } from "@/shared/constants/providers";
 import { translate } from "@/i18n/runtime";
@@ -87,6 +89,13 @@ const getPageInfo = (pathname) => {
       icon: "bar_chart",
       breadcrumbs: [],
     };
+  if (pathname.includes("/auth-files"))
+    return {
+      title: "Auth Files",
+      description: "Map provider credentials stored in the local database",
+      icon: "vpn_key",
+      breadcrumbs: [],
+    };
   if (pathname.includes("/quota"))
     return {
       title: "Quota Tracker",
@@ -113,6 +122,13 @@ const getPageInfo = (pathname) => {
       title: "Proxy Pools",
       description: "Manage your proxy pool configurations",
       icon: "lan",
+      breadcrumbs: [],
+    };
+  if (pathname.includes("/skills"))
+    return {
+      title: "Agent Skills",
+      description: "Copy a link and paste to your AI to use 9Router — no install needed",
+      icon: "extension",
       breadcrumbs: [],
     };
   if (pathname.includes("/endpoint"))
@@ -174,9 +190,9 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
   };
 
   return (
-    <header className="flex items-center justify-between px-8 py-5 border-b border-black/5 dark:border-white/5 bg-bg/80 backdrop-blur-xl z-10 sticky top-0">
+    <header className="shrink-0 flex items-center justify-between gap-3 px-4 lg:px-8 pt-3 pb-2 border-b border-border-subtle bg-surface/60 backdrop-blur-xl lg:bg-transparent lg:backdrop-blur-none z-20">
       {/* Mobile menu button */}
-      <div className="flex items-center gap-3 lg:hidden">
+      <div className="flex items-center gap-3 lg:hidden shrink-0">
         {showMenuButton && (
           <button
             onClick={onMenuClick}
@@ -187,8 +203,8 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
         )}
       </div>
 
-      {/* Page title with breadcrumbs - desktop */}
-      <div className="hidden lg:flex flex-col">
+      {/* Page title with breadcrumbs */}
+      <div className="flex flex-col min-w-0 flex-1">
         {breadcrumbs.length > 0 ? (
           <div className="flex items-center gap-2">
             {breadcrumbs.map((crumb, index) => (
@@ -219,7 +235,7 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
                         fallbackText={crumb.label.slice(0, 2).toUpperCase()}
                       />
                     )}
-                    <h1 className="text-2xl font-semibold text-text-main tracking-tight">
+                    <h1 className="text-base lg:text-2xl font-semibold text-text-main tracking-tight truncate">
                       {translate(crumb.label)}
                     </h1>
                   </div>
@@ -231,16 +247,16 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
           <div>
             <div className="flex items-center gap-2">
               {icon && (
-                <span className="material-symbols-outlined text-primary text-2xl">
+                <span className="material-symbols-outlined text-primary text-xl lg:text-2xl">
                   {icon}
                 </span>
               )}
-              <h1 className="text-2xl font-semibold tracking-tight">
+              <h1 className="text-base lg:text-2xl font-semibold tracking-tight truncate">
                 {translate(title)}
               </h1>
             </div>
             {description && (
-              <p className="text-sm text-text-muted">
+              <p className="hidden lg:block text-sm text-text-muted truncate">
                 {translate(description)}
               </p>
             )}
@@ -248,11 +264,47 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
         ) : null}
       </div>
 
-      {/* Right actions - consolidated into dropdown menu */}
-      <div className="flex items-center ml-auto">
+      {/* Right actions */}
+      <div className="flex items-center gap-1 shrink-0">
+        <HeaderSearch />
+        <ThemeToggle />
         <HeaderMenu onLogout={handleLogout} />
       </div>
     </header>
+  );
+}
+
+function HeaderSearch() {
+  const visible = useHeaderSearchStore((s) => s.visible);
+  const query = useHeaderSearchStore((s) => s.query);
+  const placeholder = useHeaderSearchStore((s) => s.placeholder);
+  const setQuery = useHeaderSearchStore((s) => s.setQuery);
+
+  if (!visible) return null;
+
+  return (
+    <div className="relative w-[160px] sm:w-[220px]">
+      <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-text-muted text-[16px] pointer-events-none">
+        search
+      </span>
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={placeholder}
+        className="w-full h-8 pl-7 pr-7 rounded-lg border border-border bg-surface/60 text-sm focus:outline-none focus:border-primary/50 transition-colors"
+      />
+      {query && (
+        <button
+          type="button"
+          onClick={() => setQuery("")}
+          className="absolute right-1 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main p-0.5 rounded"
+          aria-label="Clear search"
+        >
+          <span className="material-symbols-outlined text-[16px]">close</span>
+        </button>
+      )}
+    </div>
   );
 }
 

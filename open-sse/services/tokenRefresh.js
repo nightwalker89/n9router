@@ -5,6 +5,24 @@ import { proxyAwareFetch } from "../utils/proxyFetch.js";
 // Default token expiry buffer (refresh if expires within 5 minutes)
 export const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 
+// In-flight refresh dedup: prevents race condition that triggers refresh_token_reused → Auth0 family revoke
+const refreshPromiseCache = new Map();
+function getRefreshCacheKey(provider, refreshToken) {
+  return `${provider}:${refreshToken}`;
+}
+
+// Check if refresh result indicates unrecoverable error (caller should stop retry, force re-auth)
+export function isUnrecoverableRefreshError(result) {
+  return (
+    result &&
+    typeof result === "object" &&
+    (result.error === "unrecoverable_refresh_error" ||
+      result.error === "refresh_token_reused" ||
+      result.error === "invalid_request" ||
+      result.error === "invalid_grant")
+  );
+}
+
 // Get provider-specific refresh lead time, falls back to default buffer
 export function getRefreshLeadMs(provider) {
   return REFRESH_LEAD_MS[provider] || TOKEN_EXPIRY_BUFFER_MS;
@@ -193,7 +211,10 @@ export async function refreshQwenToken(refreshToken, log) {
 }
 
 /**
- * Specialized refresh for Codex (OpenAI) OAuth tokens
+ * Specialized refresh for Codex (OpenAI) OAuth tokens.
+ * OpenAI uses rotating (one-time-use) refresh tokens.
+ * Returns { error: 'unrecoverable_refresh_error' } when token already consumed/invalid,
+ * so callers stop retrying and request re-authentication.
  */
 export async function refreshCodexToken(refreshToken, log) {
   try {
@@ -213,6 +234,27 @@ export async function refreshCodexToken(refreshToken, log) {
 
   if (!response.ok) {
     const errorText = await response.text();
+
+    // Detect unrecoverable errors (token reused/expired) — Auth0 revokes whole family on retry
+    let errorCode = null;
+    try {
+      const parsed = JSON.parse(errorText);
+      errorCode = parsed?.error?.code || (typeof parsed?.error === "string" ? parsed.error : null);
+    } catch {}
+
+    if (
+      errorCode === "refresh_token_reused" ||
+      errorCode === "invalid_grant" ||
+      errorCode === "token_expired" ||
+      errorCode === "invalid_token"
+    ) {
+      log?.error?.("TOKEN_REFRESH", "Codex refresh token already used or invalid. Re-auth required.", {
+        status: response.status,
+        errorCode,
+      });
+      return { error: "unrecoverable_refresh_error", code: errorCode };
+    }
+
     log?.error?.("TOKEN_REFRESH", "Failed to refresh Codex token", {
       status: response.status,
       error: errorText,
@@ -466,14 +508,32 @@ export async function refreshCopilotToken(githubAccessToken, log) {
 }
 
 /**
- * Get access token for a specific provider
+ * Get access token for a specific provider (with in-flight dedup).
+ * If a refresh is already in-flight for same provider+token, share the promise
+ * to prevent parallel OAuth requests → Auth0 'refresh_token_reused' family revoke.
  */
 export async function getAccessToken(provider, credentials, log) {
-  if (!credentials || !credentials.refreshToken) {
-    log?.warn?.("TOKEN_REFRESH", `No refresh token available for provider: ${provider}`);
+  if (!credentials || !credentials.refreshToken || typeof credentials.refreshToken !== "string") {
+    log?.warn?.("TOKEN_REFRESH", `No valid refresh token available for provider: ${provider}`);
     return null;
   }
 
+  const cacheKey = getRefreshCacheKey(provider, credentials.refreshToken);
+
+  if (refreshPromiseCache.has(cacheKey)) {
+    log?.info?.("TOKEN_REFRESH", `Reusing in-flight refresh for ${provider}`);
+    return refreshPromiseCache.get(cacheKey);
+  }
+
+  const refreshPromise = _getAccessTokenInternal(provider, credentials, log).finally(() => {
+    refreshPromiseCache.delete(cacheKey);
+  });
+
+  refreshPromiseCache.set(cacheKey, refreshPromise);
+  return refreshPromise;
+}
+
+async function _getAccessTokenInternal(provider, credentials, log) {
   switch (provider) {
     case "gemini":
     case "gemini-cli":

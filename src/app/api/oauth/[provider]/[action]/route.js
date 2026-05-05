@@ -7,7 +7,13 @@ import {
   pollForToken 
 } from "@/lib/oauth/providers";
 import { createProviderConnection } from "@/models";
-import { startCodexProxy, stopCodexProxy } from "@/lib/oauth/utils/server";
+import {
+  startCodexProxy,
+  stopCodexProxy,
+  registerCodexSession,
+  getCodexSessionStatus,
+  clearCodexSession,
+} from "@/lib/oauth/utils/server";
 
 /**
  * Dynamic OAuth API Route
@@ -39,8 +45,34 @@ export async function GET(request, { params }) {
       if (!appPort) {
         return NextResponse.json({ error: "Missing app_port" }, { status: 400 });
       }
+      // Optional server-side mode params: register session for auto-exchange
+      const state = searchParams.get("state");
+      const codeVerifier = searchParams.get("code_verifier");
+      const redirectUri = searchParams.get("redirect_uri");
       const result = await startCodexProxy(Number(appPort));
-      return NextResponse.json(result);
+      let serverSide = false;
+      if (result.success && state && codeVerifier && redirectUri) {
+        serverSide = registerCodexSession({ state, codeVerifier, redirectUri });
+      }
+      return NextResponse.json({ ...result, serverSide });
+    }
+
+    if (action === "poll-status") {
+      if (provider !== "codex") {
+        return NextResponse.json({ error: "Poll only supported for codex" }, { status: 400 });
+      }
+      const state = searchParams.get("state");
+      if (!state) {
+        return NextResponse.json({ error: "Missing state" }, { status: 400 });
+      }
+      const session = getCodexSessionStatus(state);
+      if (!session) return NextResponse.json({ status: "unknown" });
+      if (session.status === "done" || session.status === "error") {
+        const payload = { ...session };
+        clearCodexSession(state);
+        return NextResponse.json(payload);
+      }
+      return NextResponse.json({ status: session.status });
     }
 
     if (action === "stop-proxy") {

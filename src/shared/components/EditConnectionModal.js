@@ -207,19 +207,6 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
           </>
         )}
 
-        {isCloudflareAi && (
-          <div className="bg-sidebar/50 p-4 rounded-lg border border-accent/20">
-            <h3 className="font-semibold mb-3 text-sm">Cloudflare Workers AI</h3>
-            <Input
-              label="Account ID"
-              value={cloudflareData.accountId}
-              onChange={(e) => setCloudflareData({ ...cloudflareData, accountId: e.target.value })}
-              placeholder="abc123def456..."
-              hint="Find in right sidebar of dash.cloudflare.com"
-            />
-          </div>
-        )}
-
         {isAzure && (
           <div className="bg-sidebar/50 p-4 rounded-lg border border-accent/20">
             <h3 className="font-semibold mb-3 text-sm">Azure OpenAI Configuration</h3>

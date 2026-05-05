@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Card, Button, ModelSelectModal, ManualConfigModal } from "@/shared/components";
 import Image from "next/image";
+import EndpointPresetControl from "./EndpointPresetControl";
 
 export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, apiKeys, activeProviders, cloudEnabled, initialStatus }) {
   const [status, setStatus] = useState(initialStatus || null);
@@ -11,6 +12,7 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
   const [restoring, setRestoring] = useState(false);
   const [message, setMessage] = useState(null);
   const [selectedApiKey, setSelectedApiKey] = useState("");
+  const [customBaseUrl, setCustomBaseUrl] = useState("");
   const [modelAliases, setModelAliases] = useState({});
   const [showManualConfigModal, setShowManualConfigModal] = useState(false);
 
@@ -66,7 +68,11 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
   };
 
   const configStatus = getConfigStatus();
-  const getEffectiveBaseUrl = () => baseUrl.endsWith("/v1") ? baseUrl : `${baseUrl}/v1`;
+  const getEffectiveBaseUrl = () => {
+    const url = customBaseUrl || baseUrl;
+    return url.endsWith("/v1") ? url : `${url}/v1`;
+  };
+  const hasCustomSelectedApiKey = selectedApiKey && !apiKeys.some((key) => key.key === selectedApiKey);
 
   const addModel = () => {
     const val = modelInput.trim();
@@ -200,11 +206,30 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
               </div>
 
               <div className="flex flex-col gap-3">
+                <EndpointPresetControl
+                  baseUrl={getEffectiveBaseUrl()}
+                  apiKey={selectedApiKey}
+                  onBaseUrlChange={setCustomBaseUrl}
+                  onApiKeyChange={setSelectedApiKey}
+                />
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-text-muted">Base URL</label>
+                  <input
+                    type="text"
+                    value={getEffectiveBaseUrl()}
+                    onChange={(e) => setCustomBaseUrl(e.target.value)}
+                    placeholder="https://.../v1"
+                    className="px-3 py-2 bg-bg-secondary rounded-lg text-sm border border-border focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  />
+                </div>
+
                 {/* API Key */}
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-medium text-text-muted">API Key</label>
-                  {apiKeys.length > 0 ? (
+                  {apiKeys.length > 0 || selectedApiKey ? (
                     <select value={selectedApiKey} onChange={(e) => setSelectedApiKey(e.target.value)} className="px-3 py-2 bg-bg-secondary rounded-lg text-sm border border-border focus:outline-none focus:ring-1 focus:ring-primary/50">
+                      {hasCustomSelectedApiKey && <option value={selectedApiKey}>{selectedApiKey}</option>}
                       {apiKeys.map((key) => <option key={key.id} value={key.key}>{key.key}</option>)}
                     </select>
                   ) : (

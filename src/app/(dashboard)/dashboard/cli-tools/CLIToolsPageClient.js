@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardSkeleton } from "@/shared/components";
 import { CLI_TOOLS } from "@/shared/constants/cliTools";
 import { getModelsByProviderId, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
-import { ClaudeToolCard, CodexToolCard, DroidToolCard, OpenClawToolCard, HermesToolCard, DefaultToolCard, OpenCodeToolCard, MitmLinkCard } from "./components";
+import { ClaudeToolCard, CodexToolCard, DroidToolCard, OpenClawToolCard, HermesToolCard, DefaultToolCard, OpenCodeToolCard, CoworkToolCard, MitmLinkCard } from "./components";
 import { MITM_TOOLS } from "@/shared/constants/cliTools";
 
 const CLOUD_URL = process.env.NEXT_PUBLIC_CLOUD_URL;
@@ -17,6 +17,7 @@ const STATUS_ENDPOINTS = {
   droid: "/api/cli-tools/droid-settings",
   openclaw: "/api/cli-tools/openclaw-settings",
   hermes: "/api/cli-tools/hermes-settings",
+  cowork: "/api/cli-tools/cowork-settings",
 };
 
 export default function CLIToolsPageClient({ machineId }) {
@@ -27,6 +28,8 @@ export default function CLIToolsPageClient({ machineId }) {
   const [cloudEnabled, setCloudEnabled] = useState(false);
   const [tunnelEnabled, setTunnelEnabled] = useState(false);
   const [tunnelPublicUrl, setTunnelPublicUrl] = useState("");
+  const [tailscaleEnabled, setTailscaleEnabled] = useState(false);
+  const [tailscaleUrl, setTailscaleUrl] = useState("");
   const [apiKeys, setApiKeys] = useState([]);
   const [toolStatuses, setToolStatuses] = useState({});
 
@@ -68,8 +71,10 @@ export default function CLIToolsPageClient({ machineId }) {
       }
       if (tunnelRes.ok) {
         const data = await tunnelRes.json();
-        setTunnelEnabled(data.enabled || false);
-        setTunnelPublicUrl(data.publicUrl || "");
+        setTunnelEnabled(!!(data.tunnel?.enabled || data.tunnel?.settingsEnabled));
+        setTunnelPublicUrl(data.tunnel?.publicUrl || "");
+        setTailscaleEnabled(!!(data.tailscale?.enabled || data.tailscale?.settingsEnabled));
+        setTailscaleUrl(data.tailscale?.tunnelUrl || "");
       }
     } catch (error) {
       console.log("Error loading settings:", error);
@@ -176,6 +181,22 @@ export default function CLIToolsPageClient({ machineId }) {
         return <CodexToolCard key={toolId} {...commonProps} activeProviders={getActiveProviders()} cloudEnabled={cloudEnabled} initialStatus={toolStatuses.codex} />;
       case "opencode":
         return <OpenCodeToolCard key={toolId} {...commonProps} activeProviders={getActiveProviders()} cloudEnabled={cloudEnabled} initialStatus={toolStatuses.opencode} />;
+      case "cowork":
+        return (
+          <CoworkToolCard
+            key={toolId}
+            {...commonProps}
+            activeProviders={getActiveProviders()}
+            hasActiveProviders={hasActiveProviders}
+            cloudEnabled={cloudEnabled}
+            cloudUrl={CLOUD_URL}
+            tunnelEnabled={tunnelEnabled}
+            tunnelPublicUrl={tunnelPublicUrl}
+            tailscaleEnabled={tailscaleEnabled}
+            tailscaleUrl={tailscaleUrl}
+            initialStatus={toolStatuses.cowork}
+          />
+        );
       case "droid":
         return <DroidToolCard key={toolId} {...commonProps} activeProviders={getActiveProviders()} hasActiveProviders={hasActiveProviders} cloudEnabled={cloudEnabled} initialStatus={toolStatuses.droid} />;
       case "openclaw":

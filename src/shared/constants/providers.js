@@ -213,3 +213,11 @@ export const USAGE_SUPPORTED_PROVIDERS = [
   "kimi-coding",
   "ollama",
 ];
+
+// Providers that track usage via API key rather than OAuth
+export const USAGE_APIKEY_PROVIDERS = [
+  "glm",
+  "glm-cn",
+  "minimax",
+  "minimax-cn",
+];

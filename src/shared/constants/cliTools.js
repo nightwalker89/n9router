@@ -116,6 +116,22 @@ export const CLI_TOOLS = {
     description: "OpenCode AI Terminal Assistant",
     configType: "custom",
   },
+  cowork: {
+    id: "cowork",
+    name: "Claude Cowork",
+    image: "/providers/claude.png",
+    color: "#D97757",
+    description: "Claude Desktop Cowork (third-party inference)",
+    configType: "custom",
+  },
+  hermes: {
+    id: "hermes",
+    name: "Hermes Agent",
+    image: "/providers/hermes.png",
+    color: "#8B5CF6",
+    description: "Nous Research self-improving AI agent",
+    configType: "custom",
+  },
   droid: {
     id: "droid",
     name: "Factory Droid",
@@ -213,14 +229,6 @@ export const CLI_TOOLS = {
   "apiKey": "{{apiKey}}"
 }`,
     },
-  },
-  hermes: {
-    id: "hermes",
-    name: "Hermes Agent",
-    image: "/providers/hermes.png",
-    color: "#8B5CF6",
-    description: "Nous Research self-improving AI agent",
-    configType: "custom",
   },
   // HIDDEN: gemini-cli
   // "gemini-cli": {
