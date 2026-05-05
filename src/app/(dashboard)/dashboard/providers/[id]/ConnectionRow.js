@@ -129,11 +129,16 @@ export default function ConnectionRow({
     }
   };
 
+  const isEmail = (v) => typeof v === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
   const displayName = isOAuth
-    ? connection.name ||
-      connection.email ||
-      connection.displayName ||
-      "OAuth Account"
+    ? isEmail(connection.email)
+      ? connection.email
+      : isEmail(connection.name)
+        ? connection.name
+        : connection.name ||
+          connection.email ||
+          connection.displayName ||
+          "OAuth Account"
     : connection.name;
   const secondaryEmail = getBestEffortEmail(connection);
   const accountIdentifier = getAccountIdentifier(connection);
@@ -187,12 +192,10 @@ export default function ConnectionRow({
   };
 
   return (
-    <div
-      className={`group flex items-center justify-between p-2 rounded-lg hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors ${connection.isActive === false ? "opacity-60" : ""}`}
-    >
-      <div className="flex items-center gap-3 flex-1 min-w-0">
+    <div className={`group flex min-w-0 flex-col gap-3 rounded-lg p-2 transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.02] sm:flex-row sm:items-center sm:justify-between ${connection.isActive === false ? "opacity-60" : ""}`}>
+      <div className="flex min-w-0 flex-1 items-start gap-2 sm:items-center sm:gap-3">
         {/* Priority arrows */}
-        <div className="flex flex-col">
+        <div className="flex shrink-0 flex-col">
           <button
             onClick={onMoveUp}
             disabled={isFirst}
@@ -212,7 +215,7 @@ export default function ConnectionRow({
             </span>
           </button>
         </div>
-        <span className="material-symbols-outlined text-base text-text-muted">
+        <span className="material-symbols-outlined shrink-0 text-base text-text-muted">
           {isOAuth ? "lock" : "key"}
         </span>
         <div className="flex-1 min-w-0">
@@ -235,7 +238,7 @@ export default function ConnectionRow({
               {secondaryEmail}
             </p>
           )}
-          <div className="flex items-center gap-2 mt-1">
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
             <Badge variant={getStatusVariant()} size="sm" dot>
               {connection.isActive === false
                 ? "disabled"
@@ -250,10 +253,7 @@ export default function ConnectionRow({
               <CooldownTimer until={modelLockUntil} />
             )}
             {connection.lastError && connection.isActive !== false && (
-              <span
-                className="text-xs text-red-500 truncate max-w-[300px]"
-                title={connection.lastError}
-              >
+              <span className="max-w-full truncate text-xs text-red-500 sm:max-w-[300px]" title={connection.lastError}>
                 {connection.lastError}
               </span>
             )}
@@ -268,22 +268,16 @@ export default function ConnectionRow({
           </div>
           {hasAnyProxy && (
             <div className="mt-1 flex items-center gap-2 flex-wrap">
-              <span
-                className="text-[11px] text-text-muted truncate max-w-[420px]"
-                title={proxyDisplayText}
-              >
+              <span className="max-w-full truncate text-[11px] text-text-muted sm:max-w-[420px]" title={proxyDisplayText}>
                 {proxyDisplayText}
               </span>
               {maskedProxyUrl && (
-                <code className="text-[10px] font-mono bg-black/5 dark:bg-white/5 px-1 py-0.5 rounded text-text-muted">
+                <code className="max-w-full truncate rounded bg-black/5 px-1 py-0.5 font-mono text-[10px] text-text-muted dark:bg-white/5 sm:max-w-[260px]">
                   {maskedProxyUrl}
                 </code>
               )}
               {noProxyText && (
-                <span
-                  className="text-[11px] text-text-muted truncate max-w-[320px]"
-                  title={noProxyText}
-                >
+                <span className="max-w-full truncate text-[11px] text-text-muted sm:max-w-[320px]" title={noProxyText}>
                   no_proxy: {noProxyText}
                 </span>
               )}
@@ -291,14 +285,14 @@ export default function ConnectionRow({
           )}
         </div>
       </div>
-      <div className="flex items-center gap-2">
-        <div className="flex gap-1">
+      <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
+        <div className="grid flex-1 grid-cols-3 gap-1 sm:flex sm:flex-none">
           {/* Proxy button with inline dropdown */}
           {(proxyPools || []).length > 0 && (
             <div className="relative" ref={proxyDropdownRef}>
               <button
                 onClick={() => setShowProxyDropdown((v) => !v)}
-                className={`flex flex-col items-center px-2 py-1 rounded hover:bg-black/5 dark:hover:bg-white/5 transition-colors ${hasAnyProxy ? "text-primary" : "text-text-muted hover:text-primary"}`}
+                className={`flex w-full flex-col items-center rounded px-2 py-1 transition-colors hover:bg-black/5 dark:hover:bg-white/5 ${hasAnyProxy ? "text-primary" : "text-text-muted hover:text-primary"}`}
                 disabled={updatingProxy}
               >
                 <span className="material-symbols-outlined text-[18px]">
@@ -307,7 +301,7 @@ export default function ConnectionRow({
                 <span className="text-[10px] leading-tight">Proxy</span>
               </button>
               {showProxyDropdown && (
-                <div className="absolute right-0 top-full mt-1 z-50 bg-bg border border-border rounded-lg shadow-lg py-1 min-w-[160px]">
+                <div className="absolute right-0 top-full z-50 mt-1 max-w-[78vw] min-w-[160px] rounded-lg border border-border bg-bg py-1 shadow-lg">
                   <button
                     onClick={() => handleSelectProxy("__none__")}
                     className={`w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/5 ${!boundProxyPoolId ? "text-primary font-medium" : "text-text-main"}`}
@@ -327,20 +321,12 @@ export default function ConnectionRow({
               )}
             </div>
           )}
-          <button
-            onClick={onEdit}
-            className="flex flex-col items-center px-2 py-1 rounded hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-primary"
-          >
+          <button onClick={onEdit} className="flex flex-col items-center rounded px-2 py-1 text-text-muted hover:bg-black/5 hover:text-primary dark:hover:bg-white/5">
             <span className="material-symbols-outlined text-[18px]">edit</span>
             <span className="text-[10px] leading-tight">Edit</span>
           </button>
-          <button
-            onClick={onDelete}
-            className="flex flex-col items-center px-2 py-1 rounded hover:bg-red-500/10 text-red-500"
-          >
-            <span className="material-symbols-outlined text-[18px]">
-              delete
-            </span>
+          <button onClick={onDelete} className="flex flex-col items-center rounded px-2 py-1 text-red-500 hover:bg-red-500/10">
+            <span className="material-symbols-outlined text-[18px]">delete</span>
             <span className="text-[10px] leading-tight">Delete</span>
           </button>
         </div>

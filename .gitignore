@@ -75,3 +75,5 @@ plans
 .gh-profile
 gh
 scripts/agSniffer/*
+gitbooks/*
+.commandcode

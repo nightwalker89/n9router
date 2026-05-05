@@ -95,7 +95,6 @@ function normalizeSchemaTypes(schema) {
 
   const result = Array.isArray(schema) ? [...schema] : { ...schema };
 
-
   if (typeof result.type === "string") {
     result.type = result.type.toLowerCase();
   }
@@ -103,6 +102,7 @@ function normalizeSchemaTypes(schema) {
   // Strip enumDescriptions — not supported by upstream APIs
   delete result.enumDescriptions;
 
+  coerceStringifiedSchemaValues(result);
 
   if (result.properties) {
     const normalized = {};
@@ -117,6 +117,47 @@ function normalizeSchemaTypes(schema) {
   }
 
   return result;
+}
+
+function coerceStringifiedSchemaValues(schema) {
+  const coerceInteger = (value) => {
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    if (!/^-?\d+$/.test(trimmed)) return value;
+    const parsed = Number(trimmed);
+    return Number.isSafeInteger(parsed) ? parsed : value;
+  };
+
+  const coerceNumber = (value) => {
+    if (typeof value !== "string" || value.trim() === "") return value;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : value;
+  };
+
+  const coerceBoolean = (value) => {
+    if (typeof value !== "string") return value;
+    if (value.trim().toLowerCase() === "true") return true;
+    if (value.trim().toLowerCase() === "false") return false;
+    return value;
+  };
+
+  for (const key of ["minLength", "maxLength", "minItems", "maxItems", "minProperties", "maxProperties"]) {
+    if (key in schema) schema[key] = coerceInteger(schema[key]);
+  }
+
+  for (const key of ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"]) {
+    if (key in schema) schema[key] = coerceNumber(schema[key]);
+  }
+
+  if (Array.isArray(schema.enum) && schema.type) {
+    if (schema.type === "integer") {
+      schema.enum = schema.enum.map(coerceInteger);
+    } else if (schema.type === "number") {
+      schema.enum = schema.enum.map(coerceNumber);
+    } else if (schema.type === "boolean") {
+      schema.enum = schema.enum.map(coerceBoolean);
+    }
+  }
 }
 
 // Convert Antigravity content to OpenAI message

@@ -84,14 +84,16 @@ export async function handleFetch(request) {
   if (comboModels) {
     const comboStrategies = settings.comboStrategies || {};
     const comboStrategy = comboStrategies[providerInput]?.fallbackStrategy || settings.comboStrategy || "fallback";
-    log.info("FETCH", `Combo "${providerInput}" with ${comboModels.length} providers (strategy: ${comboStrategy})`);
+    const comboStickyLimit = settings.comboStickyRoundRobinLimit;
+    log.info("FETCH", `Combo "${providerInput}" with ${comboModels.length} providers (strategy: ${comboStrategy}, sticky: ${comboStickyLimit})`);
     return handleComboChat({
       body,
       models: comboModels,
       handleSingleModel: (b, m) => handleSingleProviderFetch(b, m, request, apiKey, settings),
       log,
       comboName: providerInput,
-      comboStrategy
+      comboStrategy,
+      comboStickyLimit
     });
   }
 

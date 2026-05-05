@@ -109,4 +109,14 @@ export const TTS_PROVIDER_CONFIG = {
     hasVoiceIdInput: true,
     voiceSource: "config",
   },
+  "gemini": {
+    hasLanguageDropdown: false,
+    hasLanguageHint: true, // sends body.language to guide TTS pronunciation
+    hasModelSelector: true,
+    hasBrowseButton: false,
+    voiceSource: "hardcoded",
+    modelKey: "gemini-tts-models",
+    voiceKey: "gemini-tts-voices",
+    voicesPerModel: true,
+  },
 };

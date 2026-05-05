@@ -152,6 +152,10 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
 
         setDeviceData(data);
 
+        // Auto-open verification URL in new tab
+        const verifyUrl = data.verification_uri_complete || data.verification_uri;
+        if (verifyUrl) window.open(verifyUrl, "_blank", "noopener,noreferrer");
+
         // Pass extraData for Kiro (contains _clientId, _clientSecret)
         const extraData = provider === "kiro"
           ? {
@@ -169,24 +173,13 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
       // Authorization code flow - build redirect URI (some providers require fixed ports)
       const appPort = window.location.port || (window.location.protocol === "https:" ? "443" : "80");
       let redirectUri;
-      let codexProxyActive = false;
-
       if (provider === "codex") {
-        // Try to start proxy on fixed port 1455 → redirect callback to app port
-        try {
-          const proxyRes = await fetch(`/api/oauth/codex/start-proxy?app_port=${appPort}`);
-          const proxyData = await proxyRes.json();
-          codexProxyActive = proxyData.success;
-        } catch {
-          codexProxyActive = false;
-        }
-        // Always use fixed port 1455 as redirect_uri (Codex requirement)
         redirectUri = "http://localhost:1455/auth/callback";
       } else {
         redirectUri = `http://localhost:${appPort}/callback`;
       }
 
-      // Build authorize URL, optionally passing provider-specific metadata (e.g. gitlab clientId)
+      // Build authorize URL first to get codeVerifier/state for codex server-side mode
       const authorizeUrl = new URL(`/api/oauth/${provider}/authorize`, window.location.origin);
       authorizeUrl.searchParams.set("redirect_uri", redirectUri);
       if (oauthMeta) {
@@ -196,10 +189,29 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      setAuthData({ ...data, redirectUri });
+      // Codex: start proxy with server-side session (auto-exchange) + fallback to channels
+      let codexProxyActive = false;
+      let codexServerSide = false;
+      if (provider === "codex") {
+        try {
+          const proxyUrl = new URL(`/api/oauth/codex/start-proxy`, window.location.origin);
+          proxyUrl.searchParams.set("app_port", appPort);
+          proxyUrl.searchParams.set("state", data.state);
+          proxyUrl.searchParams.set("code_verifier", data.codeVerifier);
+          proxyUrl.searchParams.set("redirect_uri", redirectUri);
+          const proxyRes = await fetch(proxyUrl.toString());
+          const proxyData = await proxyRes.json();
+          codexProxyActive = proxyData.success;
+          codexServerSide = !!proxyData.serverSide;
+        } catch {
+          codexProxyActive = false;
+        }
+      }
+
+      setAuthData({ ...data, redirectUri, codexServerSide });
 
       if (provider === "codex" && codexProxyActive) {
-        // Proxy active: callback will redirect to app port automatically
+        // Proxy active: callback will be handled server-side (auto-exchange) or via channels (fallback)
         setStep("waiting");
         popupRef.current = window.open(data.authUrl, "oauth_popup", "width=600,height=700");
         if (!popupRef.current) {
@@ -242,6 +254,49 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
       }
     }
   }, [isOpen, provider, startOAuthFlow]);
+
+  // Codex server-side mode: poll status (proxy auto-exchanges + saves DB)
+  useEffect(() => {
+    if (!authData?.codexServerSide || !authData?.state) return;
+    if (callbackProcessedRef.current) return;
+    let cancelled = false;
+    const POLL_INTERVAL_MS = 1500;
+    const MAX_ATTEMPTS = 200; // ~5 minutes
+    let attempts = 0;
+
+    const tick = async () => {
+      if (cancelled || callbackProcessedRef.current) return;
+      attempts += 1;
+      try {
+        const res = await fetch(`/api/oauth/codex/poll-status?state=${encodeURIComponent(authData.state)}`);
+        const data = await res.json();
+        if (cancelled || callbackProcessedRef.current) return;
+        if (data.status === "done") {
+          callbackProcessedRef.current = true;
+          setStep("success");
+          onSuccess?.();
+          return;
+        }
+        if (data.status === "error") {
+          callbackProcessedRef.current = true;
+          setError(data.error || "Authentication failed");
+          setStep("error");
+          return;
+        }
+      } catch {
+        // Network error, keep polling
+      }
+      if (attempts >= MAX_ATTEMPTS) {
+        callbackProcessedRef.current = true;
+        setError("Authentication timeout");
+        setStep("error");
+        return;
+      }
+      setTimeout(tick, POLL_INTERVAL_MS);
+    };
+    setTimeout(tick, POLL_INTERVAL_MS);
+    return () => { cancelled = true; };
+  }, [authData, onSuccess]);
 
   // Listen for OAuth callback via multiple methods
   useEffect(() => {
@@ -362,22 +417,59 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
   return (
     <Modal isOpen={isOpen} title={`Connect ${providerInfo.name}`} onClose={handleClose} size="lg">
       <div className="flex flex-col gap-4">
-        {/* Waiting Step (Localhost - popup mode) */}
-        {step === "waiting" && !isDeviceCode && (
-          <div className="text-center py-6">
-            <div className="size-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
-              <span className="material-symbols-outlined text-3xl text-primary animate-spin">
+        {/* Waiting + Manual Input combined (non-device-code) */}
+        {(step === "waiting" || step === "input") && !isDeviceCode && (
+          <>
+            {/* Option A: Auto via popup */}
+            <div className="flex items-center gap-2 px-3 py-2 border border-border rounded-lg bg-sidebar/50">
+              <span className="material-symbols-outlined text-base text-primary animate-spin">
                 progress_activity
               </span>
+              <span className="text-sm">Waiting for popup authorization…</span>
             </div>
-            <h3 className="text-lg font-semibold mb-2">Waiting for Authorization</h3>
-            <p className="text-sm text-text-muted mb-4">
-              Complete the authorization in the popup window.
-            </p>
-            <Button variant="ghost" onClick={() => setStep("input")}>
-              Popup blocked? Enter URL manually
-            </Button>
-          </div>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3 my-1">
+              <div className="flex-1 h-px bg-border" />
+              <span className="text-xs text-text-muted uppercase tracking-wider">Or paste callback URL manually</span>
+              <div className="flex-1 h-px bg-border" />
+            </div>
+
+            {/* Option B: Manual paste */}
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm font-medium mb-2">Step 1: Open this URL in your browser</p>
+                <div className="flex gap-2">
+                  <Input value={authData?.authUrl || ""} readOnly className="flex-1 font-mono text-xs" />
+                  <Button variant="secondary" icon={copied === "auth_url" ? "check" : "content_copy"} onClick={() => copy(authData?.authUrl, "auth_url")} disabled={!authData?.authUrl}>
+                    Copy
+                  </Button>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-medium mb-2">Step 2: Paste the callback URL here</p>
+                <p className="text-xs text-text-muted mb-2">
+                  After authorization, copy the full URL from your browser.
+                </p>
+                <Input
+                  value={callbackUrl}
+                  onChange={(e) => setCallbackUrl(e.target.value)}
+                  placeholder={placeholderUrl}
+                  className="font-mono text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button onClick={handleManualSubmit} fullWidth disabled={!callbackUrl}>
+                Connect
+              </Button>
+              <Button onClick={handleClose} variant="ghost" fullWidth>
+                Cancel
+              </Button>
+            </div>
+          </>
         )}
 
         {/* Device Code Flow - Waiting */}
@@ -428,45 +520,6 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
                 Waiting for authorization...
               </div>
             )}
-          </>
-        )}
-
-        {/* Manual Input Step */}
-        {step === "input" && !isDeviceCode && (
-          <>
-            <div className="space-y-4">
-              <div>
-                <p className="text-sm font-medium mb-2">Step 1: Open this URL in your browser</p>
-                <div className="flex gap-2">
-                  <Input value={authData?.authUrl || ""} readOnly className="flex-1 font-mono text-xs" />
-                  <Button variant="secondary" icon={copied === "auth_url" ? "check" : "content_copy"} onClick={() => copy(authData?.authUrl, "auth_url")}>
-                    Copy
-                  </Button>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-sm font-medium mb-2">Step 2: Paste the callback URL here</p>
-                <p className="text-xs text-text-muted mb-2">
-                  After authorization, copy the full URL from your browser.
-                </p>
-                <Input
-                  value={callbackUrl}
-                  onChange={(e) => setCallbackUrl(e.target.value)}
-                  placeholder={placeholderUrl}
-                  className="font-mono text-xs"
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <Button onClick={handleManualSubmit} fullWidth disabled={!callbackUrl}>
-                Connect
-              </Button>
-              <Button onClick={handleClose} variant="ghost" fullWidth>
-                Cancel
-              </Button>
-            </div>
           </>
         )}
 

@@ -5,8 +5,8 @@ export function parseSSELine(line, format = null) {
   if (!line) return null;
 
   // NDJSON format (Ollama): raw JSON lines without "data:" prefix
-  if (format === FORMATS.OLLAMA) {
-    const trimmed = line.trim();
+  const trimmed = line.trim();
+  if (format === FORMATS.OLLAMA || trimmed.startsWith("{")) {
     if (trimmed.startsWith("{")) {
       try {
         return JSON.parse(trimmed);

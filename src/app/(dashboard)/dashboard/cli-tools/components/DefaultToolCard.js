@@ -48,13 +48,13 @@ export default function DefaultToolCard({ toolId, tool, isExpanded, onToggle, ba
 
   const renderApiKeySelector = () => {
     return (
-      <div className="mt-2 flex items-center gap-2">
+      <div className="mt-2 flex flex-col sm:flex-row sm:items-center gap-2">
         {apiKeys && apiKeys.length > 0 ? (
           <>
             <select
               value={selectedApiKey}
               onChange={(e) => setSelectedApiKey(e.target.value)}
-              className="flex-1 px-3 py-2 bg-bg-secondary rounded-lg text-sm border border-border focus:outline-none focus:ring-1 focus:ring-primary/50"
+              className="w-full sm:w-auto flex-1 px-3 py-2 bg-bg-secondary rounded-lg text-sm border border-border focus:outline-none focus:ring-1 focus:ring-primary/50"
             >
               {apiKeys.map((key) => (
                 <option key={key.id} value={key.key}>{key.key}</option>
@@ -80,13 +80,13 @@ export default function DefaultToolCard({ toolId, tool, isExpanded, onToggle, ba
 
   const renderModelSelector = () => {
     return (
-      <div className="mt-2 flex items-center gap-2">
+      <div className="mt-2 flex flex-col sm:flex-row sm:items-center gap-2">
         <input
           type="text"
           value={modelValue}
           onChange={(e) => setModelValue(e.target.value)}
           placeholder="provider/model-id"
-          className="flex-1 px-3 py-2 bg-bg-secondary rounded-lg text-sm border border-border focus:outline-none focus:ring-1 focus:ring-primary/50"
+          className="w-full sm:w-auto flex-1 px-3 py-2 bg-bg-secondary rounded-lg text-sm border border-border focus:outline-none focus:ring-1 focus:ring-primary/50"
         />
         <button
           onClick={() => setShowModelModal(true)}
@@ -188,8 +188,8 @@ export default function DefaultToolCard({ toolId, tool, isExpanded, onToggle, ba
               {item.type === "apiKeySelector" && renderApiKeySelector()}
               {item.type === "modelSelector" && renderModelSelector()}
               {item.value && (
-                <div className="mt-2 flex items-center gap-2">
-                  <code className="flex-1 px-3 py-2 bg-bg-secondary rounded-lg text-sm font-mono border border-border truncate">
+                <div className="mt-2 flex flex-col sm:flex-row sm:items-center gap-2">
+                  <code className="w-full sm:w-auto flex-1 px-3 py-2 bg-bg-secondary rounded-lg text-sm font-mono border border-border truncate">
                     {replaceVars(item.value)}
                   </code>
                   {item.copyable && (
@@ -262,7 +262,7 @@ export default function DefaultToolCard({ toolId, tool, isExpanded, onToggle, ba
   };
 
   return (
-    <Card padding="xs" className="overflow-hidden">
+    <Card padding="xs" className="overflow-hidden overflow-x-hidden">
       <div className="flex items-center justify-between hover:cursor-pointer" onClick={onToggle}>
         <div className="flex items-center gap-3">
           <div className="size-8 rounded-lg flex items-center justify-center shrink-0">

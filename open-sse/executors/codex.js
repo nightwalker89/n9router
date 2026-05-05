@@ -4,6 +4,7 @@ import { CODEX_DEFAULT_INSTRUCTIONS } from "../config/codexInstructions.js";
 import { PROVIDERS } from "../config/providers.js";
 import { normalizeResponsesInput } from "../translator/helpers/responsesApiHelper.js";
 import { fetchImageAsBase64 } from "../translator/helpers/imageHelper.js";
+import { getModelUpstreamId } from "../config/providerModels.js";
 import { getConsistentMachineId } from "../../src/shared/utils/machineId.js";
 
 // In-memory map: hash(machineId + first assistant content) → { sessionId, lastUsed }
@@ -175,12 +176,15 @@ export class CodexExecutor extends BaseExecutor {
     // Ensure store is false (Codex requirement)
     body.store = false;
 
+    // Map virtual Codex review models to the upstream Codex model before suffix parsing.
+    body.model = getModelUpstreamId("cx", body.model || model);
+
     // Extract thinking level from model name suffix
     // e.g., gpt-5.3-codex-high → high, gpt-5.3-codex → medium (default)
     const effortLevels = ['none', 'low', 'medium', 'high', 'xhigh'];
     let modelEffort = null;
     for (const level of effortLevels) {
-      if (model.endsWith(`-${level}`)) {
+      if (body.model.endsWith(`-${level}`)) {
         modelEffort = level;
         // Strip suffix from model name for actual API call
         body.model = body.model.replace(`-${level}`, '');
@@ -212,6 +216,8 @@ export class CodexExecutor extends BaseExecutor {
     delete body.n;
     delete body.seed;
     delete body.max_tokens;
+    delete body.max_completion_tokens;
+    delete body.max_output_tokens; // Responses API clients send this but Codex rejects it
     delete body.user; // Cursor sends this but Codex doesn't support it
     delete body.prompt_cache_retention; // Cursor sends this but Codex doesn't support it
     delete body.metadata; // Cursor sends this but Codex doesn't support it

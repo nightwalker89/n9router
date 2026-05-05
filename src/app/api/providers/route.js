@@ -110,7 +110,7 @@ export async function POST(request) {
     if (!provider || !isValidProvider) {
       return NextResponse.json({ error: "Invalid provider" }, { status: 400 });
     }
-    if (!apiKey) {
+    if (!apiKey && provider !== "ollama-local") {
       return NextResponse.json({ error: `${isWebCookieProvider ? "Cookie value" : "API Key"} is required` }, { status: 400 });
     }
     if (!name) {
@@ -185,7 +185,7 @@ export async function POST(request) {
       provider,
       authType: isWebCookieProvider ? "cookie" : "apikey",
       name,
-      apiKey,
+      apiKey: apiKey || "",
       priority: priority || 1,
       globalPriority: globalPriority || null,
       defaultModel: defaultModel || null,

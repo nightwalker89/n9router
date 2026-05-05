@@ -36,6 +36,27 @@ const parseGeminiCliModels = (data) => {
   return [];
 };
 
+const appendCodexReviewModels = (models) => models.flatMap((model) => {
+  const id = model?.id || model?.slug || model?.model || model?.name;
+  if (!id) return [];
+  const name = model?.display_name || model?.displayName || model?.name || id;
+  const normalized = { ...model, id, name };
+  const isChatModel = (model?.type || "llm") !== "image" && !id.toLowerCase().includes("embed");
+  if (!isChatModel || id.endsWith("-review")) return [normalized];
+  return [
+    normalized,
+    {
+      ...normalized,
+      id: `${id}-review`,
+      name: `${name} Review`,
+      upstreamModelId: id,
+      quotaFamily: "review",
+    },
+  ];
+});
+
+const parseCodexModels = (data) => appendCodexReviewModels(parseOpenAIStyleModels(data));
+
 const createOpenAIModelsConfig = (url) => ({
   url,
   method: "GET",
@@ -83,6 +104,14 @@ const PROVIDER_MODELS_CONFIG = {
     authHeader: "Authorization",
     authPrefix: "Bearer ",
     parseResponse: (data) => data.data || []
+  },
+  codex: {
+    url: "https://chatgpt.com/backend-api/codex/models?client_version=1.0.0",
+    method: "GET",
+    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    authHeader: "Authorization",
+    authPrefix: "Bearer ",
+    parseResponse: parseCodexModels
   },
   antigravity: {
     url: "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:models",

@@ -11,10 +11,10 @@ async function intercept(req, res, bodyBuffer, mappedModel) {
   const isStream = req.url.includes(":streamGenerateContent");
   try {
     const body = JSON.parse(bodyBuffer.toString());
-    if (body.model) body.model = mappedModel;
+    body.model = mappedModel;
 
     const routerRes = await fetchRouter(body, "/v1/chat/completions", req.headers);
-    await pipeSSE(routerRes, res, dumper);
+    await pipeSSE(routerRes, res);
   } catch (error) {
     err(`[antigravity] ${error.message}`);
     if (dumper) { dumper.writeChunk(`\n[ERROR] ${error.message}\n`); dumper.end(); }

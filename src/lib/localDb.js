@@ -12,10 +12,9 @@ const { createValidBackupSync, recoverCorruptJsonFileSync } = require("./dbFileS
 const { startConfiguredDbPeriodicBackups } = require("./dbPeriodicBackup.js");
 
 const DEFAULT_MITM_ROUTER_BASE = "http://localhost:20128";
-const isCloud = typeof caches !== 'undefined' || typeof caches === 'object';
-const DB_FILE = isCloud ? null : path.join(DATA_DIR, "db.json");
+const DB_FILE = path.join(DATA_DIR, "db.json");
 
-if (!isCloud && !fs.existsSync(DATA_DIR)) {
+if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
@@ -29,6 +28,7 @@ const DEFAULT_SETTINGS = {
   stickyRoundRobinLimit: 3,
   providerStrategies: {},
   comboStrategy: "fallback",
+  comboStickyRoundRobinLimit: 1,
   comboStrategies: {},
   requireLogin: true,
   tunnelDashboardAccess: true,
@@ -49,6 +49,8 @@ const DEFAULT_SETTINGS = {
   mitmAntigravityHostRewriteEnabled: true,
   rtkEnabled: false,
   periodicDbBackupsEnabled: true,
+  cavemanEnabled: false,
+  cavemanLevel: "full",
 };
 
 function cloneDefaultData() {
@@ -66,11 +68,27 @@ function cloneDefaultData() {
   };
 }
 
-if (!isCloud && DB_FILE && !fs.existsSync(DB_FILE)) {
+function normalizeObservabilitySettings(settings) {
+  let changed = false;
+
+  if (typeof settings.observabilityEnabled !== "boolean" && typeof settings.enableObservability === "boolean") {
+    settings.observabilityEnabled = settings.enableObservability;
+    changed = true;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(settings, "enableObservability")) {
+    delete settings.enableObservability;
+    changed = true;
+  }
+
+  return changed;
+}
+
+if (DB_FILE && !fs.existsSync(DB_FILE)) {
   fs.writeFileSync(DB_FILE, JSON.stringify(cloneDefaultData(), null, 2));
 }
 
-if (!isCloud && DB_FILE) startConfiguredDbPeriodicBackups(DB_FILE);
+if (DB_FILE) startConfiguredDbPeriodicBackups(DB_FILE);
 
 function ensureDbShape(data) {
   const defaults = cloneDefaultData();
@@ -91,6 +109,8 @@ function ensureDbShape(data) {
     }
 
     if (key === "settings" && typeof next.settings === "object" && !Array.isArray(next.settings)) {
+      changed = normalizeObservabilitySettings(next.settings) || changed;
+
       for (const [settingKey, settingDefault] of Object.entries(defaultValue)) {
         if (next.settings[settingKey] === undefined) {
           // Backward-compat: if proxy URL was saved, default outboundProxyEnabled to true
@@ -155,11 +175,6 @@ class LocalMutex {
 const localMutex = new LocalMutex();
 
 async function withFileLock(db, operation) {
-  if (isCloud) {
-    await operation();
-    return;
-  }
-
   const releaseLocal = await localMutex.acquire();
   let release = null;
   try {
@@ -190,15 +205,6 @@ async function safeWrite(db) {
 }
 
 export async function getDb() {
-  if (isCloud) {
-    if (!dbInstance) {
-      const data = cloneDefaultData();
-      dbInstance = new Low({ read: async () => { }, write: async () => { } }, data);
-      dbInstance.data = data;
-    }
-    return dbInstance;
-  }
-
   if (!dbInstance) {
     dbInstance = new Low(new JSONFile(DB_FILE), cloneDefaultData());
   }
@@ -744,7 +750,9 @@ export async function getSettings() {
 
 export async function updateSettings(updates) {
   const db = await getDb();
-  db.data.settings = { ...db.data.settings, ...updates };
+  const normalizedUpdates = { ...updates };
+  normalizeObservabilitySettings(normalizedUpdates);
+  db.data.settings = { ...db.data.settings, ...normalizedUpdates };
   await safeWrite(db);
   return db.data.settings;
 }
@@ -759,14 +767,17 @@ export async function importDb(payload) {
     throw new Error("Invalid database payload");
   }
 
+  const importedSettings = payload.settings && typeof payload.settings === "object" && !Array.isArray(payload.settings)
+    ? { ...payload.settings }
+    : {};
+  normalizeObservabilitySettings(importedSettings);
+
   const nextData = {
     ...cloneDefaultData(),
     ...payload,
     settings: {
       ...cloneDefaultData().settings,
-      ...(payload.settings && typeof payload.settings === "object" && !Array.isArray(payload.settings)
-        ? payload.settings
-        : {}),
+      ...importedSettings,
     },
   };
 

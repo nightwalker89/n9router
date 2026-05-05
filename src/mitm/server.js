@@ -82,7 +82,6 @@ function sniCallback(servername, cb) {
       cert: `${certData.cert}\n${rootCAPem}`
     });
     certCache.set(servername, ctx);
-    log(`🔐 Cert generated: ${servername}`);
     cb(null, ctx);
   } catch (e) {
     err(`SNI error for ${servername}: ${e.message}`);
@@ -204,7 +203,7 @@ async function passthrough(req, res, bodyBuffer, onResponse, debugContext = null
 
 // ── Token swap forward ────────────────────────────────────────
 // Unlike passthrough(), this checks upstream statusCode BEFORE
-// piping to client — enabling auto-retry on 429/503.
+// piping to client — enabling auto-retry on 403/429/503.
 
 async function tokenSwapForward(req, res, bodyBuffer, connections, model, strategy, provider, requestStartTime, debugContext = null) {
   let targetHost = (req.headers.host || TARGET_HOSTS[0]).split(":")[0];
@@ -267,12 +266,16 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
             servername: targetHost,
             rejectUnauthorized: false
           }, (forwardRes) => {
-            if (forwardRes.statusCode === 429 || forwardRes.statusCode === 503 || forwardRes.statusCode === 401) {
+            if (forwardRes.statusCode === 403 || forwardRes.statusCode === 429 || forwardRes.statusCode === 503 || forwardRes.statusCode === 401) {
               const chunks = [];
               forwardRes.on("data", c => chunks.push(c));
               forwardRes.on("end", () => {
                 const body = Buffer.concat(chunks).toString();
-                const retryType = forwardRes.statusCode === 401 ? "auth" : "quota";
+                const retryType = forwardRes.statusCode === 401
+                  ? "auth"
+                  : forwardRes.statusCode === 403
+                    ? "permission"
+                    : "quota";
                 resolve({ retry: true, retryType, body, headers: forwardRes.headers, statusCode: forwardRes.statusCode });
               });
             } else {
@@ -284,8 +287,8 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
           forwardReq.end();
         });
 
-        if (result.retry && result.retryType === "quota") {
-          // ── Unified quota retry: 429 and 503 treated identically ──
+        if (result.retry && (result.retryType === "quota" || result.retryType === "permission")) {
+          // ── Unified retry: 403 IAM denial, 429 and 503 treated identically ──
           // Both are false-positive-prone from Antigravity; retry same account
           // with exponential backoff before moving on.
           const maxRetries = getAntigravity503RetryCount(conn.antigravity503RetryCount);
@@ -310,7 +313,7 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
 
           // ── 2-consecutive-fail rule: only apply cooldown/strike if this
           // account's last health event was already a fail. A single transient
-          // 429/503 burst doesn't warrant a cooldown. ──
+          // 403/429/503 burst doesn't warrant a cooldown. ──
           const accountKey = conn.email || conn.id;
           const lastStatus = getLastEventStatus(accountKey);
           const isConsecutiveFail = lastStatus === "fl";
@@ -432,7 +435,7 @@ async function tokenSwapForward(req, res, bodyBuffer, connections, model, strate
         clearStrikes(conn.id);
         if (model) clearModelStrikes(conn.id, model);
         markAccountUsed(conn.id);
-        // Record health: success on first try vs retry success (429+503 quota retries both count)
+        // Record health: success on first try vs retry success (403/429/503 retries count)
         const _healthAttempts = (conn._quotaRetryCount || 0) + 1;
         reportHealth(conn.email || conn.id, _healthAttempts > 1 ? "retry_success" : (i > 0 ? "retry_success" : "success"), _healthAttempts, model);
         res.writeHead(statusCode, result.response.headers);
@@ -665,12 +668,9 @@ const server = https.createServer(sslOptions, async (req, res) => {
       }
     }
 
-    log(`🔍 [${tool}] url=${req.url} | bodyLen=${bodyBuffer.length}`);
-
     // Cursor uses binary proto — model extraction not possible at this layer.
     // Delegate directly to handler which decodes proto internally.
     if (tool === "cursor") {
-      log(`⚡ intercept | cursor | proto`);
       return handlers[tool].intercept(req, res, bodyBuffer, null, passthrough);
     }
 

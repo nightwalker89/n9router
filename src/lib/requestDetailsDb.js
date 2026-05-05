@@ -5,8 +5,6 @@ import fs from "node:fs";
 import os from "node:os";
 import { DATA_DIR } from "@/lib/dataDir.js";
 
-const isCloud = typeof caches !== "undefined" && typeof caches === "object";
-
 const DEFAULT_MAX_RECORDS = 200;
 const DEFAULT_BATCH_SIZE = 20;
 const DEFAULT_FLUSH_INTERVAL_MS = 5000;
@@ -32,16 +30,15 @@ function getUserDataDir() {
   return path.join(homeDir, `.${appName}`);
 }
 
-const DB_FILE = isCloud ? null : path.join(DATA_DIR, "request-details.json");
+const DB_FILE = path.join(DATA_DIR, "request-details.json");
 
-if (!isCloud && !fs.existsSync(DATA_DIR)) {
+if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
 let dbInstance = null;
 
 async function getDb() {
-  if (isCloud) return null;
   if (!dbInstance) {
     const adapter = new JSONFile(DB_FILE);
     const db = new Low(adapter, { records: [] });
@@ -65,8 +62,10 @@ async function getObservabilityConfig() {
     const { getSettings } = await import("@/lib/localDb");
     const settings = await getSettings();
     const envEnabled = process.env.OBSERVABILITY_ENABLED !== "false";
-    const enabled = typeof settings.enableObservability === "boolean"
-      ? settings.enableObservability
+    const enabled = typeof settings.observabilityEnabled === "boolean"
+      ? settings.observabilityEnabled
+      : typeof settings.enableObservability === "boolean"
+        ? settings.enableObservability
       : envEnabled;
 
     cachedConfig = {
@@ -77,8 +76,9 @@ async function getObservabilityConfig() {
       maxJsonSize: (settings.observabilityMaxJsonSize || parseInt(process.env.OBSERVABILITY_MAX_JSON_SIZE || "5", 10)) * 1024,
     };
   } catch {
+    const envEnabled = process.env.OBSERVABILITY_ENABLED !== "false";
     cachedConfig = {
-      enabled: false,
+      enabled: envEnabled,
       maxRecords: DEFAULT_MAX_RECORDS,
       batchSize: DEFAULT_BATCH_SIZE,
       flushIntervalMs: DEFAULT_FLUSH_INTERVAL_MS,
@@ -127,7 +127,7 @@ function generateDetailId(model) {
 }
 
 async function flushToDatabase() {
-  if (isCloud || isFlushing || writeBuffer.length === 0) return;
+  if (isFlushing || writeBuffer.length === 0) return;
 
   isFlushing = true;
   try {
@@ -198,8 +198,6 @@ async function flushToDatabase() {
 }
 
 export async function saveRequestDetail(detail) {
-  if (isCloud) return;
-
   const config = await getObservabilityConfig();
   if (!config.enabled) return;
 
@@ -217,10 +215,6 @@ export async function saveRequestDetail(detail) {
 }
 
 export async function getRequestDetails(filter = {}) {
-  if (isCloud) {
-    return { details: [], pagination: { page: 1, pageSize: 50, totalItems: 0, totalPages: 0, hasNext: false, hasPrev: false } };
-  }
-
   const db = await getDb();
   let records = [...db.data.records];
 
@@ -248,8 +242,6 @@ export async function getRequestDetails(filter = {}) {
 }
 
 export async function getRequestDetailById(id) {
-  if (isCloud) return null;
-
   const db = await getDb();
   return db.data.records.find(r => r.id === id) || null;
 }
@@ -261,8 +253,6 @@ const _shutdownHandler = async () => {
 };
 
 function ensureShutdownHandler() {
-  if (isCloud) return;
-
   // Remove any previously registered listeners from this module (hot-reload safety)
   process.off("beforeExit", _shutdownHandler);
   process.off("SIGINT", _shutdownHandler);

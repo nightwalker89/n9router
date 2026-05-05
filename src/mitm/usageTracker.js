@@ -105,6 +105,11 @@ function extractUsage(chunk) {
   return null;
 }
 
+function extractModelFromResponseChunk(chunk) {
+  if (!chunk || typeof chunk !== "object") return null;
+  return chunk.model || chunk.modelVersion || chunk.response?.model || chunk.response?.modelVersion || null;
+}
+
 function getPartsTextLength(parts) {
   if (!Array.isArray(parts)) return 0;
   return parts.reduce((total, part) => total + (typeof part?.text === "string" ? part.text.length : 0), 0);
@@ -468,6 +473,7 @@ function createTokenSwapUsageObserver({ provider, model, connectionId, accountLa
   let buffer = "";
   let contentLength = 0;
   let usage = null;
+  let responseModel = null;
   let finished = false;
   let responseContent = "";
   let thinkingContent = "";
@@ -477,6 +483,7 @@ function createTokenSwapUsageObserver({ provider, model, connectionId, accountLa
   const processParsedChunk = (parsed) => {
     const extracted = extractUsage(parsed);
     if (extracted) usage = extracted;
+    responseModel = responseModel || extractModelFromResponseChunk(parsed);
     contentLength += extractContentLength(parsed);
     if (!contentCapped) {
       const text = extractContentText(parsed);
@@ -552,6 +559,11 @@ function createTokenSwapUsageObserver({ provider, model, connectionId, accountLa
 
       if (!hasValidUsage(usage)) return;
 
+      const trackedModel = model
+        || responseModel
+        || detailRecord?.model
+        || "unknown";
+
       const inTokens = usage.prompt_tokens || usage.input_tokens || 0;
       const outTokens = usage.completion_tokens || usage.output_tokens || 0;
       log(`📊 [token-swap] usage "${accountLabel}" in=${inTokens} out=${outTokens}${usage.estimated ? " estimated" : ""}`);
@@ -559,7 +571,7 @@ function createTokenSwapUsageObserver({ provider, model, connectionId, accountLa
       try {
         await persistUsage({
           provider,
-          model,
+          model: trackedModel,
           connectionId,
           tokens: usage,
           status: `${statusCode} OK`
@@ -573,6 +585,7 @@ function createTokenSwapUsageObserver({ provider, model, connectionId, accountLa
       try {
         await persistRequestDetail({
           ...detailRecord,
+          model: trackedModel,
           status: "completed",
           tokens: usage,
           latency: {
