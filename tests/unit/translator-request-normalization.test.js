@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 
 import { FORMATS } from "../../open-sse/translator/formats.js";
 import { translateRequest } from "../../open-sse/translator/index.js";
+import { antigravityToOpenAIRequest } from "../../open-sse/translator/request/antigravity-to-openai.js";
 import { claudeToOpenAIRequest } from "../../open-sse/translator/request/claude-to-openai.js";
 import { filterToOpenAIFormat } from "../../open-sse/translator/helpers/openaiHelper.js";
 import { parseSSELine } from "../../open-sse/utils/streamHelpers.js";
@@ -162,6 +163,48 @@ describe("request normalization", () => {
     );
 
     expect(result.output_config).toEqual(body.output_config);
+  });
+
+  it("antigravityToOpenAIRequest restores stringified schema keyword and enum values", () => {
+    const body = {
+      request: {
+        contents: [{ role: "user", parts: [{ text: "hi" }] }],
+        tools: [
+          {
+            functionDeclarations: [
+              {
+                name: "mcp_gitnexus_context",
+                parameters: {
+                  type: "OBJECT",
+                  properties: {
+                    service: {
+                      type: "STRING",
+                      minLength: "1",
+                    },
+                    maxDepth: {
+                      type: "INTEGER",
+                      enum: ["1", "2", "3"],
+                    },
+                    exact: {
+                      type: "BOOLEAN",
+                      enum: ["true", "false"],
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const result = antigravityToOpenAIRequest("gpt-5.4", body, true);
+    const properties = result.tools[0].function.parameters.properties;
+
+    expect(properties.service.minLength).toBe(1);
+    expect(properties.maxDepth.type).toBe("integer");
+    expect(properties.maxDepth.enum).toEqual([1, 2, 3]);
+    expect(properties.exact.enum).toEqual([true, false]);
   });
 
   it("parseSSELine supports provider raw NDJSON stream lines", () => {
