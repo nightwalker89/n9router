@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSettings, updateSettings } from "@/lib/localDb";
 import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
 import { DATA_DIR } from "@/lib/dataDir";
+import { DATA_FILE } from "@/lib/db/paths.js";
 import { createRequire } from "node:module";
 import { setRtkEnabled } from "open-sse/rtk/index.js";
 import { resetComboRotation } from "open-sse/services/combo.js";
@@ -11,7 +12,6 @@ import path from "path";
 const require = createRequire(import.meta.url);
 const { configureDbPeriodicBackups } = require("../../../lib/dbPeriodicBackup.js");
 const MITM_ANTIGRAVITY_DEBUG_LOG_DIR = path.join(DATA_DIR, "mitm", "logs", "antigravity");
-const DB_FILE = path.join(DATA_DIR, "db.json");
 
 export async function GET() {
   try {
@@ -99,7 +99,8 @@ export async function PATCH(request) {
     }
 
     if (Object.prototype.hasOwnProperty.call(body, "periodicDbBackupsEnabled")) {
-      configureDbPeriodicBackups(DB_FILE, settings.periodicDbBackupsEnabled !== false);
+      // Pass the SQLite file path — SQLite is the source of truth; db.json is a compat sync artifact.
+      configureDbPeriodicBackups(DATA_FILE, settings.periodicDbBackupsEnabled !== false);
     }
 
     const { password, oidcClientSecret: _oidcSecret, ...safeSettings } = settings;

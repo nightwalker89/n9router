@@ -1,19 +1,16 @@
 const fs = require("fs");
+const http = require("http");
 
 const MITM_ALIAS_RR_STATE_KEY = "mitmAliasRoundRobinState";
+const ROUTER_PORT = process.env.PORT || 20128;
 
 const FORCED_PASSTHROUGH_MODELS = {
   antigravity: new Set(["gemini-3.1-flash-lite"]),
 };
 
-function readDb(dbFile) {
+function readDbSync(dbFile) {
   if (!dbFile || !fs.existsSync(dbFile)) return null;
   return JSON.parse(fs.readFileSync(dbFile, "utf-8"));
-}
-
-function writeDb(dbFile, db) {
-  if (!dbFile || !db || typeof db !== "object") return;
-  fs.writeFileSync(dbFile, JSON.stringify(db, null, 2));
 }
 
 function shouldPassthroughModel({ tool, model }) {
@@ -58,7 +55,7 @@ function getMappedModelSelection({ dbFile, tool, model, limit = 5 }) {
   if (shouldPassthroughModel({ tool, model })) return null;
 
   try {
-    const db = readDb(dbFile);
+    const db = readDbSync(dbFile);
     const aliases = db?.mitmAlias?.[tool];
     if (!aliases) return null;
 
@@ -81,7 +78,7 @@ function getMappedModels({ dbFile, tool, model, limit = 5 }) {
 
 function getMitmAliasStrategy({ dbFile, fallback = "round-robin" }) {
   try {
-    const db = readDb(dbFile);
+    const db = readDbSync(dbFile);
     const strategy = db?.settings?.mitmAliasStrategy ?? db?.mitmAliasStrategy;
     return strategy === "fallback" ? "fallback" : fallback;
   } catch {
@@ -97,24 +94,30 @@ function getRoundRobinStateValue(db, tool, aliasKey) {
   return Number.isInteger(value) && value >= 0 ? value : 0;
 }
 
-function setRoundRobinStateValue({ dbFile, tool, aliasKey, nextIndex }) {
+// Write RR cursor via app API so SQLite stays the source of truth.
+// Fire-and-forget: RR state is best-effort; a missed write just means
+// the same model may be tried twice in a row — acceptable.
+function setRoundRobinStateValue({ tool, aliasKey, nextIndex }) {
+  const update = {
+    [`${MITM_ALIAS_RR_STATE_KEY}`]: { [`${tool}:${aliasKey}`]: nextIndex },
+  };
+  const body = JSON.stringify(update);
   try {
-    const db = readDb(dbFile) || {};
-    if (!db.settings || typeof db.settings !== "object" || Array.isArray(db.settings)) {
-      db.settings = {};
-    }
-    if (
-      !db.settings[MITM_ALIAS_RR_STATE_KEY]
-      || typeof db.settings[MITM_ALIAS_RR_STATE_KEY] !== "object"
-      || Array.isArray(db.settings[MITM_ALIAS_RR_STATE_KEY])
-    ) {
-      db.settings[MITM_ALIAS_RR_STATE_KEY] = {};
-    }
-
-    db.settings[MITM_ALIAS_RR_STATE_KEY][`${tool}:${aliasKey}`] = nextIndex;
-    writeDb(dbFile, db);
+    const req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port: ROUTER_PORT,
+        path: "/api/settings",
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) },
+      },
+      (res) => res.resume() // drain response
+    );
+    req.on("error", () => {}); // ignore errors silently
+    req.write(body);
+    req.end();
   } catch {
-    // Ignore RR cursor persistence errors and continue with current request order.
+    // Ignore — RR cursor persistence is best-effort.
   }
 }
 
@@ -122,10 +125,11 @@ function orderMappedModels({ dbFile, tool, aliasKey, models, strategy }) {
   const list = Array.isArray(models) ? [...models] : [];
   if (strategy !== "round-robin" || list.length <= 1) return list;
 
-  const db = readDb(dbFile);
+  const db = readDbSync(dbFile);
   const startIndex = getRoundRobinStateValue(db, tool, aliasKey) % list.length;
   const nextIndex = (startIndex + 1) % list.length;
-  setRoundRobinStateValue({ dbFile, tool, aliasKey, nextIndex });
+  // Fire-and-forget via API — dbFile ignored (kept in signature for compat)
+  setRoundRobinStateValue({ tool, aliasKey, nextIndex });
 
   return [
     ...list.slice(startIndex),

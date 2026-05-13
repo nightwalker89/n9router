@@ -1,15 +1,16 @@
 /**
- * Token Swap Pool — reads providerConnections from db.json,
+ * Token Swap Pool — reads providerConnections from db.json (SQLite read-through cache),
  * provides token rotation with cooldown management.
  *
  * Runs in MITM server process (CJS, separate from Next.js).
+ * WRITES go through the app's HTTP API (→ SQLite → db.json sync) to avoid
+ * direct db.json mutation which would bypass the SQLite source of truth.
  */
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const { DATA_DIR } = require("./paths");
 const { log } = require("./logger");
-const { updateJsonFileSync } = require("../lib/dbFileSafety.js");
 
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000; // refresh 5min before expiry
@@ -507,32 +508,69 @@ function getAllActiveConnections(provider, model) {
   });
 }
 
-// ── Shared DB helper ─────────────────────────────────────────
-// Read db.json, find a connection by id, apply patchFn, write back.
-// patchFn receives the mutable connection object; returning false aborts.
+// ── Write helper: patch providerConnection via app API ───────
+// All writes go through the app's REST API (SQLite → db.json sync).
+// The MITM process only reads db.json; it never writes to it directly.
 
+function patchConnectionViaApi(connId, patch) {
+  return new Promise((resolve) => {
+    const body = JSON.stringify(patch);
+    try {
+      const req = http.request(
+        {
+          hostname: "127.0.0.1",
+          port: ROUTER_PORT,
+          path: `/api/providers/${connId}`,
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) },
+        },
+        (res) => {
+          res.resume(); // drain
+          res.on("end", () => resolve(res.statusCode >= 200 && res.statusCode < 300));
+        }
+      );
+      req.on("error", () => resolve(false));
+      req.write(body);
+      req.end();
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+// For callers that need sync behaviour inside autoDisable (fire-and-forget).
+function patchConnectionViaApiFire(connId, patch) {
+  patchConnectionViaApi(connId, patch).catch(() => {});
+  // Optimistically return true — the caller only uses the return value for logging.
+  return true;
+}
+
+// Legacy sync helper kept for autoDisableAccountIfSonnetQuotaZero which
+// expects a synchronous result. Uses fire-and-forget write to the API.
 function updateConnectionInDb(connId, patchFn) {
-  const result = updateJsonFileSync(DB_FILE, (db) => {
+  try {
+    if (!fs.existsSync(DB_FILE)) return false;
+    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
     const connections = db.providerConnections || [];
     const index = connections.findIndex(c => c.id === connId);
     if (index === -1) return false;
-    return patchFn(connections[index], db);
-  });
-  return result.updated;
+    const conn = { ...connections[index] };
+    const result = patchFn(conn, db);
+    if (result === false) return false;
+    // Fire-and-forget write through the API so SQLite stays authoritative.
+    patchConnectionViaApiFire(connId, conn);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-// ── Mark account as used (update lastUsedAt in db.json) ──
+// ── Mark account as used (update lastUsedAt via app API) ─────
 // Round-robin selection is based on least-recently-used ordering.
 
 function markAccountUsed(connId) {
-  try {
-    updateConnectionInDb(connId, (conn) => {
-      conn.lastUsedAt = new Date().toISOString();
-      if ("consecutiveUseCount" in conn) delete conn.consecutiveUseCount;
-    });
-  } catch (e) {
-    log(`⚠️ [token-pool] markAccountUsed error: ${e.message}`);
-  }
+  patchConnectionViaApi(connId, { lastUsedAt: new Date().toISOString() })
+    .catch((e) => log(`⚠️ [token-pool] markAccountUsed error: ${e.message}`));
 }
 
 // ── Token refresh trigger (refresh + reload persisted token) ─
