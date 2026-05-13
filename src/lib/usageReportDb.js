@@ -1,9 +1,11 @@
 /**
  * usageReportDb.js
- * API Key Usage Report aggregator — separated from usageDb.js.
- * Depends on getUsageDb() from usageDb and getApiKeys/getProviderNodes from localDb.
+ * API Key Usage Report aggregator — migrated from lowdb to SQLite.
+ * Uses getUsageHistory() and direct adapter for dailySummary.
  */
-import { getUsageDb } from "./usageDb.js";
+import { getUsageHistory } from "@/lib/db/index.js";
+import { getAdapter } from "@/lib/db/driver.js";
+import { parseJson } from "@/lib/db/helpers/jsonCol.js";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -141,7 +143,6 @@ export async function getApiKeyUsageReport(filters = {}) {
     limit = 25,
   } = filters;
 
-  const db = await getUsageDb();
   const { getApiKeys, getProviderNodes } = await import("@/lib/localDb.js");
 
   // Build lookup maps
@@ -258,12 +259,14 @@ export async function getApiKeyUsageReport(filters = {}) {
   }
 
   if (useHistory) {
-    const history = db.data.history || [];
+    // Use SQLite-backed getUsageHistory with date range filter
+    const historyFilter = {};
+    if (rangeStart) historyFilter.startDate = new Date(rangeStart).toISOString();
+    if (rangeEnd) historyFilter.endDate = new Date(rangeEnd).toISOString();
+    const history = await getUsageHistory(historyFilter);
     for (const entry of history) {
       const ts = entry.timestamp;
       if (!ts) continue;
-      const entryMs = new Date(ts).getTime();
-      if (entryMs < rangeStart || entryMs > rangeEnd) continue;
       const promptTokens = entry.tokens?.prompt_tokens || entry.tokens?.input_tokens || 0;
       const completionTokens = entry.tokens?.completion_tokens || entry.tokens?.output_tokens || 0;
       const cachedTokens = getCachedTokens(entry.tokens);
@@ -276,11 +279,14 @@ export async function getApiKeyUsageReport(filters = {}) {
       });
     }
   } else {
-    const dailySummary = db.data.dailySummary || {};
-    for (const [dateKey, day] of Object.entries(dailySummary)) {
-      const [y, m, d] = dateKey.split("-").map(Number);
-      const dayMs = new Date(y, m - 1, d).getTime();
-      if (dayMs + 86400000 <= rangeStart || dayMs > rangeEnd) continue;
+    // Read daily summaries from SQLite usageDaily table
+    const adapter = await getAdapter();
+    const startKey = new Date(rangeStart).toISOString().slice(0, 10);
+    const endKey = new Date(rangeEnd).toISOString().slice(0, 10);
+    const rows = adapter.all(`SELECT dateKey, data FROM usageDaily WHERE dateKey >= ? AND dateKey <= ?`, [startKey, endKey]);
+    for (const row of rows) {
+      const dateKey = row.dateKey;
+      const day = parseJson(row.data, {});
       const dayTs = `${dateKey}T12:00:00.000Z`;
       for (const [, akData] of Object.entries(day.byApiKey || {})) {
         processEntry({

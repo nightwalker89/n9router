@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { getMitmAlias, setMitmAliasAll, getSettings, updateSettings } from "@/models";
 import { normalizeMitmAliasMappings, normalizeMitmAliasStrategy } from "@/lib/mitmAlias";
 import { getMitmStatus } from "@/mitm/manager";
+import { writeAliasForTool } from "@/lib/mitmAliasCache";
 
 // GET - Get MITM aliases for a tool
 export async function GET(request) {
@@ -45,6 +46,7 @@ export async function PUT(request) {
 
     await updateSettings({ mitmAliasStrategy: normalizedStrategy });
     await setMitmAliasAll(tool, filtered);
+    writeAliasForTool(tool, filtered);
     return NextResponse.json({
       success: true,
       aliases: filtered,

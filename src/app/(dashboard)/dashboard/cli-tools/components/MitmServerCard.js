@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, Button, Badge, Input } from "@/shared/components";
 
 const DEFAULT_MITM_ROUTER_BASE = "http://localhost:20128";
@@ -14,26 +14,20 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
   const [loading, setLoading] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [sudoPassword, setSudoPassword] = useState("");
-  const [selectedApiKey, setSelectedApiKey] = useState("");
+  const [selectedApiKey, setSelectedApiKey] = useState(() => apiKeys?.[0]?.key || "");
   const [pendingAction, setPendingAction] = useState(null);
   const [modalError, setModalError] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [mitmRouterBaseUrl, setMitmRouterBaseUrl] = useState(DEFAULT_MITM_ROUTER_BASE);
+  const [port443Conflict, setPort443Conflict] = useState(null);
 
-  const isWindows = typeof navigator !== "undefined" && navigator.userAgent?.includes("Windows");
+  const serverIsWindows = status?.isWin === true;
+  const canRunWithoutPassword = serverIsWindows || status?.hasCachedPassword || status?.needsSudoPassword === false;
   const isAdmin = status?.isAdmin !== false;
+  // No privilege: not admin/root AND (Win OR no cached sudo password)
+  const noPrivilege = !isAdmin && (serverIsWindows || (!status?.hasCachedPassword && status?.needsSudoPassword !== false));
 
-  useEffect(() => {
-    if (apiKeys?.length > 0 && !selectedApiKey) {
-      setSelectedApiKey(apiKeys[0].key);
-    }
-  }, [apiKeys, selectedApiKey]);
-
-  useEffect(() => {
-    fetchStatus();
-  }, []);
-
-  const fetchStatus = async () => {
+  const fetchStatus = useCallback(async () => {
     try {
       const res = await fetch("/api/cli-tools/antigravity-mitm");
       if (res.ok) {
@@ -47,11 +41,19 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
     } catch {
       setStatus({ running: false, certExists: false, dnsStatus: {} });
     }
-  };
+  }, [onStatusChange]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      fetchStatus();
+    });
+  }, [fetchStatus]);
 
   const handleAction = (action) => {
     setActionError(null);
-    if (isWindows || status?.hasCachedPassword) {
+    // Wait for status to load before deciding whether to show sudo modal
+    if (!status) return;
+    if (canRunWithoutPassword) {
       doAction(action, "");
     } else {
       setPendingAction(action);
@@ -60,7 +62,7 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
     }
   };
 
-  const doAction = async (action, password) => {
+  const doAction = async (action, password, forceKillPort443 = false) => {
     setLoading(true);
     setActionError(null);
     try {
@@ -82,6 +84,7 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
             apiKey: keyToUse,
             sudoPassword: password,
             mitmRouterBaseUrl: mitmRouterBaseUrl.trim() || DEFAULT_MITM_ROUTER_BASE,
+            forceKillPort443,
           }),
         });
       } else {
@@ -91,26 +94,35 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
           body: JSON.stringify({ sudoPassword: password }),
         });
       }
-      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.error || "MITM action failed");
+        const data = await res.json().catch(() => ({}));
+        if (data.code === "PORT_443_BUSY" && data.portOwner) {
+          setShowPasswordModal(false);
+          setPort443Conflict({ owner: data.portOwner, password });
+          return;
+        }
+        setActionError(data.error || `Failed to ${action} MITM server`);
+        return;
       }
       setShowPasswordModal(false);
       setSudoPassword("");
-      setModalError(null);
+      setPort443Conflict(null);
       await fetchStatus();
-    } catch (error) {
-      const msg = error?.message || "MITM action failed";
-      setActionError(msg);
-      if (showPasswordModal) setModalError(msg);
+    } catch (e) {
+      setActionError(e.message || "Network error");
     } finally {
       setLoading(false);
       setPendingAction(null);
     }
   };
 
+  const handleKillAndStart = () => {
+    const pwd = port443Conflict?.password || "";
+    doAction("start", pwd, true);
+  };
+
   const handleConfirmPassword = () => {
-    if (!sudoPassword) {
+    if (!sudoPassword.trim()) {
       setModalError("Sudo password is required");
       return;
     }
@@ -221,7 +233,8 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
             ) : (
               <button
                 onClick={() => handleAction("start")}
-                disabled={loading || (isWindows && !isAdmin)}
+                disabled={loading || !status || (serverIsWindows && !isAdmin)}
+                title={serverIsWindows && !isAdmin ? "Administrator required" : undefined}
                 className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-4 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:opacity-50 sm:w-auto sm:py-1.5"
               >
                 <span className="material-symbols-outlined text-[16px]">play_circle</span>
@@ -242,7 +255,7 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
           )}
 
           {/* Windows admin warning */}
-          {isWindows && !isAdmin && (
+          {serverIsWindows && !isAdmin && (
             <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-red-500/10 text-red-600 border border-red-500/20">
               <span className="material-symbols-outlined text-[14px]">shield_lock</span>
               <span>Administrator required — restart 9Router as Administrator to use MITM</span>
@@ -279,6 +292,33 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
               </Button>
               <Button variant="primary" size="sm" onClick={handleConfirmPassword} loading={loading}>
                 Confirm
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Port 443 Conflict Modal */}
+      {port443Conflict && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="mx-4 flex w-full max-w-md flex-col gap-4 rounded-xl border border-border bg-surface p-5 shadow-xl sm:p-6">
+            <h3 className="font-semibold text-text-main">Port 443 Already In Use</h3>
+            <div className="flex items-start gap-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+              <span className="material-symbols-outlined text-yellow-500 text-[20px]">warning</span>
+              <div className="flex flex-col gap-1 text-xs text-text-muted">
+                <p>Port 443 is currently used by another process:</p>
+                <p className="font-mono text-text-main" data-i18n-skip="true">
+                  {port443Conflict.owner.name} (PID {port443Conflict.owner.pid})
+                </p>
+                <p>Kill this process to start MITM Server?</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => { setPort443Conflict(null); setLoading(false); }} disabled={loading}>
+                Cancel
+              </Button>
+              <Button variant="primary" size="sm" onClick={handleKillAndStart} loading={loading}>
+                Kill & Start
               </Button>
             </div>
           </div>

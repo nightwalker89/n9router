@@ -16,6 +16,9 @@ export const GITHUB_CONFIG = {
 export const UPDATER_CONFIG = {
   npmPackageName: "n9router",
   installCmd: "npm i -g n9router",
+  npmPackageName: "n9router",
+  installCmdLatest: "npm i -g n9router@latest --prefer-online",
+  shutdownCountdownSec: 3,
   exitDelayMs: 500,
   statusPort: 20129,
   statusPollIntervalMs: 1000,
@@ -23,8 +26,8 @@ export const UPDATER_CONFIG = {
   installRetries: 3,
   installRetryDelayMs: 5000,
   lingerAfterDoneMs: 30000,
-  waitForExitMinMs: 3000,
-  waitForExitMaxMs: 15000,
+  waitForExitMinMs: 5000,
+  waitForExitMaxMs: 20000,
   waitForExitCheckMs: 500,
   appPort: 20128,
 };
@@ -55,6 +58,9 @@ export const CONSOLE_LOG_CONFIG = {
   maxLines: 200,
   pollIntervalMs: 1000,
 };
+
+// Client-side store TTL: how long fetched data stays fresh before re-fetching
+export const CLIENT_STORE_TTL_MS = 60000;
 
 // Provider API endpoints (for display only)
 export const PROVIDER_ENDPOINTS = {

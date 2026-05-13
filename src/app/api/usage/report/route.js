@@ -4,7 +4,7 @@ import { getApiKeyUsageReport } from "@/lib/usageReportDb";
 export const dynamic = "force-dynamic";
 
 const VALID_PERIODS = new Set(["24h", "7d", "30d", "60d", "all", "custom"]);
-const VALID_GROUP_BY = new Set(["apiKey", "model", "provider", "time"]);
+const VALID_GROUP_BY = new Set(["apiKey", "model", "provider", "time", "all", "none"]);
 const VALID_SERIES_BY = new Set(["apiKey", "model", "provider", "none"]);
 const VALID_INTERVALS = new Set(["hour", "day", "week", "month"]);
 const VALID_METRICS = new Set(["requests", "tokens", "cost", "cachedTokens"]);
@@ -32,7 +32,9 @@ function parseAndValidateParams(searchParams) {
   const groupBy = searchParams.get("groupBy");
   if (groupBy) {
     if (!VALID_GROUP_BY.has(groupBy)) throw bad(`Invalid groupBy: ${groupBy}`);
-    filters.groupBy = groupBy;
+    // "all" → aggregate mode: use apiKey for breakdown, none for series
+    filters.groupBy = groupBy === "all" ? "apiKey" : (groupBy === "none" ? "apiKey" : groupBy);
+    if (groupBy === "all") filters.seriesBy = "none";
   }
 
   const seriesBy = searchParams.get("seriesBy");

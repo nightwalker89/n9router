@@ -16,7 +16,8 @@ const DB_FILE = path.join(DATA_DIR, "db.json");
 export async function GET() {
   try {
     const settings = await getSettings();
-    const { password, ...safeSettings } = settings;
+    const { password, oidcClientSecret, ...safeSettings } = settings;
+    safeSettings.oidcConfigured = !!(safeSettings.oidcIssuerUrl && safeSettings.oidcClientId && oidcClientSecret);
     
     const enableRequestLogs = process.env.ENABLE_REQUEST_LOGS === "true";
     const enableTranslator = process.env.ENABLE_TRANSLATOR === "true";
@@ -66,6 +67,12 @@ export async function PATCH(request) {
       delete body.currentPassword;
     }
 
+    if (Object.prototype.hasOwnProperty.call(body, "oidcClientSecret")) {
+      if (!body.oidcClientSecret || !String(body.oidcClientSecret).trim()) {
+        delete body.oidcClientSecret;
+      }
+    }
+
     const settings = await updateSettings(body);
 
     // Apply outbound proxy settings immediately (no restart required)
@@ -95,7 +102,8 @@ export async function PATCH(request) {
       configureDbPeriodicBackups(DB_FILE, settings.periodicDbBackupsEnabled !== false);
     }
 
-    const { password, ...safeSettings } = settings;
+    const { password, oidcClientSecret: _oidcSecret, ...safeSettings } = settings;
+    safeSettings.oidcConfigured = !!(safeSettings.oidcIssuerUrl && safeSettings.oidcClientId && _oidcSecret);
     return NextResponse.json({
       ...safeSettings,
       mitmAntigravityDebugLogDir: MITM_ANTIGRAVITY_DEBUG_LOG_DIR,

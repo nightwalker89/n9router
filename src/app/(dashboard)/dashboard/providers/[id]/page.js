@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { Card, Button, Badge, Input, Modal, CardSkeleton, OAuthModal, KiroOAuthWrapper, CursorAuthModal, IFlowCookieModal, GitLabAuthModal, Toggle, Select, EditConnectionModal, Tooltip, NoAuthProxyCard } from "@/shared/components";
+import { Card, Button, Badge, Input, Modal, CardSkeleton, OAuthModal, KiroOAuthWrapper, CursorAuthModal, IFlowCookieModal, GitLabAuthModal, Toggle, Select, EditConnectionModal, NoAuthProxyCard, ConfirmModal } from "@/shared/components";
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS, FREE_PROVIDERS, FREE_TIER_PROVIDERS, WEB_COOKIE_PROVIDERS, getProviderAlias, isOpenAICompatibleProvider, isAnthropicCompatibleProvider, AI_PROVIDERS, THINKING_CONFIG } from "@/shared/constants/providers";
 import { getModelsByProviderId } from "@/shared/constants/models";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
@@ -17,12 +17,6 @@ import AddApiKeyModal from "./AddApiKeyModal";
 import EditCompatibleNodeModal from "./EditCompatibleNodeModal";
 import AddCustomModelModal from "./AddCustomModelModal";
 
-const ANTIGRAVITY_TOOLTIP_IMPORT_AGT =
-  "Imports accounts from ~/.antigravity_tools on this machine (Antigravity IDE local data). Requires that folder to exist and contain signed-in accounts.";
-
-const ANTIGRAVITY_TOOLTIP_IMPORT_REFRESH =
-  "Paste Google OAuth refresh tokens: one per line (1//…), a JSON array with refresh_token, or any text containing \"refresh_token\": \"…\". Each token is refreshed and accounts are added or updated by Google email.";
-
 export default function ProviderDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -34,14 +28,10 @@ export default function ProviderDetailPage() {
   const [showOAuthModal, setShowOAuthModal] = useState(false);
   const [showIFlowCookieModal, setShowIFlowCookieModal] = useState(false);
   const [showAddApiKeyModal, setShowAddApiKeyModal] = useState(false);
+  const [addConnectionError, setAddConnectionError] = useState("");
   const [showEditModal, setShowEditModal] = useState(false);
   const [showEditNodeModal, setShowEditNodeModal] = useState(false);
   const [showBulkProxyModal, setShowBulkProxyModal] = useState(false);
-  const [importingAgt, setImportingAgt] = useState(false);
-  const [importingAgtRefresh, setImportingAgtRefresh] = useState(false);
-  const [showAgtRefreshModal, setShowAgtRefreshModal] = useState(false);
-  const [agtRefreshTokenInput, setAgtRefreshTokenInput] = useState("");
-  const [importResult, setImportResult] = useState(null);
   const [selectedConnection, setSelectedConnection] = useState(null);
   const [modelAliases, setModelAliases] = useState({});
   const [headerImgError, setHeaderImgError] = useState(false);
@@ -52,11 +42,13 @@ export default function ProviderDetailPage() {
   const [selectedConnectionIds, setSelectedConnectionIds] = useState([]);
   const [bulkProxyPoolId, setBulkProxyPoolId] = useState("__none__");
   const [bulkUpdatingProxy, setBulkUpdatingProxy] = useState(false);
-  const [providerStrategy, setProviderStrategy] = useState(null); // null = use global, "round-robin" = override
+  const [providerStrategy, setProviderStrategy] = useState(null);
   const [providerStickyLimit, setProviderStickyLimit] = useState("");
   const [thinkingMode, setThinkingMode] = useState("auto");
   const [suggestedModels, setSuggestedModels] = useState([]);
   const [kiloFreeModels, setKiloFreeModels] = useState([]);
+  const [disabledModelIds, setDisabledModelIds] = useState([]);
+  const [confirmState, setConfirmState] = useState(null);
   const { copied, copy } = useCopyToClipboard();
 
   const providerInfo = providerNode
@@ -84,6 +76,68 @@ export default function ProviderDetailPage() {
   const providerDisplayAlias = isCompatible
     ? (providerNode?.prefix || providerId)
     : providerAlias;
+
+  const fetchDisabledModels = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/models/disabled?providerAlias=${encodeURIComponent(providerStorageAlias)}`, { cache: "no-store" });
+      const data = await res.json();
+      if (res.ok) setDisabledModelIds(data.ids || []);
+    } catch (error) {
+      console.log("Error fetching disabled models:", error);
+    }
+  }, [providerStorageAlias]);
+
+  const handleDisableModel = async (modelId) => {
+    try {
+      const res = await fetch("/api/models/disabled", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerAlias: providerStorageAlias, ids: [modelId] }),
+      });
+      if (res.ok) await fetchDisabledModels();
+    } catch (error) {
+      console.log("Error disabling model:", error);
+    }
+  };
+
+  const handleEnableModel = async (modelId) => {
+    try {
+      const res = await fetch(`/api/models/disabled?providerAlias=${encodeURIComponent(providerStorageAlias)}&id=${encodeURIComponent(modelId)}`, { method: "DELETE" });
+      if (res.ok) await fetchDisabledModels();
+    } catch (error) {
+      console.log("Error enabling model:", error);
+    }
+  };
+
+  const handleDisableAll = async (ids) => {
+    if (!ids.length) return;
+    setConfirmState({
+      title: "Disable All Models",
+      message: `Disable all ${ids.length} model(s)?`,
+      onConfirm: async () => {
+        setConfirmState(null);
+        try {
+          const res = await fetch("/api/models/disabled", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ providerAlias: providerStorageAlias, ids }),
+          });
+          if (res.ok) await fetchDisabledModels();
+        } catch (error) {
+          console.log("Error disabling all models:", error);
+        }
+      }
+    });
+  };
+
+  const handleEnableAll = async () => {
+    try {
+      const res = await fetch(`/api/models/disabled?providerAlias=${encodeURIComponent(providerStorageAlias)}`, { method: "DELETE" });
+      if (res.ok) await fetchDisabledModels();
+    } catch (error) {
+      console.log("Error enabling all models:", error);
+    }
+  };
 
   // Define callbacks BEFORE the useEffect that uses them
   const fetchAliases = useCallback(async () => {
@@ -248,7 +302,8 @@ export default function ProviderDetailPage() {
   useEffect(() => {
     fetchConnections();
     fetchAliases();
-  }, [fetchConnections, fetchAliases]);
+    fetchDisabledModels();
+  }, [fetchConnections, fetchAliases, fetchDisabledModels]);
 
   // Fetch suggested models from provider's public API (if configured)
   useEffect(() => {
@@ -290,15 +345,21 @@ export default function ProviderDetailPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm("Delete this connection?")) return;
-    try {
-      const res = await fetch(`/api/providers/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        setConnections(connections.filter(c => c.id !== id));
+    setConfirmState({
+      title: "Delete Connection",
+      message: "Delete this connection?",
+      onConfirm: async () => {
+        setConfirmState(null);
+        try {
+          const res = await fetch(`/api/providers/${id}`, { method: "DELETE" });
+          if (res.ok) {
+            setConnections(connections.filter(c => c.id !== id));
+          }
+        } catch (error) {
+          console.log("Error deleting connection:", error);
+        }
       }
-    } catch (error) {
-      console.log("Error deleting connection:", error);
-    }
+    });
   };
 
   const handleOAuthSuccess = () => {
@@ -312,18 +373,31 @@ export default function ProviderDetailPage() {
   };
 
   const handleSaveApiKey = async (formData) => {
+    setAddConnectionError("");
     try {
       const res = await fetch("/api/providers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider: providerId, ...formData }),
       });
+
+      let data = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
       if (res.ok) {
         await fetchConnections();
         setShowAddApiKeyModal(false);
+        return;
       }
+
+      setAddConnectionError(data?.error || "Failed to save connection");
     } catch (error) {
       console.log("Error saving connection:", error);
+      setAddConnectionError("Failed to save connection");
     }
   };
 
@@ -435,92 +509,49 @@ export default function ProviderDetailPage() {
     setShowBulkProxyModal(false);
   };
 
-  const handleBulkApplyProxyPool = async () => {
-    if (selectedConnectionIds.length === 0) return;
-
-    const proxyPoolId = bulkProxyPoolId === "__none__" ? null : bulkProxyPoolId;
+  const applyProxyAssignments = async (assignments) => {
     setBulkUpdatingProxy(true);
     try {
-      const results = [];
-      for (const connectionId of selectedConnectionIds) {
+      let failed = 0;
+      for (const { connectionId, proxyPoolId } of assignments) {
         try {
           const res = await fetch(`/api/providers/${connectionId}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ proxyPoolId }),
           });
-          results.push(res.ok);
+          if (!res.ok) failed += 1;
         } catch (e) {
-          console.log("Error applying bulk proxy pool for", connectionId, e);
-          results.push(false);
+          console.log("Error applying proxy for", connectionId, e);
+          failed += 1;
         }
       }
-
-      const failedCount = results.filter((ok) => !ok).length;
-      if (failedCount > 0) {
-        alert(`Updated with ${failedCount} failed request(s).`);
-      }
-
+      if (failed > 0) alert(`Updated with ${failed} failed request(s).`);
       await fetchConnections();
-      clearSelection();
       setShowBulkProxyModal(false);
-    } catch (error) {
-      console.log("Error applying bulk proxy pool:", error);
     } finally {
       setBulkUpdatingProxy(false);
     }
   };
 
+  const handleApplySinglePool = (proxyPoolId) => {
+    const targets = connections.map((c) => ({ connectionId: c.id, proxyPoolId }));
+    return applyProxyAssignments(targets);
+  };
 
-  const agtImportBusy = importingAgt || importingAgtRefresh;
-
-  const handleImportFromAgt = async () => {
-    setImportingAgt(true);
-    setImportResult(null);
-    try {
-      const res = await fetch("/api/antigravity-tools/import", { method: "POST" });
-      const data = await res.json();
-      if (res.ok) {
-        setImportResult(data);
-        await fetchConnections();
-      } else {
-        setImportResult({ error: data.error || "Import failed" });
-      }
-    } catch (err) {
-      setImportResult({ error: err.message });
+  const handleApplyOneToOne = () => {
+    const activePools = proxyPools.filter((p) => p.isActive === true);
+    if (activePools.length === 0) {
+      alert("No active proxy pools available.");
+      return;
     }
-    setImportingAgt(false);
+    const targets = connections.map((c, i) => ({
+      connectionId: c.id,
+      proxyPoolId: activePools[i % activePools.length].id,
+    }));
+    return applyProxyAssignments(targets);
   };
 
-  const handleImportFromRefreshTokens = async () => {
-    if (!agtRefreshTokenInput.trim()) return;
-    setImportingAgtRefresh(true);
-    setImportResult(null);
-    try {
-      const res = await fetch("/api/antigravity-tools/import-refresh-tokens", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: agtRefreshTokenInput }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setImportResult(data);
-        await fetchConnections();
-        setShowAgtRefreshModal(false);
-        setAgtRefreshTokenInput("");
-      } else {
-        setImportResult({ error: data.error || "Import failed" });
-      }
-    } catch (err) {
-      setImportResult({ error: err.message });
-    }
-    setImportingAgtRefresh(false);
-  };
-
-  const closeAgtRefreshModal = () => {
-    if (importingAgtRefresh) return;
-    setShowAgtRefreshModal(false);
-  };
 
   const isSelected = (connectionId) => selectedConnectionIds.includes(connectionId);
 
@@ -569,43 +600,53 @@ export default function ProviderDetailPage() {
     </div>
   );
 
-  const bulkProxyOptions = [
-    { value: "__none__", label: "None" },
-    ...proxyPools.map((pool) => ({ value: pool.id, label: pool.name })),
-  ];
-
-  const bulkHint = selectedConnectionIds.length === 0
-    ? "Select one or more connections, then click Proxy Action."
-    : selectedProxySummary;
-
-  const canApplyBulkProxy = selectedConnectionIds.length > 0 && !bulkUpdatingProxy;
+  const activePools = proxyPools.filter((p) => p.isActive === true);
 
   const bulkActionModal = (
     <Modal
       isOpen={showBulkProxyModal}
       onClose={closeBulkProxyModal}
-      title={`Proxy Action (${selectedConnectionIds.length} selected)`}
+      title={`Apply Proxy (${connections.length} connections)`}
     >
-      <div className="flex flex-col gap-4">
-        <Select
-          label="Proxy Pool"
-          value={bulkProxyPoolId}
-          onChange={(e) => setBulkProxyPoolId(e.target.value)}
-          options={bulkProxyOptions}
-          placeholder="None"
-        />
-
-        <p className="text-xs text-text-muted">{bulkHint}</p>
-        <p className="text-xs text-text-muted">Selecting None will unbind selected connections from proxy pool.</p>
-
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Button onClick={handleBulkApplyProxyPool} fullWidth disabled={!canApplyBulkProxy}>
-            {bulkUpdatingProxy ? "Applying..." : "Apply"}
-          </Button>
-          <Button onClick={closeBulkProxyModal} variant="ghost" fullWidth disabled={bulkUpdatingProxy}>
-            Cancel
-          </Button>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col">
+          <button
+            onClick={handleApplyOneToOne}
+            disabled={bulkUpdatingProxy || activePools.length === 0}
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span className="material-symbols-outlined text-text-muted text-[18px]">sync_alt</span>
+            <span className="text-sm text-text-main">One-to-one (rotate)</span>
+          </button>
+          <button
+            onClick={() => handleApplySinglePool(null)}
+            disabled={bulkUpdatingProxy}
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span className="material-symbols-outlined text-text-muted text-[18px]">link_off</span>
+            <span className="text-sm text-text-main">None (unbind all)</span>
+          </button>
+          {proxyPools.map((pool) => (
+            <button
+              key={pool.id}
+              onClick={() => handleApplySinglePool(pool.id)}
+              disabled={bulkUpdatingProxy || pool.isActive !== true}
+              className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <span className="material-symbols-outlined text-text-muted text-[18px]">lan</span>
+              <span className="truncate text-sm text-text-main">{pool.name}</span>
+              {pool.isActive !== true && (
+                <span className="text-[10px] text-text-muted">(inactive)</span>
+              )}
+            </button>
+          ))}
         </div>
+
+        {bulkUpdatingProxy && <p className="text-xs text-text-muted">Applying...</p>}
+
+        <Button onClick={closeBulkProxyModal} variant="ghost" fullWidth disabled={bulkUpdatingProxy}>
+          Cancel
+        </Button>
       </div>
     </Modal>
   );
@@ -648,10 +689,13 @@ export default function ProviderDetailPage() {
     }
     // Combine hardcoded models with Kilo free models (deduplicated)
     // Exclude non-llm models (embedding, tts, etc.) — they have dedicated pages under media-providers
-    const displayModels = [
+    const allModels = [
       ...models,
       ...kiloFreeModels.filter((fm) => !models.some((m) => m.id === fm.id)),
     ].filter((m) => !m.type || m.type === "llm");
+    const disabledSet = new Set(disabledModelIds);
+    const displayModels = allModels.filter((m) => !disabledSet.has(m.id));
+    const disabledDisplayModels = allModels.filter((m) => disabledSet.has(m.id));
     // Custom models added by user (stored as aliases: modelId → providerAlias/modelId)
     const customModels = Object.entries(modelAliases)
       .filter(([alias, fullModel]) => {
@@ -671,6 +715,25 @@ export default function ProviderDetailPage() {
 
     return (
       <div className="flex flex-wrap gap-3">
+        {/* Custom models first */}
+        {customModels.map((model) => (
+          <ModelRow
+            key={model.id}
+            model={{ id: model.id }}
+            fullModel={`${providerDisplayAlias}/${model.id}`}
+            alias={model.alias}
+            copied={copied}
+            onCopy={copy}
+            onSetAlias={() => {}}
+            onDeleteAlias={() => handleDeleteAlias(model.alias)}
+            testStatus={modelTestResults[model.id]}
+            onTest={connections.length > 0 || isFreeNoAuth ? () => handleTestModel(model.id) : undefined}
+            isTesting={testingModelId === model.id}
+            isCustom
+            isFree={false}
+          />
+        ))}
+
         {displayModels.map((model) => {
           const fullModel = `${providerStorageAlias}/${model.id}`;
           const oldFormatModel = `${providerId}/${model.id}`;
@@ -691,33 +754,15 @@ export default function ProviderDetailPage() {
               onTest={connections.length > 0 || isFreeNoAuth ? () => handleTestModel(model.id) : undefined}
               isTesting={testingModelId === model.id}
               isFree={model.isFree}
+              onDisable={() => handleDisableModel(model.id)}
             />
           );
         })}
 
-        {/* Custom models inline */}
-        {customModels.map((model) => (
-          <ModelRow
-            key={model.id}
-            model={{ id: model.id }}
-            fullModel={`${providerDisplayAlias}/${model.id}`}
-            alias={model.alias}
-            copied={copied}
-            onCopy={copy}
-            onSetAlias={() => {}}
-            onDeleteAlias={() => handleDeleteAlias(model.alias)}
-            testStatus={modelTestResults[model.id]}
-            onTest={connections.length > 0 || isFreeNoAuth ? () => handleTestModel(model.id) : undefined}
-            isTesting={testingModelId === model.id}
-            isCustom
-            isFree={false}
-          />
-        ))}
-
         {/* Add model button — inline, same style as model chips */}
         <button
           onClick={() => setShowAddCustomModel(true)}
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-black/15 px-3 py-2 text-xs text-text-muted transition-colors hover:border-primary/40 hover:text-primary sm:w-auto"
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-primary/40 px-3 py-2 text-xs text-primary transition-colors hover:border-primary hover:bg-primary/5 sm:w-auto"
         >
           <span className="material-symbols-outlined text-sm">add</span>
           Add Model
@@ -753,6 +798,26 @@ export default function ProviderDetailPage() {
             </div>
           );
         })()}
+
+        {/* Disabled models — restorable */}
+        {disabledDisplayModels.length > 0 && (
+          <div className="w-full mt-2">
+            <p className="text-xs text-text-muted mb-2">Disabled models ({disabledDisplayModels.length}):</p>
+            <div className="flex flex-wrap gap-2">
+              {disabledDisplayModels.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => handleEnableModel(m.id)}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-dashed border-black/10 dark:border-white/10 text-xs text-text-muted hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-colors"
+                  title="Restore model"
+                >
+                  <span className="material-symbols-outlined text-[13px]">add</span>
+                  {m.id}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -823,15 +888,15 @@ export default function ProviderDetailPage() {
           <div className="min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="truncate text-2xl font-semibold tracking-tight sm:text-3xl">{providerInfo.name}</h1>
-              {providerInfo.notice?.apiKeyUrl && !providerInfo.deprecated && (
+              {(providerInfo.notice?.apiKeyUrl || providerInfo.notice?.signupUrl || providerInfo.website) && (
                 <a
-                  href={providerInfo.notice.apiKeyUrl}
+                  href={providerInfo.notice?.apiKeyUrl || providerInfo.notice?.signupUrl || providerInfo.website}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-xs text-primary hover:underline inline-flex items-center gap-1"
                 >
                   <span className="material-symbols-outlined text-sm">open_in_new</span>
-                  Get API Key
+                  {providerInfo.notice?.apiKeyUrl ? "Get API Key" : "Sign up / Learn more"}
                 </a>
               )}
             </div>
@@ -880,11 +945,13 @@ export default function ProviderDetailPage() {
               <Button
                 size="sm"
                 icon="add"
-                onClick={() => setShowAddApiKeyModal(true)}
-                disabled={connections.length > 0}
+                onClick={() => {
+                  setAddConnectionError("");
+                  setShowAddApiKeyModal(true);
+                }}
                 className="w-full sm:w-auto"
               >
-                Add
+                Add API Key
               </Button>
               <Button
                 size="sm"
@@ -900,15 +967,21 @@ export default function ProviderDetailPage() {
                 variant="secondary"
                 icon="delete"
                 onClick={async () => {
-                  if (!confirm(`Delete this ${isAnthropicCompatible ? "Anthropic" : "OpenAI"} Compatible node?`)) return;
-                  try {
-                    const res = await fetch(`/api/provider-nodes/${providerId}`, { method: "DELETE" });
-                    if (res.ok) {
-                      router.push("/dashboard/providers");
+                  setConfirmState({
+                    title: "Delete Compatible Node",
+                    message: `Delete this ${isAnthropicCompatible ? "Anthropic" : "OpenAI"} Compatible node?`,
+                    onConfirm: async () => {
+                      setConfirmState(null);
+                      try {
+                        const res = await fetch(`/api/provider-nodes/${providerId}`, { method: "DELETE" });
+                        if (res.ok) {
+                          router.push("/dashboard/providers");
+                        }
+                      } catch (error) {
+                        console.log("Error deleting provider node:", error);
+                      }
                     }
-                  } catch (error) {
-                    console.log("Error deleting provider node:", error);
-                  }
+                  });
                 }}
                 className="w-full sm:w-auto"
               >
@@ -916,11 +989,6 @@ export default function ProviderDetailPage() {
               </Button>
             </div>
           </div>
-          {connections.length > 0 && (
-            <p className="text-sm text-text-muted">
-              Only one connection is allowed per compatible node. Add another node if you need more connections.
-            </p>
-          )}
         </Card>
       )}
 
@@ -932,6 +1000,16 @@ export default function ProviderDetailPage() {
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold">Connections</h2>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+              {connections.length > 0 && proxyPools.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon="lan"
+                  onClick={() => setShowBulkProxyModal(true)}
+                >
+                  Apply Proxy
+                </Button>
+              )}
               {/* Thinking config */}
               {/* {thinkingConfig && (
                 <div className="flex items-center gap-2">
@@ -971,68 +1049,35 @@ export default function ProviderDetailPage() {
             </div>
           </div>
 
-          {/* Import result feedback */}
-          {importResult && (
-            <div className={`flex items-center justify-between gap-2 mb-3 px-3 py-2 rounded-lg text-xs ${
-              importResult.error
-                ? "bg-red-500/5 border border-red-500/15 text-red-500"
-                : "bg-green-500/5 border border-green-500/15 text-green-600"
-            }`}>
-              <span>
-                {importResult.error
-                  ? `✗ ${importResult.error}`
-                  : (() => {
-                      const parts = [
-                        `imported ${importResult.imported}`,
-                        `updated ${importResult.updated}`,
-                      ];
-                      if (importResult.skipped > 0) parts.push(`skipped ${importResult.skipped}`);
-                      if (importResult.failed > 0) parts.push(`failed ${importResult.failed}`);
-                      return `✓ ${parts.join(", ")}`;
-                    })()}
-              </span>
-              <button onClick={() => setImportResult(null)} className="text-current opacity-60 hover:opacity-100">✕</button>
-            </div>
-          )}
-
           {connections.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 text-primary mb-4">
-                <span className="material-symbols-outlined text-[32px]">{isOAuth ? "lock" : "key"}</span>
-              </div>
-              <p className="text-text-main font-medium mb-1">No connections yet</p>
-              <p className="text-sm text-text-muted mb-4">Add your first connection to get started</p>
-              {!isCompatible && (
-                <div className="flex flex-col gap-2 justify-center sm:flex-row">
-                  {providerId === "iflow" && (
-                    <Button icon="cookie" variant="secondary" onClick={() => setShowIFlowCookieModal(true)}>
-                      Cookie Auth
-                    </Button>
-                  )}
-                  <Button icon="add" onClick={() => isOAuth ? setShowOAuthModal(true) : setShowAddApiKeyModal(true)}>
-                    {providerId === "iflow" ? "OAuth" : "Add Connection"}
-                  </Button>
-                  {providerId === "antigravity" && (
-                    <>
-                      <Tooltip text={ANTIGRAVITY_TOOLTIP_IMPORT_AGT} position="bottom">
-                        <Button icon="download" variant="secondary" onClick={handleImportFromAgt} disabled={agtImportBusy}>
-                          {importingAgt ? "Importing…" : "Import from AGT"}
-                        </Button>
-                      </Tooltip>
-                      <Tooltip text={ANTIGRAVITY_TOOLTIP_IMPORT_REFRESH} position="bottom">
-                        <Button
-                          icon="key"
-                          variant="secondary"
-                          onClick={() => setShowAgtRefreshModal(true)}
-                          disabled={agtImportBusy}
-                        >
-                          Import refresh tokens
-                        </Button>
-                      </Tooltip>
-                    </>
-                  )}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-primary/10 text-primary shrink-0">
+                  <span className="material-symbols-outlined text-[18px]">{isOAuth ? "lock" : "key"}</span>
                 </div>
-              )}
+                <p className="text-sm text-text-muted">No connections yet</p>
+              </div>
+              <div className="flex gap-2">
+                {!isCompatible && providerId === "iflow" && (
+                  <Button size="sm" icon="cookie" variant="secondary" onClick={() => setShowIFlowCookieModal(true)}>
+                    Cookie
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  icon="add"
+                  onClick={() => {
+                    if (isOAuth) {
+                      setShowOAuthModal(true);
+                      return;
+                    }
+                    setAddConnectionError("");
+                    setShowAddApiKeyModal(true);
+                  }}
+                >
+                  {isCompatible ? "Add API Key" : (providerId === "iflow" ? "OAuth" : "Add Connection")}
+                </Button>
+              </div>
             </div>
           ) : (
             <>
@@ -1054,31 +1099,18 @@ export default function ProviderDetailPage() {
                   <Button
                     size="sm"
                     icon="add"
-                    onClick={() => isOAuth ? setShowOAuthModal(true) : setShowAddApiKeyModal(true)}
+                    onClick={() => {
+                      if (isOAuth) {
+                        setShowOAuthModal(true);
+                        return;
+                      }
+                      setAddConnectionError("");
+                      setShowAddApiKeyModal(true);
+                    }}
                     className="w-full sm:w-auto"
                   >
                     Add
                   </Button>
-                  {providerId === "antigravity" && (
-                    <>
-                      <Tooltip text={ANTIGRAVITY_TOOLTIP_IMPORT_AGT} position="bottom">
-                        <Button size="sm" icon="download" variant="secondary" onClick={handleImportFromAgt} disabled={agtImportBusy}>
-                          {importingAgt ? "Importing…" : "Import from AGT"}
-                        </Button>
-                      </Tooltip>
-                      <Tooltip text={ANTIGRAVITY_TOOLTIP_IMPORT_REFRESH} position="bottom">
-                        <Button
-                          size="sm"
-                          icon="key"
-                          variant="secondary"
-                          onClick={() => setShowAgtRefreshModal(true)}
-                          disabled={agtImportBusy}
-                        >
-                          Refresh tokens
-                        </Button>
-                      </Tooltip>
-                    </>
-                  )}
                 </div>
               )}
             </>
@@ -1092,6 +1124,27 @@ export default function ProviderDetailPage() {
           <h2 className="text-lg font-semibold">
             {"Available Models"}
           </h2>
+          {!isCompatible && (() => {
+            const allIds = [
+              ...models,
+              ...kiloFreeModels.filter((fm) => !models.some((m) => m.id === fm.id)),
+            ].filter((m) => !m.type || m.type === "llm").map((m) => m.id);
+            const activeIds = allIds.filter((id) => !disabledModelIds.includes(id));
+            return (
+              <div className="flex gap-2">
+                {disabledModelIds.length > 0 && (
+                  <Button size="sm" variant="secondary" icon="restart_alt" onClick={handleEnableAll}>
+                    Active All
+                  </Button>
+                )}
+                {activeIds.length > 0 && (
+                  <Button size="sm" variant="secondary" icon="block" onClick={() => handleDisableAll(activeIds)}>
+                    Disable All
+                  </Button>
+                )}
+              </div>
+            );
+          })()}
         </div>
         {!!modelsTestError && (
           <p className="text-xs text-red-500 mb-3 break-words">{modelsTestError}</p>
@@ -1100,43 +1153,6 @@ export default function ProviderDetailPage() {
       </Card>
 
       {bulkActionModal}
-
-      {providerId === "antigravity" && (
-        <Modal isOpen={showAgtRefreshModal} onClose={closeAgtRefreshModal} title="Import accounts (refresh tokens)">
-          <div className="flex flex-col gap-4">
-            <p className="text-sm text-text-muted">
-              Paste one or more Google OAuth refresh tokens. Supported formats: a single token (lines starting with{" "}
-              <code className="text-xs bg-surface-secondary px-1 rounded">1//…</code>
-              ), a JSON array with{" "}
-              <code className="text-xs bg-surface-secondary px-1 rounded">refresh_token</code>
-              , or any text containing{" "}
-              <code className="text-xs bg-surface-secondary px-1 rounded">&quot;refresh_token&quot;: &quot;…&quot;</code>{" "}
-              (values are extracted automatically).
-            </p>
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-text-primary">Refresh tokens</label>
-              <textarea
-                value={agtRefreshTokenInput}
-                onChange={(e) => setAgtRefreshTokenInput(e.target.value)}
-                placeholder={`Paste your refresh token(s) here (batch supported)\n\nExample:\n"refresh_token": "example_refresh_token"`}
-                className="w-full min-h-[160px] px-3 py-2 bg-surface-secondary border border-border rounded-lg text-sm text-text-primary placeholder:text-text-muted/80 focus:outline-none focus:ring-2 focus:ring-primary resize-y font-mono"
-                disabled={importingAgtRefresh}
-              />
-              <p className="text-xs text-text-muted">
-                Tip: You can paste multiple tokens or a JSON array to import in batch.
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="secondary" fullWidth onClick={closeAgtRefreshModal} disabled={importingAgtRefresh}>
-                Cancel
-              </Button>
-              <Button fullWidth onClick={handleImportFromRefreshTokens} disabled={importingAgtRefresh || !agtRefreshTokenInput.trim()}>
-                {importingAgtRefresh ? "Importing…" : "Import"}
-              </Button>
-            </div>
-          </div>
-        </Modal>
-      )}
 
       {/* Modals */}
       {providerId === "kiro" ? (
@@ -1185,8 +1201,13 @@ export default function ProviderDetailPage() {
         authHint={providerInfo?.authHint}
         website={providerInfo?.website}
         proxyPools={proxyPools}
+        error={addConnectionError}
         onSave={handleSaveApiKey}
-        onClose={() => setShowAddApiKeyModal(false)}
+        onBulkDone={fetchConnections}
+        onClose={() => {
+          setAddConnectionError("");
+          setShowAddApiKeyModal(false);
+        }}
       />
       <EditConnectionModal
         isOpen={showEditModal}
@@ -1220,6 +1241,16 @@ export default function ProviderDetailPage() {
           onClose={() => setShowAddCustomModel(false)}
         />
       )}
+
+      {/* Confirm Modal */}
+      <ConfirmModal
+        isOpen={!!confirmState}
+        onClose={() => setConfirmState(null)}
+        onConfirm={confirmState?.onConfirm}
+        title={confirmState?.title || "Confirm"}
+        message={confirmState?.message}
+        variant="danger"
+      />
     </div>
   );
 }

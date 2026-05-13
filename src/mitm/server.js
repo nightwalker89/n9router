@@ -24,6 +24,7 @@ const { createAntigravityDebugContext, extractBearerToken, maskToken } = require
 const { getCertForDomain } = require("./cert/generate");
 const { buildInputOnlyRequestDetail, createTokenSwapUsageObserver, generateDetailId } = require("./usageTracker");
 const { pushHealthEvent, getLastEventStatus, migrateToEmailKeys } = require("./healthStore");
+const { getMitmAlias } = require("./dbReader");
 
 const { applyRtkCompression } = require("./rtkCompressor");
 const { applyAntigravityIdeVersionOverride } = require("./antigravityIdeVersion");
@@ -135,6 +136,20 @@ function extractModel(url, body) {
       return parsed.conversationState.currentMessage?.userInputMessage?.modelId || null;
     }
     return parsed.model || null;
+  } catch { return null; }
+}
+
+function getMappedModel(tool, model) {
+  if (!model) return null;
+  try {
+    const aliases = getMitmAlias(tool);
+    if (!aliases) return null;
+    // Normalize via synonym map (e.g., gemini-default → gemini-3-flash)
+    const lookup = MODEL_SYNONYMS?.[tool]?.[model] || model;
+    if (aliases[lookup]) return aliases[lookup];
+    // Prefix match fallback
+    const prefixKey = Object.keys(aliases).find(k => k && aliases[k] && (lookup.startsWith(k) || k.startsWith(lookup)));
+    return prefixKey ? aliases[prefixKey] : null;
   } catch { return null; }
 }
 

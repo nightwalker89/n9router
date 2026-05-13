@@ -77,3 +77,4 @@ gh
 scripts/agSniffer/*
 gitbooks/*
 .commandcode
+gitbook/README.md

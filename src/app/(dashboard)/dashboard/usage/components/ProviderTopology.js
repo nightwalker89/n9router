@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import PropTypes from "prop-types";
 import {
   ReactFlow,
+  Controls,
   Handle,
   Position,
 } from "@xyflow/react";
@@ -279,7 +280,9 @@ export default function ProviderTopology({ providers = [], activeRequests = [], 
           nodesDraggable={false}
           nodesConnectable={false}
           elementsSelectable={false}
-        />
+        >
+          <Controls showInteractive={false} className="react-flow-controls-custom" />
+        </ReactFlow>
       )}
     </div>
   );

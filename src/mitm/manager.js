@@ -458,12 +458,14 @@ async function startServer(apiKey, sudoPassword) {
     } catch { /* best effort */ }
 
     // Spawn directly — process already has admin rights
+    // cwd=tmpdir so process doesn't lock the install dir on Windows (EBUSY on update)
     serverProcess = spawn(
       process.execPath,
       [SERVER_PATH],
       {
         detached: false,
         windowsHide: true,
+        cwd: os.tmpdir(),
         stdio: ["ignore", "pipe", "pipe"],
         env: {
           ...process.env,
@@ -497,6 +499,7 @@ async function startServer(apiKey, sudoPassword) {
     serverProcess = spawn(process.execPath, [SERVER_PATH], {
       detached: false,
       windowsHide: true,
+      cwd: os.tmpdir(),
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
