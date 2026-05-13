@@ -1,5 +1,7 @@
 const fs = require("fs");
 const http = require("http");
+const { getMitmSettings } = require("./mitmSettings");
+const { getMitmAlias } = require("./dbReader");
 
 const MITM_ALIAS_RR_STATE_KEY = "mitmAliasRoundRobinState";
 const ROUTER_PORT = process.env.PORT || 20128;
@@ -7,11 +9,6 @@ const ROUTER_PORT = process.env.PORT || 20128;
 const FORCED_PASSTHROUGH_MODELS = {
   antigravity: new Set(["gemini-3.1-flash-lite"]),
 };
-
-function readDbSync(dbFile) {
-  if (!dbFile || !fs.existsSync(dbFile)) return null;
-  return JSON.parse(fs.readFileSync(dbFile, "utf-8"));
-}
 
 function shouldPassthroughModel({ tool, model }) {
   if (!tool || !model) return false;
@@ -50,13 +47,14 @@ function findMappedEntry(aliases, model) {
     : undefined;
 }
 
-function getMappedModelSelection({ dbFile, tool, model, limit = 5 }) {
+// dbFile param is kept for backward compat with call sites that still pass it,
+// but aliases are now read from mitm/aliases.json via getMitmAlias() (dbReader.js).
+function getMappedModelSelection({ tool, model, limit = 5 }) {
   if (!tool || !model) return null;
   if (shouldPassthroughModel({ tool, model })) return null;
 
   try {
-    const db = readDbSync(dbFile);
-    const aliases = db?.mitmAlias?.[tool];
+    const aliases = getMitmAlias(tool);
     if (!aliases) return null;
 
     const match = findMappedEntry(aliases, model);
@@ -72,24 +70,22 @@ function getMappedModelSelection({ dbFile, tool, model, limit = 5 }) {
   }
 }
 
-function getMappedModels({ dbFile, tool, model, limit = 5 }) {
-  return getMappedModelSelection({ dbFile, tool, model, limit })?.models || null;
+function getMappedModels({ tool, model, limit = 5 }) {
+  return getMappedModelSelection({ tool, model, limit })?.models || null;
 }
 
-function getMitmAliasStrategy({ dbFile, fallback = "round-robin" }) {
+function getMitmAliasStrategy({ fallback = "round-robin" } = {}) {
   try {
-    const db = readDbSync(dbFile);
-    const strategy = db?.settings?.mitmAliasStrategy ?? db?.mitmAliasStrategy;
+    const strategy = getMitmSettings().mitmAliasStrategy;
     return strategy === "fallback" ? "fallback" : fallback;
   } catch {
     return fallback;
   }
 }
 
-function getRoundRobinStateValue(db, tool, aliasKey) {
-  const state = db?.settings?.[MITM_ALIAS_RR_STATE_KEY];
+function getRoundRobinStateValue(tool, aliasKey) {
+  const state = getMitmSettings()[MITM_ALIAS_RR_STATE_KEY];
   if (!state || typeof state !== "object" || Array.isArray(state)) return 0;
-
   const value = state[`${tool}:${aliasKey}`];
   return Number.isInteger(value) && value >= 0 ? value : 0;
 }
@@ -125,8 +121,7 @@ function orderMappedModels({ dbFile, tool, aliasKey, models, strategy }) {
   const list = Array.isArray(models) ? [...models] : [];
   if (strategy !== "round-robin" || list.length <= 1) return list;
 
-  const db = readDbSync(dbFile);
-  const startIndex = getRoundRobinStateValue(db, tool, aliasKey) % list.length;
+  const startIndex = getRoundRobinStateValue(tool, aliasKey) % list.length;
   const nextIndex = (startIndex + 1) % list.length;
   // Fire-and-forget via API — dbFile ignored (kept in signature for compat)
   setRoundRobinStateValue({ tool, aliasKey, nextIndex });

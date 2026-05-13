@@ -3,13 +3,14 @@
  * rtkCompressor.js — RTK (Token Killer) compression for the MITM token-swap path.
  *
  * All RTK logic lives here so server.js stays minimal.
- * Export: applyRtkCompression(bodyBuffer, dbFile, log) → Buffer
+ * Export: applyRtkCompression(bodyBuffer, log) → Buffer
  *
  * The MITM process is CJS; RTK modules are ESM — loaded via dynamic import().
  */
 
 const fs = require("fs");
 const path = require("path");
+const { getMitmSettings } = require("./mitmSettings");
 
 // ── Lazy ESM module loaders ──────────────────────────────────────────────────
 
@@ -73,14 +74,12 @@ function dumpSchema(parsed, label, log) {
  * Apply RTK compression to a token-swap request body if enabled in settings.
  *
  * @param {Buffer}   bodyBuffer  - Raw request body
- * @param {string}   dbFile      - Path to db.json
  * @param {Function} log         - MITM log function
  * @returns {Promise<Buffer>}      Compressed body (or original if unchanged)
  */
-async function applyRtkCompression(bodyBuffer, dbFile, log) {
+async function applyRtkCompression(bodyBuffer, log) {
   try {
-    const db = JSON.parse(fs.readFileSync(dbFile, "utf-8"));
-    if (!db.settings?.rtkEnabled) return bodyBuffer;
+    if (!getMitmSettings().rtkEnabled) return bodyBuffer;
 
     const parsed = JSON.parse(bodyBuffer.toString());
 

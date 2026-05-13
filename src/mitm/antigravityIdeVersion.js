@@ -6,8 +6,8 @@ const {
   normalizeAntigravityIdeVersion,
 } = require("./mitmSettings");
 
-function loadAntigravityIdeVersionSettings(dbFile) {
-  return getAntigravityIdeVersionSettings(dbFile);
+function loadAntigravityIdeVersionSettings() {
+  return getAntigravityIdeVersionSettings();
 }
 
 function shouldRewriteMetadata(metadata) {
@@ -24,8 +24,8 @@ function rewriteAntigravityUserAgent(userAgent, version) {
   return userAgent.replace(/antigravity\/[^\s]+/, `antigravity/${version}`);
 }
 
-function applyAntigravityIdeVersionOverride(bodyBuffer, headers, dbFile, log = () => {}) {
-  const settings = loadAntigravityIdeVersionSettings(dbFile);
+function applyAntigravityIdeVersionOverride(bodyBuffer, headers, log = () => {}) {
+  const settings = loadAntigravityIdeVersionSettings();
   if (!settings.enabled) {
     return { bodyBuffer, headers, applied: false, version: settings.version };
   }

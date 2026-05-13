@@ -160,12 +160,12 @@ function getMappedModel(tool, model) {
  */
 async function passthrough(req, res, bodyBuffer, onResponse, debugContext = null) {
   let targetHost = (req.headers.host || TARGET_HOSTS[0]).split(":")[0];
-  const rewrittenHost = getAntigravityHostRewriteTarget(targetHost, DB_FILE);
+  const rewrittenHost = getAntigravityHostRewriteTarget(targetHost);
   if (rewrittenHost !== targetHost) targetHost = rewrittenHost;
   const targetIP = await resolveTargetIP(targetHost);
   const tool = getToolForHost(req.headers.host);
   const versionOverride = tool === "antigravity"
-    ? applyAntigravityIdeVersionOverride(bodyBuffer, req.headers, DB_FILE, log)
+    ? applyAntigravityIdeVersionOverride(bodyBuffer, req.headers, log)
     : { bodyBuffer, headers: req.headers };
   const bodyForForwarding = versionOverride.bodyBuffer;
   const headersForForwarding = {
@@ -222,19 +222,19 @@ async function passthrough(req, res, bodyBuffer, onResponse, debugContext = null
 
 async function tokenSwapForward(req, res, bodyBuffer, connections, model, strategy, provider, requestStartTime, debugContext = null) {
   let targetHost = (req.headers.host || TARGET_HOSTS[0]).split(":")[0];
-  const rewrittenHost = getAntigravityHostRewriteTarget(targetHost, DB_FILE);
+  const rewrittenHost = getAntigravityHostRewriteTarget(targetHost);
   if (rewrittenHost !== targetHost) targetHost = rewrittenHost;
   const targetIP = await resolveTargetIP(targetHost);
   let lastRetryResponse = null;
 
   const versionOverride = provider === "antigravity"
-    ? applyAntigravityIdeVersionOverride(bodyBuffer, req.headers, DB_FILE, log)
+    ? applyAntigravityIdeVersionOverride(bodyBuffer, req.headers, log)
     : { bodyBuffer, headers: req.headers };
   const bodyForForwarding = versionOverride.bodyBuffer;
   const headersForForwarding = versionOverride.headers;
 
   // ── RTK compression (see src/mitm/rtkCompressor.js) ──
-  const effectiveBody = await applyRtkCompression(bodyForForwarding, DB_FILE, log);
+  const effectiveBody = await applyRtkCompression(bodyForForwarding, log);
 
   for (let i = 0; i < connections.length; i++) {
     const originalConn = connections[i];
@@ -721,7 +721,7 @@ const server = https.createServer(sslOptions, async (req, res) => {
 
     log(`🔍 [${tool}] model="${model}"`);
 
-    const mappedSelection = getMappedModelSelection({ dbFile: DB_FILE, tool, model });
+    const mappedSelection = getMappedModelSelection({ tool, model });
     if (!mappedSelection) {
       // log(`⏩ passthrough | no mapping | ${tool} | ${model || "unknown"}`);
       debugContext?.log("route.selected", {
@@ -733,7 +733,7 @@ const server = https.createServer(sslOptions, async (req, res) => {
     }
 
     const { aliasKey, models: mappedModels } = mappedSelection;
-    const strategy = getMitmAliasStrategy({ dbFile: DB_FILE });
+    const strategy = getMitmAliasStrategy();
     const strategyTag = strategy === "round-robin" ? "rr" : "fb";
     log(`⚡ intercept | ${tool} | mode=${strategyTag} | ${model} → ${mappedModels.join(", ")}`);
     debugContext?.log("route.selected", {
@@ -744,7 +744,6 @@ const server = https.createServer(sslOptions, async (req, res) => {
       strategy,
     });
     const handled = await tryMappedModels({
-      dbFile: DB_FILE,
       req,
       res,
       bodyBuffer,

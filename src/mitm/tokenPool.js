@@ -3,14 +3,15 @@
  * provides token rotation with cooldown management.
  *
  * Runs in MITM server process (CJS, separate from Next.js).
- * WRITES go through the app's HTTP API (→ SQLite → db.json sync) to avoid
- * direct db.json mutation which would bypass the SQLite source of truth.
+ * Settings are read from mitm/settings.json via getMitmSettings() (targeted cache,
+ * synced from SQLite by the app). WRITES go through the app's HTTP API.
  */
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const { DATA_DIR } = require("./paths");
 const { log } = require("./logger");
+const { getMitmSettings } = require("./mitmSettings");
 
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000; // refresh 5min before expiry
@@ -35,11 +36,7 @@ const modelStrikeMap = {};     // { [connectionId]: { [model]: consecutiveHitCou
 // Hard cooldown only triggers after STRIKE_THRESHOLD consecutive 429s.
 
 function getStrikeThreshold() {
-  try {
-    if (!fs.existsSync(DB_FILE)) return DEFAULT_STRIKE_THRESHOLD;
-    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
-    return db.settings?.cooldownStrikeThreshold || DEFAULT_STRIKE_THRESHOLD;
-  } catch { return DEFAULT_STRIKE_THRESHOLD; }
+  return getMitmSettings().cooldownStrikeThreshold || DEFAULT_STRIKE_THRESHOLD;
 }
 
 /**
@@ -170,8 +167,8 @@ function isStoredModelQuotaExhausted(connection, model) {
   return modelStatus.exhausted === true || modelStatus.remainingPercentage === 0;
 }
 
-function isAntigravitySonnetZeroAutoDisableEnabled(db) {
-  return db?.settings?.mitmAntigravityAutoDisableOnSonnetZero !== false;
+function isAntigravitySonnetZeroAutoDisableEnabled() {
+  return getMitmSettings().mitmAntigravityAutoDisableOnSonnetZero !== false;
 }
 
 function autoDisableAccountIfSonnetQuotaZero(connection, failure = {}) {
@@ -180,8 +177,8 @@ function autoDisableAccountIfSonnetQuotaZero(connection, failure = {}) {
   try {
     const now = new Date().toISOString();
     const statusLabel = failure.statusCode ? `status ${failure.statusCode}` : "request failure";
-    const disabled = updateConnectionInDb(connection.id, (conn, db) => {
-      if (!isAntigravitySonnetZeroAutoDisableEnabled(db)) return false;
+    const disabled = updateConnectionInDb(connection.id, (conn) => {
+      if (!isAntigravitySonnetZeroAutoDisableEnabled()) return false;
       if (conn.isActive === false) return false;
       if (!isStoredModelQuotaExhausted(conn, SONNET_46_MODEL_KEY)) return false;
       Object.assign(conn, {
@@ -205,11 +202,7 @@ function autoDisableAccountIfSonnetQuotaZero(connection, failure = {}) {
 // ── Strategy reader ───────────────────────────────────────────
 
 function getTokenSwapStrategy() {
-  try {
-    if (!fs.existsSync(DB_FILE)) return "round-robin";
-    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
-    return db.settings?.tokenSwapStrategy || "round-robin";
-  } catch { return "round-robin"; }
+  return getMitmSettings().tokenSwapStrategy || "round-robin";
 }
 
 // ── Quota cooldown parser ────────────────────────────────────
@@ -266,12 +259,9 @@ function getAntigravity503RetryCount(connectionOverride) {
   if (connectionOverride != null) {
     return connectionOverride;
   }
-  // Global setting from db.json — 0 is valid ("switch immediately, no retry")
-  try {
-    if (!fs.existsSync(DB_FILE)) return DEFAULT_503_RETRY_COUNT;
-    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
-    return db.settings?.antigravity503RetryCount ?? DEFAULT_503_RETRY_COUNT;
-  } catch { return DEFAULT_503_RETRY_COUNT; }
+  // Global setting from mitm/settings.json cache
+  const v = getMitmSettings().antigravity503RetryCount;
+  return v ?? DEFAULT_503_RETRY_COUNT;
 }
 
 // ── Read connections from db.json (sync) ─────────────────────
@@ -411,13 +401,7 @@ function maskEmail(email) {
 }
 
 function isAccountEmailMaskEnabled() {
-  try {
-    if (!fs.existsSync(DB_FILE)) return false;
-    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
-    return !!db.settings?.tokenSwapMaskEmails;
-  } catch {
-    return false;
-  }
+  return !!getMitmSettings().tokenSwapMaskEmails;
 }
 
 function getConnectionLabel(connection) {
@@ -433,10 +417,7 @@ function getConnectionLabel(connection) {
 
 function isTokenSwapEnabled(provider) {
   try {
-    if (!fs.existsSync(DB_FILE)) return false;
-    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
-    // Explicit toggle — must be enabled in settings
-    if (!db.settings?.tokenSwapEnabled) {
+    if (!getMitmSettings().tokenSwapEnabled) {
       return false;
     }
     const active = getActiveConnections(provider);

@@ -18,6 +18,7 @@ import {
 } from "@/lib/tunnel/tunnelConfig";
 import { getMitmStatus, startMitm, loadEncryptedPassword, initDbHooks, restoreToolDNS, removeAllDNSEntriesSync } from "@/mitm/manager";
 import { syncToJson as syncMitmAliasCache } from "@/lib/mitmAliasCache";
+import { syncMitmSettingsCache } from "@/lib/mitmSettingsCache";
 
 // Inject correct paths and DB hooks into manager.js (CJS) from ESM context
 (function bootstrapMitm() {
@@ -76,8 +77,9 @@ export async function initializeApp() {
 
     ensureCloudflared().catch(() => {});
 
-    // Sync mitmAlias DB → JSON cache so standalone MITM server can read it
+    // Sync MITM caches: DB → JSON files so the standalone MITM server can read them
     syncMitmAliasCache().catch(() => {});
+    syncMitmSettingsCache().catch(() => {});
 
     startWatchdog();
     startNetworkMonitor();

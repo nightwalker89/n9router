@@ -2,7 +2,10 @@ const fs = require("fs");
 const path = require("path");
 const zlib = require("zlib");
 const { DATA_DIR } = require("./paths");
+const { getMitmSettings } = require("./mitmSettings");
 
+// DB_FILE is still used by findConnectionByAccessToken to look up connections.
+// (providerConnections are not in the settings cache — they remain in db.json)
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const LOG_FILENAME = "mitm-debug.jsonl";
 const MITM_ANTIGRAVITY_LOG_DIR = path.join(DATA_DIR, "mitm", "logs", "antigravity");
@@ -15,18 +18,8 @@ function safeJsonParse(value) {
   }
 }
 
-function readSettings() {
-  try {
-    if (!fs.existsSync(DB_FILE)) return null;
-    const db = JSON.parse(fs.readFileSync(DB_FILE, "utf-8"));
-    return db?.settings || null;
-  } catch {
-    return null;
-  }
-}
-
 function isAntigravityDebugLoggingEnabled() {
-  return readSettings()?.mitmAntigravityDebugLogsEnabled === true;
+  return getMitmSettings().mitmAntigravityDebugLogsEnabled === true;
 }
 
 function getAntigravityDebugLogDir(date = new Date()) {

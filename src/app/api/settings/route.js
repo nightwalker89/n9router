@@ -3,6 +3,7 @@ import { getSettings, updateSettings } from "@/lib/localDb";
 import { applyOutboundProxyEnv } from "@/lib/network/outboundProxy";
 import { DATA_DIR } from "@/lib/dataDir";
 import { DATA_FILE } from "@/lib/db/paths.js";
+import { patchMitmSettingsCache } from "@/lib/mitmSettingsCache";
 import { createRequire } from "node:module";
 import { setRtkEnabled } from "open-sse/rtk/index.js";
 import { resetComboRotation } from "open-sse/services/combo.js";
@@ -74,6 +75,10 @@ export async function PATCH(request) {
     }
 
     const settings = await updateSettings(body);
+
+    // Sync MITM-relevant settings to mitm/settings.json so the standalone
+    // MITM process picks up the change immediately (no restart needed).
+    patchMitmSettingsCache(body);
 
     // Apply outbound proxy settings immediately (no restart required)
     if (
