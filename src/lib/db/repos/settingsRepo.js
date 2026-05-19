@@ -44,6 +44,12 @@ const DEFAULT_SETTINGS = {
   periodicDbBackupsEnabled: true,
   cavemanEnabled: false,
   cavemanLevel: "full",
+  // Token swap settings (synced to mitm/settings.json for MITM process)
+  tokenSwapEnabled: true,
+  tokenSwapStrategy: "round-robin",
+  tokenSwapMaskEmails: false,
+  cooldownStrikeThreshold: 3,
+  antigravity503RetryCount: 3,
 };
 
 async function readRaw() {

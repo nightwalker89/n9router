@@ -33,10 +33,11 @@ function getLocalDateKey(timestamp) {
 }
 
 function addToCounter(target, key, values) {
-  if (!target[key]) target[key] = { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0 };
+  if (!target[key]) target[key] = { requests: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, cost: 0 };
   target[key].requests += values.requests || 1;
   target[key].promptTokens += values.promptTokens || 0;
   target[key].completionTokens += values.completionTokens || 0;
+  target[key].cachedTokens = (target[key].cachedTokens || 0) + (values.cachedTokens || 0);
   target[key].cost += values.cost || 0;
   if (values.meta) Object.assign(target[key], values.meta);
 }
@@ -44,12 +45,14 @@ function addToCounter(target, key, values) {
 function aggregateEntryToDay(day, entry) {
   const promptTokens = entry.tokens?.prompt_tokens || entry.tokens?.input_tokens || 0;
   const completionTokens = entry.tokens?.completion_tokens || entry.tokens?.output_tokens || 0;
+  const cachedTokens = entry.tokens?.cached_tokens || entry.tokens?.cache_read_input_tokens || entry.tokens?.prompt_tokens_details?.cached_tokens || 0;
   const cost = entry.cost || 0;
-  const vals = { promptTokens, completionTokens, cost };
+  const vals = { promptTokens, completionTokens, cachedTokens, cost };
 
   day.requests = (day.requests || 0) + 1;
   day.promptTokens = (day.promptTokens || 0) + promptTokens;
   day.completionTokens = (day.completionTokens || 0) + completionTokens;
+  day.cachedTokens = (day.cachedTokens || 0) + cachedTokens;
   day.cost = (day.cost || 0) + cost;
 
   day.byProvider ||= {};
@@ -376,7 +379,7 @@ export async function getUsageStats(period = "all") {
 
   const stats = {
     totalRequests: 0,
-    totalPromptTokens: 0, totalCompletionTokens: 0, totalCost: 0,
+    totalPromptTokens: 0, totalCompletionTokens: 0, totalCachedTokens: 0, totalCost: 0,
     byProvider: {}, byModel: {}, byAccount: {}, byApiKey: {}, byEndpoint: {},
     last10Minutes: [],
     pending: pendingRequests,
@@ -437,6 +440,7 @@ export async function getUsageStats(period = "all") {
       const day = parseJson(dr.data, {});
       stats.totalPromptTokens += day.promptTokens || 0;
       stats.totalCompletionTokens += day.completionTokens || 0;
+      stats.totalCachedTokens += day.cachedTokens || 0;
       stats.totalCost += day.cost || 0;
 
       for (const [prov, p] of Object.entries(day.byProvider || {})) {
@@ -553,8 +557,10 @@ export async function getUsageStats(period = "all") {
       const entryCost = r.cost || 0;
       const providerDisplayName = providerNodeNameMap[r.provider] || r.provider;
 
+      const cachedTokens = tokens.cached_tokens || tokens.cache_read_input_tokens || tokens.prompt_tokens_details?.cached_tokens || 0;
       stats.totalPromptTokens += promptTokens;
       stats.totalCompletionTokens += completionTokens;
+      stats.totalCachedTokens += cachedTokens;
       stats.totalCost += entryCost;
 
       if (!stats.byProvider[r.provider]) stats.byProvider[r.provider] = { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0 };

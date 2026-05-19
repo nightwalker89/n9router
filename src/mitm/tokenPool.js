@@ -30,6 +30,7 @@ const authCooldownMap = {};    // { [connectionId]: expiresTimestamp } invalid_t
 const modelCooldownMap = {};   // { [connectionId]: { [model]: expiresTimestamp } }
 const strikeMap = {};          // { [connectionId]: consecutiveHitCount }
 const modelStrikeMap = {};     // { [connectionId]: { [model]: consecutiveHitCount } }
+const lastUsedAtMap = {};      // { [connectionId]: ISO string } — in-memory override so LRU advances immediately
 // ── Strike + cooldown management ─────────────────────────────
 // Upstream often returns false-positive 429s. Instead of locking
 // an account on the first hit, we count consecutive strikes.
@@ -478,14 +479,16 @@ function getAllActiveConnections(provider, model) {
     });
   }
 
-  // Round-robin strategy: least-recently-used first. Successful requests
-  // update lastUsedAt, so the next selection naturally advances without
-  // extra streak state or in-memory round-robin indexes.
+  // Round-robin strategy: least-recently-used first. lastUsedAtMap overrides db.json values
+  // so the selection advances immediately without waiting for the async API write.
+  const getLastUsed = (c) => lastUsedAtMap[c.id] || c.lastUsedAt;
   return [...hardAvailable].sort((a, b) => {
-    if (!a.lastUsedAt && !b.lastUsedAt) return (a.priority || 999) - (b.priority || 999);
-    if (!a.lastUsedAt) return -1;
-    if (!b.lastUsedAt) return 1;
-    return new Date(a.lastUsedAt) - new Date(b.lastUsedAt);
+    const la = getLastUsed(a);
+    const lb = getLastUsed(b);
+    if (!la && !lb) return (a.priority || 999) - (b.priority || 999);
+    if (!la) return -1;
+    if (!lb) return 1;
+    return new Date(la) - new Date(lb);
   });
 }
 
@@ -550,7 +553,9 @@ function updateConnectionInDb(connId, patchFn) {
 // Round-robin selection is based on least-recently-used ordering.
 
 function markAccountUsed(connId) {
-  patchConnectionViaApi(connId, { lastUsedAt: new Date().toISOString() })
+  const now = new Date().toISOString();
+  lastUsedAtMap[connId] = now; // update in-memory immediately so next LRU pick advances
+  patchConnectionViaApi(connId, { lastUsedAt: now })
     .catch((e) => log(`⚠️ [token-pool] markAccountUsed error: ${e.message}`));
 }
 

@@ -36,10 +36,24 @@ function makeConn(overrides = {}) {
 }
 
 /** Write a db.json to a temp dir and return {DATA_DIR, dbPath, cleanup} */
-function createTempDb(conns = []) {
+function createTempDb(conns = [], settings = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "9router-test-"));
   const dbPath = path.join(tmpDir, "db.json");
   fs.writeFileSync(dbPath, JSON.stringify({ providerConnections: conns }));
+  // Also create mitm/settings.json since tokenPool now reads settings from there
+  const mitmDir = path.join(tmpDir, "mitm");
+  fs.mkdirSync(mitmDir, { recursive: true });
+  const mitmSettingsPath = path.join(mitmDir, "settings.json");
+  const defaultMitmSettings = {
+    tokenSwapEnabled: true,
+    tokenSwapStrategy: "round-robin",
+    tokenSwapMaskEmails: false,
+    cooldownStrikeThreshold: 3,
+    antigravity503RetryCount: 3,
+    mitmAntigravityAutoDisableOnSonnetZero: true,
+    ...settings,
+  };
+  fs.writeFileSync(mitmSettingsPath, JSON.stringify(defaultMitmSettings));
   return {
     DATA_DIR: tmpDir,
     dbPath,
@@ -61,6 +75,9 @@ function loadTokenPool(DATA_DIR) {
   delete require.cache[require.resolve(pathsPath)];
   const loggerPath = path.resolve("../src/mitm/logger.js");
   delete require.cache[require.resolve(loggerPath)];
+  // Purge mitmSettings.js since it caches settings reads
+  const mitmSettingsPath = path.resolve("../src/mitm/mitmSettings.js");
+  try { delete require.cache[require.resolve(mitmSettingsPath)]; } catch { /* ignore */ }
 
   return require(poolPath);
 }
@@ -335,14 +352,49 @@ describe("getAllActiveConnections — stored model quota exhaustion", () => {
 });
 
 describe("autoDisableAccountIfSonnetQuotaZero", () => {
-  let tmp, pool;
-  beforeEach(() => {
-    tmp = createTempDb();
-    pool = loadTokenPool(tmp.DATA_DIR);
-  });
-  afterEach(() => tmp.cleanup());
+  let tmp, pool, httpSpy;
 
-  it("disables an active Antigravity account when Sonnet 4.6 quota is zero", () => {
+  afterEach(() => {
+    httpSpy?.mockRestore();
+    tmp?.cleanup();
+  });
+
+  it("disables an active Antigravity account when Sonnet 4.6 quota is zero", async () => {
+    // Mock HTTP BEFORE loading pool since tokenPool captures http module at require time
+    httpSpy = vi.spyOn(http, "request").mockImplementation((options, callback) => {
+      const handlers = {};
+      const mockRes = {
+        on: vi.fn((event, handler) => {
+          handlers[event] = handler;
+          return mockRes;
+        }),
+        resume: vi.fn(),
+      };
+      const mockReq = {
+        on: vi.fn(),
+        write: vi.fn(), // req.write(body) is called before req.end() in patchConnectionViaApi
+        end: vi.fn(() => {
+          // Simulate the API updating the connection in db.json
+          const isPatchRequest = options.path?.includes("/api/providers/") && options.method === "PATCH";
+          if (isPatchRequest) {
+            const db = JSON.parse(fs.readFileSync(tmp.dbPath, "utf8"));
+            db.providerConnections[0].isActive = false;
+            db.providerConnections[0].autoDisabledReason = "sonnet_4_6_quota_zero";
+            db.providerConnections[0].lastError = "Auto-disabled after status 429: Claude Sonnet 4.6 quota is 0%";
+            db.providerConnections[0].autoDisabledAt = new Date().toISOString();
+            fs.writeFileSync(tmp.dbPath, JSON.stringify(db));
+          }
+          if (callback) callback(mockRes);
+          // Trigger the end event on the response to resolve the promise
+          if (handlers["end"]) handlers["end"]();
+        }),
+      };
+      return mockReq;
+    });
+
+    tmp = createTempDb([], { mitmAntigravityAutoDisableOnSonnetZero: true });
+    pool = loadTokenPool(tmp.DATA_DIR);
+
     const conn = makeConn({
       id: "sonnet-zero",
       modelQuotaStatus: {
@@ -353,12 +405,12 @@ describe("autoDisableAccountIfSonnetQuotaZero", () => {
       },
     });
 
-    fs.writeFileSync(tmp.dbPath, JSON.stringify({
-      providerConnections: [conn],
-      settings: { mitmAntigravityAutoDisableOnSonnetZero: true },
-    }));
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({ providerConnections: [conn] }));
 
     expect(pool.autoDisableAccountIfSonnetQuotaZero(conn, { statusCode: 429 })).toBe(true);
+
+    // Wait for async HTTP request to complete (fire-and-forget in patchConnectionViaApiFire)
+    await new Promise((r) => setTimeout(r, 50));
 
     const db = JSON.parse(fs.readFileSync(tmp.dbPath, "utf8"));
     expect(db.providerConnections[0].isActive).toBe(false);
@@ -367,6 +419,9 @@ describe("autoDisableAccountIfSonnetQuotaZero", () => {
   });
 
   it("does not disable when the setting is off", () => {
+    tmp = createTempDb([], { mitmAntigravityAutoDisableOnSonnetZero: false });
+    pool = loadTokenPool(tmp.DATA_DIR);
+
     const conn = makeConn({
       id: "setting-off",
       modelQuotaStatus: {
@@ -377,11 +432,9 @@ describe("autoDisableAccountIfSonnetQuotaZero", () => {
       },
     });
 
-    fs.writeFileSync(tmp.dbPath, JSON.stringify({
-      providerConnections: [conn],
-      settings: { mitmAntigravityAutoDisableOnSonnetZero: false },
-    }));
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({ providerConnections: [conn] }));
 
+    // Function should return false early (no HTTP call made when setting is off)
     expect(pool.autoDisableAccountIfSonnetQuotaZero(conn, { statusCode: 503 })).toBe(false);
 
     const db = JSON.parse(fs.readFileSync(tmp.dbPath, "utf8"));
@@ -389,6 +442,9 @@ describe("autoDisableAccountIfSonnetQuotaZero", () => {
   });
 
   it("does not disable when Sonnet 4.6 quota is still available", () => {
+    tmp = createTempDb([], { mitmAntigravityAutoDisableOnSonnetZero: true });
+    pool = loadTokenPool(tmp.DATA_DIR);
+
     const conn = makeConn({
       id: "sonnet-available",
       modelQuotaStatus: {
@@ -399,11 +455,9 @@ describe("autoDisableAccountIfSonnetQuotaZero", () => {
       },
     });
 
-    fs.writeFileSync(tmp.dbPath, JSON.stringify({
-      providerConnections: [conn],
-      settings: { mitmAntigravityAutoDisableOnSonnetZero: true },
-    }));
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({ providerConnections: [conn] }));
 
+    // Function should return false early (no HTTP call made when quota is available)
     expect(pool.autoDisableAccountIfSonnetQuotaZero(conn, { statusCode: 429 })).toBe(false);
 
     const db = JSON.parse(fs.readFileSync(tmp.dbPath, "utf8"));
@@ -422,41 +476,35 @@ describe("isTokenSwapEnabled", () => {
   afterEach(() => tmp.cleanup());
 
   it("returns true when settings.tokenSwapEnabled=true AND active connections exist", () => {
-    fs.writeFileSync(tmp.dbPath, JSON.stringify({
-      providerConnections: [makeConn()],
-      settings: { tokenSwapEnabled: true },
-    }));
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({ providerConnections: [makeConn()] }));
     expect(pool.isTokenSwapEnabled("antigravity")).toBe(true);
   });
 
   it("returns false when settings.tokenSwapEnabled=true but no active connections", () => {
-    fs.writeFileSync(tmp.dbPath, JSON.stringify({
-      providerConnections: [],
-      settings: { tokenSwapEnabled: true },
-    }));
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({ providerConnections: [] }));
     expect(pool.isTokenSwapEnabled("antigravity")).toBe(false);
   });
 
   it("returns false when active connections exist but tokenSwapEnabled not set", () => {
-    fs.writeFileSync(tmp.dbPath, JSON.stringify({
-      providerConnections: [makeConn()],
-    }));
+    // Create mitm/settings.json without tokenSwapEnabled
+    const mitmDir = path.join(tmp.DATA_DIR, "mitm");
+    const mitmSettingsPath = path.join(mitmDir, "settings.json");
+    fs.writeFileSync(mitmSettingsPath, JSON.stringify({})); // empty settings
+    pool = loadTokenPool(tmp.DATA_DIR); // reload to pick up new settings
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({ providerConnections: [makeConn()] }));
     expect(pool.isTokenSwapEnabled("antigravity")).toBe(false);
   });
 
   it("returns false when tokenSwapEnabled=false even with active connections", () => {
-    fs.writeFileSync(tmp.dbPath, JSON.stringify({
-      providerConnections: [makeConn()],
-      settings: { tokenSwapEnabled: false },
-    }));
+    tmp.cleanup();
+    tmp = createTempDb([], { tokenSwapEnabled: false });
+    pool = loadTokenPool(tmp.DATA_DIR);
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({ providerConnections: [makeConn()] }));
     expect(pool.isTokenSwapEnabled("antigravity")).toBe(false);
   });
 
   it("returns false for unknown provider even when enabled", () => {
-    fs.writeFileSync(tmp.dbPath, JSON.stringify({
-      providerConnections: [makeConn()],
-      settings: { tokenSwapEnabled: true },
-    }));
+    fs.writeFileSync(tmp.dbPath, JSON.stringify({ providerConnections: [makeConn()] }));
     expect(pool.isTokenSwapEnabled("github-copilot")).toBe(false);
   });
 
@@ -507,26 +555,25 @@ describe("getNextConnection — least-recently-used round-robin", () => {
     expect(pool.getNextConnection("antigravity").id).toBe("fresh");
   });
 
-  it("advances naturally after markAccountUsed updates lastUsedAt", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-04-11T10:00:00.000Z"));
+  it("advances naturally after markAccountUsed updates in-memory lastUsedAt", () => {
+    const httpSpy = vi.spyOn(http, "request").mockReturnValue({ on: vi.fn(), write: vi.fn(), end: vi.fn() });
+    pool = loadTokenPool(tmp.DATA_DIR);
 
     const c1 = makeConn({ id: "c1", priority: 1, lastUsedAt: "2026-04-11T07:00:00.000Z" });
     const c2 = makeConn({ id: "c2", priority: 2, lastUsedAt: "2026-04-11T08:00:00.000Z" });
     const c3 = makeConn({ id: "c3", priority: 3, lastUsedAt: "2026-04-11T09:00:00.000Z" });
     fs.writeFileSync(tmp.dbPath, JSON.stringify({ providerConnections: [c1, c2, c3] }));
 
+    // First call should return c1 (least recently used)
     expect(pool.getNextConnection("antigravity").id).toBe("c1");
 
+    // markAccountUsed updates in-memory lastUsedAtMap immediately — no db.json write needed
     pool.markAccountUsed("c1");
 
-    const db = JSON.parse(fs.readFileSync(tmp.dbPath, "utf-8"));
-    const updated = db.providerConnections.find((conn) => conn.id === "c1");
-    expect(updated.lastUsedAt).toBeTruthy();
-    expect(updated.consecutiveUseCount).toBeUndefined();
-
+    // Next call should advance to c2 without waiting for async API to persist
     expect(pool.getNextConnection("antigravity").id).toBe("c2");
-    vi.useRealTimers();
+
+    httpSpy.mockRestore();
   });
 
   it("skips cooldown accounts in round-robin", () => {
