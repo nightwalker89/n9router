@@ -89,10 +89,15 @@ Each executor handles a specific provider's auth, API endpoint construction, and
 - **Account fallback**: Multiple accounts per provider, round-robin with cooldown on failure
 - Logic in `open-sse/services/accountFallback.js` and `src/sse/handlers/chat.js` (combo orchestration)
 
-### Persistence
+### Persistence — SQLite DB (`src/lib/db/`)
 
-- **State DB**: `src/lib/localDb.js` → `${DATA_DIR}/db.json` (or `~/.n9router/db.json`). Uses lowdb. Stores provider connections, nodes, aliases, combos, API keys, settings, pricing.
-- **Usage DB**: `src/lib/usageDb.js` → `~/.n9router/usage.json` + `~/.n9router/log.txt`. Independent from `DATA_DIR`.
+The state DB is a SQLite database at `${DATA_DIR}/db.sqlite` (default `~/.n9router/db.sqlite`). The driver (`driver.js`) tries adapters in order: `bun:sqlite` → `better-sqlite3` → `node:sqlite` (Node 22.5+) → `sql.js` (WASM fallback). All adapters expose the same sync-style interface (`run`, `all`, `get`, `transaction`).
+
+- **Repos** (`repos/`): Domain-specific query modules (settings, connections, nodes, combos, apiKeys, aliases, pricing, usage, requestDetails, proxyPools, disabledModels). The barrel export is `src/lib/db/index.js`.
+- **Migrations** (`migrations/`): Sequential schema migrations applied on startup via `migrate.js`.
+- **KV store**: Generic key-value table (`kv`) with `scope`+`key` for model aliases, custom models, MITM aliases, and pricing overrides.
+- **Usage tracking**: `repos/usageRepo.js` handles request logging, stats aggregation, and chart data. Usage is stored in the same SQLite DB (migrated from the old `usage.json` + `log.txt` files).
+- **Compat layer** (`compatJson.js`): Handles import/export of the legacy `db.json` format for cloud sync and backup.
 
 ### Frontend
 
@@ -125,8 +130,8 @@ Cloudflare Workers deployment for optional cloud sync relay. Has its own `wrangl
 
 - Tests live in `tests/unit/` and use Vitest v4
 - Vitest is installed in `/tmp/node_modules` to avoid conflicts with the root Next.js project's hoisting
-- Test config is at `tests/vitest.config.js` — it aliases `open-sse` to the local package
-- Current coverage: embeddings core, cloud worker handler, OAuth cursor auto-import, OpenAI-to-Claude translation, provider validation, translator request normalization
+- Test config is at `tests/vitest.config.js` — it aliases `open-sse` and `@/` to the local packages
+- Coverage areas: format translators, DB layer (migrations, concurrency, benchmarks), MITM subsystem (DNS, aliases, settings, usage tracker, token pool), provider executors (Codex, Antigravity, Cursor OAuth), combo routing, embeddings, image generation, usage tracking
 
 ## CI/CD
 
