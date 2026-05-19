@@ -70,6 +70,10 @@ async function initAdapter() {
 
   const { runMigrationOnce } = await import("./migrate.js");
   await runMigrationOnce(adapter);
+
+  const { startPeriodicJsonSync } = await import("./periodicSync.js");
+  startPeriodicJsonSync(adapter);
+
   return adapter;
 }
 
