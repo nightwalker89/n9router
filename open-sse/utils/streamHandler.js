@@ -100,21 +100,28 @@ export function createStreamController({ onDisconnect, onError, log, provider, m
  * for long periods while raw bytes still flow (e.g. Kiro EventStream
  * binary frames buffering, Claude reasoning streams).
  */
-export function createDisconnectAwareStream(transformStream, streamController, streamWatchdogEnabled = true) {
+export function createDisconnectAwareStream(transformStream, streamController, streamWatchdogEnabled = true, onAbortTerminal = null) {
   const reader = transformStream.readable.getReader();
   const writer = transformStream.writable.getWriter();
   // Client-facing disconnect detection: when the upstream aborts/errors mid-flight,
   // the transform flush() is skipped and "data: [DONE]" is never produced. Track
-  // whether we've terminated the client stream so we can inject the sentinel once.
+  // whether we've terminated the client stream so we close it exactly once.
   let clientClosed = false;
 
-  // Emit "data: [DONE]" then close the client stream. Used on the abort/error path
-  // where the normal in-band sentinel from flush() will never arrive. When the watchdog
-  // is disabled (legacy v0.4.35 behavior) we close WITHOUT injecting the sentinel.
+  // Terminate the client stream on the abort/error path where the normal in-band
+  // sentinel from flush() will never arrive. Preference order:
+  //   1. onAbortTerminal (e.g. Responses passthrough: synthesized response.failed + [DONE])
+  //   2. "data: [DONE]" sentinel when the stall watchdog is enabled
+  //   3. nothing (legacy v0.4.35 behavior — watchdog OFF, no structured terminal)
   const closeWithSentinel = (controller) => {
     if (clientClosed) return;
     clientClosed = true;
-    if (streamWatchdogEnabled) {
+    if (onAbortTerminal) {
+      try {
+        const bytes = onAbortTerminal();
+        if (bytes) controller.enqueue(bytes);
+      } catch { /* best-effort terminal */ }
+    } else if (streamWatchdogEnabled) {
       try {
         controller.enqueue(DONE_SENTINEL);
       } catch (e) { /* downstream already gone */ }
@@ -165,15 +172,17 @@ export function createDisconnectAwareStream(transformStream, streamController, s
           code === "EPIPE" ||
           code === "UND_ERR_SOCKET";
 
-        if (!wasConnected || isNetworkClose) {
-          // Upstream stall/abort/reset: flush() was skipped, so emit the sentinel
-          // ourselves before closing so the client terminates cleanly.
-          closeWithSentinel(controller);
-        } else {
-          try {
+        // Graceful close on stall/abort/reset, or when a structured terminal is
+        // available (Responses passthrough prefers response.failed + [DONE] over a
+        // raw transport error). flush() was skipped on these paths, so emit the
+        // terminal sentinel ourselves before closing so the client ends cleanly.
+        try {
+          if (!wasConnected || isNetworkClose || onAbortTerminal) {
+            closeWithSentinel(controller);
+          } else {
             controller.error(error);
-          } catch (e) { /* already closed */ }
-        }
+          }
+        } catch (e) { /* already closed or cancelled */ }
       }
     },
 
@@ -203,7 +212,7 @@ export function createDisconnectAwareStream(transformStream, streamController, s
  * @param {TransformStream} transformStream - Transform stream for SSE
  * @param {object} streamController - Stream controller from createStreamController
  */
-export function pipeWithDisconnect(providerResponse, transformStream, streamController, streamWatchdogEnabled = true) {
+export function pipeWithDisconnect(providerResponse, transformStream, streamController, streamWatchdogEnabled = true, onAbortTerminal = null) {
   let stallTimer = null;
   let chunkCount = 0;
   let totalBytes = 0;
@@ -264,7 +273,8 @@ export function pipeWithDisconnect(providerResponse, transformStream, streamCont
   return createDisconnectAwareStream(
     { readable: transformedBody, writable: { getWriter: () => ({ abort: () => Promise.resolve() }) } },
     wrappedController,
-    streamWatchdogEnabled
+    streamWatchdogEnabled,
+    onAbortTerminal
   );
 }
 
