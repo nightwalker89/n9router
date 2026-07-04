@@ -12,6 +12,7 @@ import { getProviderCredentials } from "../../../src/sse/services/auth.js";
 import { checkAndRefreshToken } from "../../../src/sse/services/tokenRefresh.js";
 import { handleChatCore } from "../../../open-sse/handlers/chatCore.js";
 import { getModelsByProviderId } from "../../../open-sse/config/providerModels.js";
+import { readActiveProviders } from "./providerDb.js";
 
 const RUN_REAL = process.env.RUN_REAL === "1";
 const MAX_TOKENS = 32;
@@ -104,20 +105,5 @@ describe.skipIf(!RUN_REAL).concurrent("REAL provider smoke", () => {
 // test per provider before beforeAll runs. Applies REAL_PROVIDERS filter.
 // Tolerates any failure (returns []).
 function targetProviders() {
-  try {
-    const Database = require("better-sqlite3");
-    const os = require("os");
-    const path = require("path");
-    const dbPath = process.env.DATA_DIR
-      ? path.join(process.env.DATA_DIR, "db", "data.sqlite")
-      : path.join(os.homedir(), ".9router", "db", "data.sqlite");
-    const db = new Database(dbPath, { readonly: true });
-    const rows = db.prepare("SELECT DISTINCT provider FROM providerConnections WHERE isActive = 1").all();
-    db.close();
-    let list = rows.map((r) => r.provider).sort();
-    if (PROVIDER_FILTER.length) list = list.filter((p) => PROVIDER_FILTER.includes(p));
-    return list;
-  } catch {
-    return [];
-  }
+  return readActiveProviders(PROVIDER_FILTER);
 }

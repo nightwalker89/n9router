@@ -7,6 +7,10 @@ globalThis.fetch = (...args) => {
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+vi.mock("../../open-sse/utils/proxyFetch.js", () => ({
+  proxyAwareFetch: (...args) => mockFetchFn(...args),
+}));
+
 describe("Antigravity Usage & Quota Parsing", () => {
   beforeEach(() => {
     mockFetchFn = null;

@@ -153,7 +153,10 @@ export function createDisconnectAwareStream(transformStream, streamController, s
         controller.enqueue(value);
       } catch (error) {
         const wasConnected = streamController.isConnected();
-        streamController.handleError(error);
+        // Controller already closed = downstream ended; not an upstream error, skip noisy log.
+        const msg0 = error?.message || "";
+        const isControllerClosed = msg0.includes("already closed") || msg0.includes("Invalid state");
+        if (!isControllerClosed) streamController.handleError(error);
         reader.cancel().catch(() => {});
         writer.abort().catch(() => {});
 
@@ -212,7 +215,7 @@ export function createDisconnectAwareStream(transformStream, streamController, s
  * @param {TransformStream} transformStream - Transform stream for SSE
  * @param {object} streamController - Stream controller from createStreamController
  */
-export function pipeWithDisconnect(providerResponse, transformStream, streamController, streamWatchdogEnabled = true, onAbortTerminal = null) {
+export function pipeWithDisconnect(providerResponse, transformStream, streamController, streamWatchdogEnabled = true, onAbortTerminal = null, stallTimeoutMs = STREAM_STALL_TIMEOUT_MS) {
   let stallTimer = null;
   let chunkCount = 0;
   let totalBytes = 0;
@@ -227,10 +230,10 @@ export function pipeWithDisconnect(providerResponse, transformStream, streamCont
     clearStall();
     stallTimer = setTimeout(() => {
       stallTimer = null;
-      dbg(tag, `STALL TIMEOUT ${STREAM_STALL_TIMEOUT_MS}ms | chunks=${chunkCount} | bytes=${totalBytes} | sinceLast=${Date.now() - lastChunkAt}ms`);
+      dbg(tag, `STALL TIMEOUT ${stallTimeoutMs}ms | chunks=${chunkCount} | bytes=${totalBytes} | sinceLast=${Date.now() - lastChunkAt}ms`);
       streamController.handleError?.(new Error("stream stall timeout"));
       streamController.abort?.();
-    }, STREAM_STALL_TIMEOUT_MS);
+    }, stallTimeoutMs);
   };
 
   // Wrap controller so every termination path clears the stall timer.
@@ -247,7 +250,7 @@ export function pipeWithDisconnect(providerResponse, transformStream, streamCont
   };
 
   armStall();
-  dbg(tag, `pipe start | watchdog=${streamWatchdogEnabled ? `on stallTimeout=${STREAM_STALL_TIMEOUT_MS}ms` : "off (legacy)"}`);
+  dbg(tag, `pipe start | watchdog=${streamWatchdogEnabled ? `on stallTimeout=${stallTimeoutMs}ms` : "off (legacy)"}`);
 
   const upstreamTap = new TransformStream({
     transform(chunk, controller) {
@@ -277,4 +280,3 @@ export function pipeWithDisconnect(providerResponse, transformStream, streamCont
     onAbortTerminal
   );
 }
-

@@ -5,6 +5,12 @@ import { getExecutor } from "../executors/index.js";
 import { getImageAdapter } from "./imageProviders/index.js";
 import { urlToBase64 } from "./imageProviders/_base.js";
 
+function serializeRequestBody(requestBody) {
+  if (typeof FormData !== "undefined" && requestBody instanceof FormData) return requestBody;
+  if (typeof requestBody === "string") return requestBody;
+  return JSON.stringify(requestBody);
+}
+
 /**
  * Core image generation handler — orchestrator only.
  * Provider-specific URL/headers/body/parse/normalize live in `./imageProviders/{id}.js`.
@@ -44,9 +50,58 @@ export async function handleImageGenerationCore({
     );
   }
 
-  const url = adapter.buildUrl(model, credentials);
-  const headers = adapter.buildHeaders(credentials);
-  const requestBody = adapter.buildBody(model, body);
+  // Executor-delegating adapters: skip manual URL/headers/body, use the proven executor flow
+  if (adapter.useExecutor && adapter.executeViaExecutor) {
+    try {
+      log?.debug?.("IMAGE", `${provider.toUpperCase()} | ${model} | prompt="${body.prompt.slice(0, 50)}..." (executor)`);
+      const responseBody = await adapter.executeViaExecutor(model, body, credentials, log);
+      if (onRequestSuccess) await onRequestSuccess();
+      const normalized = adapter.normalize(responseBody, body.prompt);
+      const finalBody = (normalized.created && Array.isArray(normalized.data)) ? normalized : responseBody;
+
+      if (binaryOutput) {
+        const first = finalBody.data?.[0];
+        let b64 = first?.b64_json;
+        if (!b64 && first?.url) {
+          try { b64 = await urlToBase64(first.url); } catch {}
+        }
+        if (b64) {
+          const buf = Buffer.from(b64, "base64");
+          const fmt = (body.output_format || "png").toLowerCase();
+          const mime = fmt === "jpeg" || fmt === "jpg" ? "image/jpeg" : fmt === "webp" ? "image/webp" : "image/png";
+          return {
+            success: true,
+            response: new Response(buf, {
+              headers: { "Content-Type": mime, "Content-Disposition": `inline; filename="image.${fmt === "jpeg" ? "jpg" : fmt}"`, "Access-Control-Allow-Origin": "*" },
+            }),
+          };
+        }
+      }
+
+      return {
+        success: true,
+        response: new Response(JSON.stringify(finalBody), {
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        }),
+      };
+    } catch (error) {
+      const errMsg = formatProviderError(error, provider, model, HTTP_STATUS.BAD_GATEWAY);
+      log?.debug?.("IMAGE", `Executor error: ${errMsg}`);
+      return createErrorResult(HTTP_STATUS.BAD_GATEWAY, errMsg);
+    }
+  }
+
+  let url;
+  let headers;
+  let requestBody;
+
+  try {
+    url = adapter.buildUrl(model, credentials);
+    requestBody = await adapter.buildBody(model, body);
+    headers = adapter.buildHeaders(credentials, requestBody, model, body);
+  } catch (error) {
+    return createErrorResult(HTTP_STATUS.BAD_REQUEST, error.message || `Invalid ${provider} image request`);
+  }
 
   log?.debug?.("IMAGE", `${provider.toUpperCase()} | ${model} | prompt="${body.prompt.slice(0, 50)}..."`);
 
@@ -55,7 +110,7 @@ export async function handleImageGenerationCore({
     providerResponse = await fetch(url, {
       method: "POST",
       headers,
-      body: JSON.stringify(requestBody),
+      body: serializeRequestBody(requestBody),
     });
   } catch (error) {
     const errMsg = formatProviderError(error, provider, model, HTTP_STATUS.BAD_GATEWAY);
@@ -83,12 +138,13 @@ export async function handleImageGenerationCore({
       if (onCredentialsRefreshed) await onCredentialsRefreshed(newCredentials);
 
       try {
-        const retryHeaders = adapter.buildHeaders(credentials);
+        const retryBody = await adapter.buildBody(model, body);
+        const retryHeaders = adapter.buildHeaders(credentials, retryBody, model, body);
         const retryUrl = adapter.buildUrl(model, credentials);
         providerResponse = await fetch(retryUrl, {
           method: "POST",
           headers: retryHeaders,
-          body: JSON.stringify(requestBody),
+          body: serializeRequestBody(retryBody),
         });
       } catch {
         log?.warn?.("TOKEN", `${provider.toUpperCase()} | retry after refresh failed`);
@@ -114,6 +170,10 @@ export async function handleImageGenerationCore({
         log,
         streamToClient,
         onRequestSuccess,
+        url,
+        requestBody,
+        model,
+        body,
       });
       // Codex streaming case: returns an SSE Response directly
       if (parsed?.sseResponse) {

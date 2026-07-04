@@ -1,6 +1,5 @@
-// Ensure better-sqlite3 is installed in USER_DATA_DIR/runtime/node_modules
-// (user-writable, avoids Windows EBUSY locks during npm i -g updates).
-// sql.js is bundled in bin/app already; node:sqlite / bun:sqlite are built-in.
+// Ensure better-sqlite3 is installed in USER_DATA_DIR/runtime/node_modules.
+// It is retained only for fork features such as per-key usage limiting.
 const { execSync, spawnSync } = require("child_process");
 const fs = require("fs");
 const os = require("os");
@@ -11,8 +10,8 @@ const BETTER_SQLITE3_VERSION = "12.6.2";
 function getDataDir() {
   if (process.env.DATA_DIR) return process.env.DATA_DIR;
   return process.platform === "win32"
-    ? path.join(process.env.APPDATA || os.homedir(), "9router")
-    : path.join(os.homedir(), ".9router");
+    ? path.join(process.env.APPDATA || os.homedir(), "n9router")
+    : path.join(os.homedir(), ".n9router");
 }
 
 function getRuntimeDir() {
@@ -31,10 +30,10 @@ function ensureRuntimeDir() {
   const pkgPath = path.join(dir, "package.json");
   if (!fs.existsSync(pkgPath)) {
     fs.writeFileSync(pkgPath, JSON.stringify({
-      name: "9router-runtime",
+      name: "n9router-runtime",
       version: "1.0.0",
       private: true,
-      description: "User-writable runtime deps for 9router (better-sqlite3 native binary)",
+      description: "User-writable runtime dependency for n9router usage limiting",
     }, null, 2));
   }
   return dir;
@@ -101,9 +100,8 @@ function npmInstall(pkgs, opts = {}) {
   return res.ok;
 }
 
-// Public: ensure better-sqlite3 native module is installed in user-writable
-// runtime dir. sql.js is bundled in bin/app already; node:sqlite is built-in.
-// This is purely a *speed optimization* — app works without it via fallbacks.
+// Public: ensure the usage-limiter native module is installed in a
+// user-writable runtime directory.
 function ensureSqliteRuntime({ silent = false } = {}) {
   ensureRuntimeDir();
 
@@ -119,8 +117,8 @@ function ensureSqliteRuntime({ silent = false } = {}) {
   };
 }
 
-// Inject runtime + bundled node_modules into NODE_PATH so child Node processes
-// resolve sql.js (bundled in bin/app/node_modules) and better-sqlite3 (runtime).
+// Inject runtime + bundled node_modules into NODE_PATH for packaged child
+// processes.
 function buildEnvWithRuntime(baseEnv = process.env) {
   const runtimeNm = getRuntimeNodeModules();
   const bundledNm = path.join(__dirname, "..", "app", "node_modules");

@@ -6,16 +6,14 @@ import Modal from "@/shared/components/Modal";
 import Input from "@/shared/components/Input";
 import Button from "@/shared/components/Button";
 import Badge from "@/shared/components/Badge";
-import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
-import Select from "./Select";
-import { ANTIGRAVITY_ACCOUNT_TYPE_OPTIONS } from "@/lib/antigravity/accountType";
+import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, AI_PROVIDERS } from "@/shared/constants/providers";
+import Select from "@/shared/components/Select";
 
 export default function EditConnectionModal({ isOpen, connection, proxyPools, onSave, onClose }) {
   const [formData, setFormData] = useState({
     name: "",
     priority: 1,
     apiKey: "",
-    accountType: "",
   });
   const [azureData, setAzureData] = useState({
     azureEndpoint: "",
@@ -24,6 +22,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
     organization: "",
   });
   const [cloudflareData, setCloudflareData] = useState({ accountId: "" });
+  const [region, setRegion] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [validating, setValidating] = useState(false);
@@ -36,7 +35,6 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
         name: connection.name || "",
         priority: connection.priority || 1,
         apiKey: "",
-        accountType: connection.accountType || "",
       });
       // Load Azure-specific data if present
       if (connection.provider === "azure" && connection.providerSpecificData) {
@@ -50,6 +48,12 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
       if (connection.provider === "cloudflare-ai" && connection.providerSpecificData) {
         setCloudflareData({ accountId: connection.providerSpecificData.accountId || "" });
       }
+      // Load region for providers that support it (e.g. xiaomi-tokenplan)
+      const providerCfg = AI_PROVIDERS?.[connection.provider];
+      if (providerCfg?.regions) {
+        const savedRegion = connection.providerSpecificData?.region || providerCfg.defaultRegion || providerCfg.regions[0]?.id || "";
+        setRegion(savedRegion);
+      }
       setTestResult(null);
       setValidationResult(null);
     }
@@ -61,6 +65,13 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   const isCompatible = connection
     ? (isOpenAICompatibleProvider(connection.provider) || isAnthropicCompatibleProvider(connection.provider))
     : false;
+  const providerRegions = connection ? (AI_PROVIDERS?.[connection.provider]?.regions || null) : null;
+
+  // Build providerSpecificData for region-aware providers
+  const buildRegionSpecificData = () => {
+    if (providerRegions && region) return { ...((connection?.providerSpecificData) || {}), region };
+    return undefined;
+  };
 
   const handleTest = async () => {
     if (!connection?.provider) return;
@@ -90,6 +101,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
           apiKey: formData.apiKey,
           ...(isAzure ? { providerSpecificData: azureData } : {}),
           ...(isCloudflareAi ? { providerSpecificData: cloudflareData } : {}),
+          ...(providerRegions ? { providerSpecificData: buildRegionSpecificData() } : {}),
         }),
       });
       const data = await res.json();
@@ -109,9 +121,6 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
         name: formData.name,
         priority: formData.priority,
       };
-      if (connection.provider === "antigravity") {
-        updates.accountType = formData.accountType || null;
-      }
       if (!isOAuth && formData.apiKey) {
         updates.apiKey = formData.apiKey;
         let isValid = validationResult === "success";
@@ -127,6 +136,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
                 apiKey: formData.apiKey,
                 ...(isAzure ? { providerSpecificData: azureData } : {}),
                 ...(isCloudflareAi ? { providerSpecificData: cloudflareData } : {}),
+                ...(providerRegions ? { providerSpecificData: buildRegionSpecificData() } : {}),
               }),
             });
             const data = await res.json();
@@ -156,6 +166,10 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
       }
       if (isCloudflareAi) {
         updates.providerSpecificData = { accountId: cloudflareData.accountId };
+      }
+      // Persist updated region for region-aware providers
+      if (providerRegions && region) {
+        updates.providerSpecificData = buildRegionSpecificData();
       }
       
       await onSave(updates);
@@ -187,18 +201,6 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
           value={formData.priority}
           onChange={(e) => setFormData({ ...formData, priority: Number.parseInt(e.target.value, 10) || 1 })}
         />
-
-        {connection?.provider === "antigravity" && (
-          <Select
-            label="Account Tier"
-            value={formData.accountType}
-            onChange={(e) => setFormData({ ...formData, accountType: e.target.value })}
-            options={[
-              { value: "", label: "None" },
-              ...ANTIGRAVITY_ACCOUNT_TYPE_OPTIONS
-            ]}
-          />
-        )}
 
         {!isOAuth && (
           <>
@@ -260,6 +262,15 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
               />
             </div>
           </div>
+        )}
+
+        {providerRegions && (
+          <Select
+            label="Region"
+            value={region}
+            onChange={(e) => setRegion(e.target.value)}
+            options={providerRegions.map((r) => ({ value: r.id, label: r.label }))}
+          />
         )}
 
         {!isCompatible && !isAzure && !isCloudflareAi && (

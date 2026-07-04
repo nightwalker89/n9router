@@ -14,7 +14,9 @@ Components:
 - `formats.js` — `FORMATS` enum (openai, claude, gemini, gemini-cli, openai-responses, antigravity, kiro, cursor, commandcode, ollama, vertex).
 - `request/<from>-to-<to>.js` — one-way request translation.
 - `response/<from>-to-<to>.js` — one-way SSE response translation.
-- `helpers/` — `openaiHelper.js` (filterToOpenAIFormat), `toolCallHelper.js` (id/arguments), `claudeHelper.js`, `geminiHelper.js`.
+- `schema/` — pure data enums (no logic): `roles.js` (ROLE, GEMINI_ROLE), `blocks.js` (OPENAI_BLOCK, CLAUDE_BLOCK, RESPONSES_ITEM, valid-type lists), `finishReasons.js` (OPENAI_FINISH, CLAUDE_STOP, GEMINI_FINISH), `defaults.js` (MODEL_FALLBACK, DEFAULT_IMAGE_MIME). Import via `schema/index.js`.
+- `concerns/` — cross-format translation LOGIC: `chunk.js`, `usage.js`, `reasoning.js`, `thinking.js` (effort↔budget/level), `toolCall.js`, `finishReason.js` (mapping fns), `image.js`, `json.js`.
+- `formats/` — per-format logic: `openai.js` (filterToOpenAIFormat), `claude.js`, `gemini.js`, `responsesApi.js`, `maxTokens.js`.
 
 **OpenAI-bridge pitfalls** (source of most bugs): going through OpenAI easily loses `thinking`/`reasoning`, image URLs (non-base64), `input_audio`, `is_error`; tool `id`/`index` become unstable (parallel tool calls), non-text system blocks, `tool_choice:"none"`.
 
@@ -40,7 +42,7 @@ cd app && npx vitest run --config tests/vitest.config.js "tests/translator/bugs-
 # real (calls live providers using credentials from the local DB)
 cd app && RUN_REAL=1 npx vitest run --config tests/vitest.config.js "tests/translator/real/"
 ```
-No-cred tests make NO network calls and need NO creds. Real tests (`real/`, gated by `RUN_REAL=1`) read active connections from `~/.9router/db/data.sqlite`, send a tiny prompt per provider through `handleChatCore`, and assert valid SSE. Account/quota errors (401/402/403/429) are treated as credential issues and skipped, not failures.
+No-cred tests make NO network calls and need NO creds. Real tests (`real/`, gated by `RUN_REAL=1`) read active connections from `~/.n9router/db.json`, send a tiny prompt per provider through `handleChatCore`, and assert valid SSE. Account/quota errors (401/402/403/429) are treated as credential issues and skipped, not failures.
 
 ## 4. Adding a new provider → tests cover it AUTOMATICALLY
 

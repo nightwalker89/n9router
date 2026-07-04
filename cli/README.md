@@ -51,7 +51,7 @@ npx 9router
 
 ```bash
 docker run -d --name 9router -p 20128:20128 \
-  -v "$HOME/.9router:/app/data" -e DATA_DIR=/app/data \
+  -v "$HOME/.n9router:/app/data" -e DATA_DIR=/app/data \
   decolua/9router:latest
 ```
 
@@ -100,9 +100,9 @@ Any tool supporting OpenAI/Claude-compatible API works.
 
 ## 💾 Data Location
 
-- **macOS/Linux**: `~/.9router/db/data.sqlite`
-- **Windows**: `%APPDATA%/9router/db/data.sqlite`
-- **Docker**: `/app/data/db/data.sqlite` (mount `$HOME/.9router` to persist)
+- **macOS/Linux**: `~/.n9router/db.json`
+- **Windows**: `%APPDATA%/n9router/db.json`
+- **Docker**: `/app/data/db.json` (mount `$HOME/.n9router` to persist)
 
 ---
 

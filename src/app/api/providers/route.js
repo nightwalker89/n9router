@@ -7,7 +7,7 @@ import {
   getProxyPoolById,
 } from "@/models";
 import { APIKEY_PROVIDERS } from "@/shared/constants/config";
-import { FREE_TIER_PROVIDERS, WEB_COOKIE_PROVIDERS, isOpenAICompatibleProvider, isAnthropicCompatibleProvider, isCustomEmbeddingProvider } from "@/shared/constants/providers";
+import { AI_PROVIDERS, FREE_TIER_PROVIDERS, WEB_COOKIE_PROVIDERS, isOpenAICompatibleProvider, isAnthropicCompatibleProvider, isCustomEmbeddingProvider } from "@/shared/constants/providers";
 
 export const dynamic = "force-dynamic";
 
@@ -100,8 +100,12 @@ export async function POST(request) {
 
     // Validation
     const isWebCookieProvider = !!WEB_COOKIE_PROVIDERS[provider];
+    // Dual-auth providers (e.g. codebuddy-cn, xai) live under category "oauth" but also
+    // accept an API key via authModes — they aren't in APIKEY_PROVIDERS, so allow them here.
+    const supportsApiKeyMode = !!AI_PROVIDERS[provider]?.authModes?.includes("apikey");
     const isValidProvider = APIKEY_PROVIDERS[provider] ||
       FREE_TIER_PROVIDERS[provider] ||
+      supportsApiKeyMode ||
       isWebCookieProvider ||
       isOpenAICompatibleProvider(provider) ||
       isAnthropicCompatibleProvider(provider) ||
@@ -119,17 +123,12 @@ export async function POST(request) {
 
     let providerSpecificData = body.providerSpecificData || null;
 
-    // Compatible/embedding nodes allow exactly one connection each. These guards were
-    // dropped accidentally during the bun:sqlite refactor (v0.4.28); restored to honor
-    // the contract locked in by tests/unit/compatible-provider-connections.test.js (#925).
+    // Compatible LLM nodes support multiple API-key connections (key pool); runtime
+    // rotates/fails over via getProviderCredentials. Embedding nodes stay single-connection.
     if (isOpenAICompatibleProvider(provider)) {
       const node = await getProviderNodeById(provider);
       if (!node) {
         return NextResponse.json({ error: "OpenAI Compatible node not found" }, { status: 404 });
-      }
-      const existingConnections = await getProviderConnections({ provider });
-      if (existingConnections.length > 0) {
-        return NextResponse.json({ error: "Only one connection is allowed for this OpenAI Compatible node" }, { status: 400 });
       }
       providerSpecificData = {
         prefix: node.prefix,
@@ -142,10 +141,6 @@ export async function POST(request) {
       if (!node) {
         return NextResponse.json({ error: "Anthropic Compatible node not found" }, { status: 404 });
       }
-      const existingConnections = await getProviderConnections({ provider });
-      if (existingConnections.length > 0) {
-        return NextResponse.json({ error: "Only one connection is allowed for this Anthropic Compatible node" }, { status: 400 });
-      }
       providerSpecificData = {
         prefix: node.prefix,
         baseUrl: node.baseUrl,
@@ -155,10 +150,6 @@ export async function POST(request) {
       const node = await getProviderNodeById(provider);
       if (!node) {
         return NextResponse.json({ error: "Custom Embedding node not found" }, { status: 404 });
-      }
-      const existingConnections = await getProviderConnections({ provider });
-      if (existingConnections.length > 0) {
-        return NextResponse.json({ error: "Only one connection is allowed for this Custom Embedding node" }, { status: 400 });
       }
       providerSpecificData = {
         prefix: node.prefix,

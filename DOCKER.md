@@ -11,7 +11,7 @@ Run 9Router in a container. Published image: [`decolua/9router`](https://hub.doc
 ```bash
 docker run -d \
   -p 20128:20128 \
-  -v "$HOME/.9router:/app/data" \
+  -v "$HOME/.n9router:/app/data" \
   -e DATA_DIR=/app/data \
   --name 9router \
   decolua/9router:latest
@@ -31,31 +31,30 @@ docker rm -f 9router          # remove
 ## Data persistence
 
 ```bash
--v "$HOME/.9router:/app/data" \
+-v "$HOME/.n9router:/app/data" \
 -e DATA_DIR=/app/data
 ```
 
-Without `DATA_DIR`, the app falls back to `~/.9router/` (macOS/Linux) or `%APPDATA%\9router\` (Windows). In the container, `DATA_DIR=/app/data` makes the bind mount work.
+Without `DATA_DIR`, the app falls back to `~/.n9router/` (macOS/Linux) or `%APPDATA%\n9router\` (Windows). In the container, `DATA_DIR=/app/data` makes the bind mount work.
 
 Data layout under `$DATA_DIR/`:
 
 ```text
 $DATA_DIR/
-├── db/
-│   ├── data.sqlite       # main SQLite database
-│   └── backups/          # auto backups
+├── db.json               # main lowdb database
+├── backups/              # automatic JSON backups
 └── ...                   # certs, logs, runtime configs
 ```
 
-Host path: `$HOME/.9router/db/data.sqlite`
-Container path: `/app/data/db/data.sqlite`
+Host path: `$HOME/.n9router/db.json`
+Container path: `/app/data/db.json`
 
 ## Optional env vars
 
 ```bash
 docker run -d \
   -p 20128:20128 \
-  -v "$HOME/.9router:/app/data" \
+  -v "$HOME/.n9router:/app/data" \
   -e DATA_DIR=/app/data \
   -e PORT=20128 \
   -e HOSTNAME=0.0.0.0 \
@@ -63,6 +62,34 @@ docker run -d \
   --name 9router \
   decolua/9router:latest
 ```
+
+## Optional Headroom sidecar
+
+The 9Router image does not bundle Python or Headroom. To use Headroom in Docker, run it as a separate service and point 9Router at that proxy:
+
+```yaml
+services:
+  9router:
+    image: decolua/9router:latest
+    ports:
+      - "20128:20128"
+    volumes:
+      - "$HOME/.n9router:/app/data"
+    environment:
+      DATA_DIR: /app/data
+      HEADROOM_URL: http://headroom:8787
+    depends_on:
+      - headroom
+
+  headroom:
+    image: ghcr.io/chopratejas/headroom:latest
+    ports:
+      - "8787:8787"
+```
+
+In the dashboard, open `Endpoint` → `Token Saver` → `Headroom`, confirm the URL is `http://headroom:8787`, recheck status, then enable Headroom.
+
+If Headroom runs on the Docker host instead of as a sidecar, use `http://host.docker.internal:8787` on macOS/Windows. On Linux, add `--add-host=host.docker.internal:host-gateway` or the equivalent compose `extra_hosts` entry.
 
 ## Update to latest
 
@@ -82,7 +109,7 @@ docker rm -f 9router
 cd app && docker build -t 9router .
 
 docker run --rm -p 20128:20128 \
-  -v "$HOME/.9router:/app/data" \
+  -v "$HOME/.n9router:/app/data" \
   -e DATA_DIR=/app/data \
   9router
 ```

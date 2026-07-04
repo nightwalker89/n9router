@@ -47,9 +47,8 @@ const { ensureSqliteRuntime, buildEnvWithRuntime } = require("./hooks/sqliteRunt
 const { ensureTrayRuntime } = require("./hooks/trayRuntime");
 const args = process.argv.slice(2);
 
-// Self-heal SQLite runtime deps (sql.js + better-sqlite3) into ~/.9router/runtime
-// so the server can resolve them via NODE_PATH. Best-effort — sql.js is required,
-// better-sqlite3 is optional. Logs to stderr only on failure.
+// Self-heal the better-sqlite3 native runtime dependency into
+// ~/.n9router/runtime so usage limiting works in the packaged CLI.
 try { ensureSqliteRuntime({ silent: true }); } catch {}
 
 // Self-heal tray runtime (systray for macOS/Linux only). Windows skipped.
@@ -61,6 +60,21 @@ const INSTALL_CMD_LATEST = `npm i -g ${APP_NAME}@latest --prefer-online`;
 
 const DEFAULT_PORT = 20128;
 const DEFAULT_HOST = "0.0.0.0";
+
+// First non-internal IPv4 — the address remote peers actually reach when bound to 0.0.0.0.
+function getLanIp() {
+  for (const ifaces of Object.values(os.networkInterfaces())) {
+    for (const i of ifaces || []) {
+      if (i.family === "IPv4" && !i.internal) return i.address;
+    }
+  }
+  return null;
+}
+
+// Local URL stays "localhost"; warn separately when bound to all interfaces (network-exposed).
+function getDisplayHost() {
+  return host === DEFAULT_HOST ? "localhost" : host;
+}
 const MAX_PORT_ATTEMPTS = 10;
 // Identifiers for killAllAppProcesses - only kill 9router specifically
 const PROCESS_IDENTIFIERS = [
@@ -135,8 +149,8 @@ function compareVersions(a, b) {
 // Get app data dir (matches app/src/lib/dataDir.js convention)
 function getAppDataDir() {
   return process.platform === "win32"
-    ? path.join(process.env.APPDATA || "", "9router")
-    : path.join(os.homedir(), ".9router");
+    ? path.join(process.env.APPDATA || "", "n9router")
+    : path.join(os.homedir(), ".n9router");
 }
 
 // Kill PID from file (best-effort, removes file after)
@@ -470,9 +484,13 @@ function openBrowser(url) {
   });
 }
 
-// Find standalone server (bundled in bin/app for published package)
+// Find standalone server (bundled in bin/app for published package).
+// Prefer custom-server.js (injects real socket IP) when present.
 const standaloneDir = path.join(__dirname, "app");
-const serverPath = path.join(standaloneDir, "server.js");
+const customServerPath = path.join(standaloneDir, "custom-server.js");
+const serverPath = fs.existsSync(customServerPath)
+  ? customServerPath
+  : path.join(standaloneDir, "server.js");
 
 if (!fs.existsSync(serverPath)) {
   console.error("Error: Standalone build not found.");
@@ -497,7 +515,7 @@ async function showInterfaceMenu(latestVersion) {
 
   clearScreen();
 
-  const displayHost = host === DEFAULT_HOST ? "localhost" : host;
+  const displayHost = getDisplayHost();
 
   // Detect tunnel/local mode for server URL display
   let serverUrl;
@@ -538,8 +556,13 @@ const MAX_RESTARTS = 2;
 const RESTART_RESET_MS = 30000; // Reset counter if alive > 30s
 
 function startServer(latestVersion) {
-  const displayHost = host === DEFAULT_HOST ? "localhost" : host;
+  const displayHost = getDisplayHost();
   const url = `http://${displayHost}:${port}/dashboard`;
+  // Surface real network exposure when bound to all interfaces (default 0.0.0.0).
+  if (host === DEFAULT_HOST) {
+    const lanIp = getLanIp();
+    if (lanIp) console.log(`\x1b[33m⚠ Network-exposed: reachable at http://${lanIp}:${port} (bound 0.0.0.0). Use --host 127.0.0.1 for local-only.\x1b[0m`);
+  }
 
   let restartCount = 0;
   let serverStartTime = Date.now();
@@ -774,7 +797,7 @@ function startServer(latestVersion) {
     if (restartCount >= MAX_RESTARTS) {
       console.error(`\n⚠️  Server crashed ${MAX_RESTARTS} times. Disabling MIT and restarting...`);
       try {
-        const dbPath = path.join(os.homedir(), process.platform === "win32" ? path.join("AppData", "Roaming", "9router", "db.json") : path.join(".9router", "db.json"));
+        const dbPath = path.join(os.homedir(), process.platform === "win32" ? path.join("AppData", "Roaming", "n9router", "db.json") : path.join(".n9router", "db.json"));
         if (fs.existsSync(dbPath)) {
           const db = JSON.parse(fs.readFileSync(dbPath, "utf-8"));
           if (db.settings) db.settings.mitmEnabled = false;

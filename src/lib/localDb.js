@@ -870,7 +870,7 @@ export async function getCloudUrl() {
 export async function getPricing() {
   const db = await getDb();
   const userPricing = db.data.pricing || {};
-  const { PROVIDER_PRICING } = await import("@/shared/constants/pricing.js");
+  const { PROVIDER_PRICING } = await import("open-sse/providers/pricing.js");
 
   const merged = {};
 
@@ -908,7 +908,7 @@ export async function getPricingForModel(provider, model) {
     return userPricing[provider][model];
   }
 
-  const { getPricingForModel: resolve } = await import("@/shared/constants/pricing.js");
+  const { getPricingForModel: resolve } = await import("open-sse/providers/pricing.js");
   return resolve(provider, model);
 }
 

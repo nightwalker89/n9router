@@ -1,5 +1,6 @@
 import { saveRequestUsage, appendRequestLog, saveRequestDetail } from "@/lib/usageDb.js";
 import { COLORS } from "../../utils/stream.js";
+import { canonicalizeUsage } from "../../utils/usageTracking.js";
 
 const OPTIONAL_PARAMS = [
   "temperature", "top_p", "top_k",
@@ -48,8 +49,8 @@ export function extractUsageFromResponse(responseBody) {
     return {
       prompt_tokens: responseBody.usageMetadata.promptTokenCount || 0,
       completion_tokens: responseBody.usageMetadata.candidatesTokenCount || 0,
-      cached_tokens: responseBody.usageMetadata.cachedContentTokenCount,
-      reasoning_tokens: responseBody.usageMetadata.thoughtsTokenCount
+      cached_tokens: responseBody.usageMetadata.cachedContentTokenCount || 0,
+      reasoning_tokens: responseBody.usageMetadata.thoughtsTokenCount || 0
     };
   }
 
@@ -86,16 +87,11 @@ export function saveUsageStats({ provider, model, tokens, connectionId, apiKey, 
   const accountSuffix = connectionId ? ` | account=${connectionId.slice(0, 8)}...` : "";
   console.log(`${COLORS.green}[${time}] 📊 [${label}] ${provider.toUpperCase()} | in=${inTokens} | out=${outTokens}${accountSuffix}${COLORS.reset}`);
 
-  // Normalize to OpenAI token shape for storage
-  const cacheRead = tokens.cache_read_input_tokens || tokens.cached_tokens || tokens.prompt_tokens_details?.cached_tokens || 0;
-  const cacheCreation = tokens.cache_creation_input_tokens || 0;
-  const reasoning = tokens.reasoning_tokens || tokens.completion_tokens_details?.reasoning_tokens || 0;
-  const normalized = {
+  // Canonicalize to one storage convention (prompt_tokens cache-inclusive) so
+  // cached/cache-creation tokens survive to cost calc + stats. See canonicalizeUsage.
+  const normalized = canonicalizeUsage(tokens) || {
     prompt_tokens: tokens.prompt_tokens ?? tokens.input_tokens ?? 0,
     completion_tokens: tokens.completion_tokens ?? tokens.output_tokens ?? 0,
-    ...(cacheRead > 0 && { cache_read_input_tokens: cacheRead }),
-    ...(cacheCreation > 0 && { cache_creation_input_tokens: cacheCreation }),
-    ...(reasoning > 0 && { reasoning_tokens: reasoning }),
   };
 
   saveRequestUsage({

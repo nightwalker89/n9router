@@ -83,9 +83,16 @@ function CollapsibleSection({ title, children, defaultOpen = false, icon = null 
   );
 }
 
+function getCacheCreationTokens(tokens) {
+  return tokens?.cache_creation_input_tokens || 0;
+}
+
 function getInputTokens(tokens) {
   const prompt = tokens?.prompt_tokens || tokens?.input_tokens || 0;
-  const cache = tokens?.cached_tokens || tokens?.cache_read_input_tokens || 0;
+  // Canonical storage keeps prompt cache-inclusive. Legacy Claude rows may have
+  // stored prompt cache-exclusive; fall back to cache when it's larger so old
+  // rows don't under-report input.
+  const cache = getCachedTokens(tokens);
   return prompt < cache ? cache : prompt;
 }
 
@@ -267,6 +274,7 @@ export default function RequestDetailsTab() {
                 <th className="text-center p-4 text-sm font-semibold text-text-main" title="API Key">🔑</th>
                 <th className="text-right p-4 text-sm font-semibold text-text-main">Input Tokens</th>
                 <th className="text-right p-4 text-sm font-semibold text-text-main" style={{ color: "var(--color-info, #06b6d4)" }}>Cached</th>
+                <th className="text-right p-4 text-sm font-semibold text-text-main">Cache Creation</th>
                 <th className="text-right p-4 text-sm font-semibold text-text-main">Output Tokens</th>
                 <th className="text-left p-4 text-sm font-semibold text-text-main">Latency</th>
                 <th className="text-center p-4 text-sm font-semibold text-text-main">Action</th>
@@ -313,6 +321,9 @@ export default function RequestDetailsTab() {
                     </td>
                     <td className="p-4 text-sm text-right font-mono" style={{ color: "var(--color-info, #06b6d4)" }}>
                       {getCachedTokens(detail.tokens) > 0 ? getCachedTokens(detail.tokens).toLocaleString() : "—"}
+                    </td>
+                    <td className="p-4 text-sm text-text-main text-right font-mono">
+                      {getCacheCreationTokens(detail.tokens) > 0 ? getCacheCreationTokens(detail.tokens).toLocaleString() : "—"}
                     </td>
                     <td className="p-4 text-sm text-text-main text-right font-mono">
                       {getOutputTokens(detail.tokens).toLocaleString()}
@@ -398,6 +409,22 @@ export default function RequestDetailsTab() {
                   {getInputTokens(selectedDetail.tokens).toLocaleString()}
                 </span>
               </div>
+              {getCachedTokens(selectedDetail.tokens) > 0 && (
+                <div>
+                  <span className="text-text-muted">Cached Tokens:</span>{" "}
+                  <span className="text-text-main font-mono">
+                    {getCachedTokens(selectedDetail.tokens).toLocaleString()}
+                  </span>
+                </div>
+              )}
+              {getCacheCreationTokens(selectedDetail.tokens) > 0 && (
+                <div>
+                  <span className="text-text-muted">Cache Creation:</span>{" "}
+                  <span className="text-text-main font-mono">
+                    {getCacheCreationTokens(selectedDetail.tokens).toLocaleString()}
+                  </span>
+                </div>
+              )}
               <div>
                 <span className="text-text-muted">Cached Tokens:</span>{" "}
                 <span className="font-mono" style={{ color: "var(--color-info, #06b6d4)" }}>

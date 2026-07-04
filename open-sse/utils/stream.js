@@ -1,12 +1,15 @@
 import { translateResponse, initState } from "../translator/index.js";
 import { FORMATS } from "../translator/formats.js";
 import { trackPendingRequest, appendRequestLog } from "@/lib/usageDb.js";
-import { extractUsage, hasValidUsage, estimateUsage, logUsage, addBufferToUsage, filterUsageForFormat, COLORS } from "./usageTracking.js";
+import { extractUsage, mergeUsage, hasValidUsage, estimateUsage, logUsage, addBufferToUsage, filterUsageForFormat, COLORS } from "./usageTracking.js";
 import { parseSSELine, hasValuableContent, fixInvalidId, formatSSE } from "./streamHelpers.js";
 import { getOpenAIResponsesEventName, isOpenAIResponsesTerminalEvent, formatIncompleteOpenAIResponsesStreamFailure } from "./responsesStreamHelpers.js";
 import { dbg, isDebugEnabled } from "./debugLog.js";
 
+import { SSE_DONE, SSE_HEADERS, SSE_HEADERS_NO_BUFFER } from "./sseConstants.js";
+
 export { COLORS, formatSSE };
+export { SSE_DONE, SSE_HEADERS, SSE_HEADERS_NO_BUFFER };
 
 // sharedEncoder is stateless — safe to share across streams
 const sharedEncoder = new TextEncoder();
@@ -68,6 +71,7 @@ export function createSSEStream(options = {}) {
   let currentOpenAIResponsesEvent = null;
   let openAIResponsesTerminalSeen = false;
   let openAIResponsesDoneSent = false;
+  let streamDoneSent = false;  // track duplicate [DONE] across transform + flush
 
   return new TransformStream({
     transform(chunk, controller) {
@@ -126,6 +130,20 @@ export function createSSEStream(options = {}) {
                 }
               }
 
+              // Strip empty tool_calls arrays that break AI SDK reasoning tracking.
+              // Some providers (e.g. CodeBuddy CN) include `"tool_calls": []` in
+              // every streaming delta. @ai-sdk/openai-compatible checks
+              // `delta.tool_calls != null` — an empty array passes this check,
+              // causing premature `reasoning-end` on every chunk.
+              if (parsed?.choices) {
+                for (const choice of parsed.choices) {
+                  if (choice.delta?.tool_calls && Array.isArray(choice.delta.tool_calls) && choice.delta.tool_calls.length === 0) {
+                    delete choice.delta.tool_calls;
+                    fieldsInjected = true;
+                  }
+                }
+              }
+
               if (!hasValuableContent(parsed, FORMATS.OPENAI)) {
                 continue;
               }
@@ -144,16 +162,7 @@ export function createSSEStream(options = {}) {
 
               const extracted = extractUsage(parsed);
               if (extracted) {
-                // Merge instead of overwrite: Claude sends input_tokens in message_start
-                // and output_tokens in message_delta — both must be preserved.
-                usage = usage ? {
-                  prompt_tokens: Math.max(usage.prompt_tokens || 0, extracted.prompt_tokens || 0),
-                  completion_tokens: Math.max(usage.completion_tokens || 0, extracted.completion_tokens || 0),
-                  cache_read_input_tokens: extracted.cache_read_input_tokens ?? usage.cache_read_input_tokens,
-                  cache_creation_input_tokens: extracted.cache_creation_input_tokens ?? usage.cache_creation_input_tokens,
-                  cached_tokens: extracted.cached_tokens ?? usage.cached_tokens,
-                  reasoning_tokens: extracted.reasoning_tokens ?? usage.reasoning_tokens
-                } : extracted;
+                usage = mergeUsage(usage, extracted);
               }
 
               const isFinishChunk = parsed.choices?.[0]?.finish_reason;
@@ -172,7 +181,12 @@ export function createSSEStream(options = {}) {
                 output = `data: ${JSON.stringify(parsed)}\n`;
                 injectedUsage = true;
               }
-            } catch { }
+            } catch {
+              // Skip non-JSON data lines silently — don't forward garbage to clients.
+              // Upstream providers sometimes return plain-text errors (HTML, rate-limit
+              // messages) in the SSE stream that would break downstream JSON decoders.
+              continue;
+            }
           }
 
           if (!injectedUsage) {
@@ -217,9 +231,12 @@ export function createSSEStream(options = {}) {
             sseEmittedCount++;
           }
 
-          const output = "data: [DONE]\n\n";
-          reqLogger?.appendConvertedChunk?.(output);
-          controller.enqueue(sharedEncoder.encode(output));
+          if (keepsOpenAIResponsesFormat && !streamDoneSent) {
+            const doneOutput = "data: [DONE]\n\n";
+            reqLogger?.appendConvertedChunk?.(doneOutput);
+            controller.enqueue(sharedEncoder.encode(doneOutput));
+          }
+          streamDoneSent = true;
           if (keepsOpenAIResponsesFormat) openAIResponsesDoneSent = true;
           continue;
         }
@@ -234,7 +251,7 @@ export function createSSEStream(options = {}) {
           totalContentLength += parsed.delta.thinking.length;
           accumulatedThinking += parsed.delta.thinking;
         }
-        
+
         // OpenAI format - content
         if (parsed.choices?.[0]?.delta?.content) {
           totalContentLength += parsed.choices[0].delta.content.length;
@@ -244,11 +261,6 @@ export function createSSEStream(options = {}) {
         if (parsed.choices?.[0]?.delta?.reasoning_content) {
           totalContentLength += parsed.choices[0].delta.reasoning_content.length;
           accumulatedThinking += parsed.choices[0].delta.reasoning_content;
-        }
-
-        if (parsed.type === "response.output_text.delta" && typeof parsed.delta === "string") {
-          totalContentLength += parsed.delta.length;
-          accumulatedContent += parsed.delta;
         }
 
         // Gemini format
@@ -266,19 +278,9 @@ export function createSSEStream(options = {}) {
           }
         }
 
-        // Extract usage (accumulate across events — Claude sends input_tokens in message_start,
-        // output_tokens in message_delta; both must survive to produce correct totals).
+        // Extract usage
         const extracted = extractUsage(parsed);
-        if (extracted) {
-          state.usage = state.usage ? {
-            prompt_tokens: Math.max(state.usage.prompt_tokens || 0, extracted.prompt_tokens || 0),
-            completion_tokens: Math.max(state.usage.completion_tokens || 0, extracted.completion_tokens || 0),
-            cache_read_input_tokens: extracted.cache_read_input_tokens ?? state.usage.cache_read_input_tokens,
-            cache_creation_input_tokens: extracted.cache_creation_input_tokens ?? state.usage.cache_creation_input_tokens,
-            cached_tokens: extracted.cached_tokens ?? state.usage.cached_tokens,
-            reasoning_tokens: extracted.reasoning_tokens ?? state.usage.reasoning_tokens
-          } : extracted;
-        }
+        if (extracted) state.usage = mergeUsage(state.usage, extracted); // Keep original usage for logging
 
         // Responses same-format passthrough: re-emit with original event framing
         if (keepsOpenAIResponsesFormat && openAIResponsesEventName) {
@@ -359,14 +361,18 @@ export function createSSEStream(options = {}) {
           } else {
             appendRequestLog({ model, provider, connectionId, tokens: null, status: "200 OK" }).catch(() => { });
           }
-          
+
           // IMPORTANT: In passthrough mode we still must terminate the SSE stream.
           // Some clients (e.g. OpenClaw) expect the OpenAI-style sentinel:
           //   data: [DONE]\n\n
           // Without it they can hang until timeout and trigger failover.
-          const doneOutput = "data: [DONE]\n\n";
-          reqLogger?.appendConvertedChunk?.(doneOutput);
-          controller.enqueue(sharedEncoder.encode(doneOutput));
+          // Gemini-family clients (Antigravity, Vertex, Gemini) reject this sentinel with 400 syntax errors.
+          const isGeminiFamily = provider === "antigravity" || provider === "gemini" || provider === "vertex";
+          if (!streamDoneSent && !isGeminiFamily) {
+            const doneOutput = "data: [DONE]\n\n";
+            reqLogger?.appendConvertedChunk?.(doneOutput);
+            controller.enqueue(sharedEncoder.encode(doneOutput));
+          }
 
           if (onStreamComplete) {
             onStreamComplete({
@@ -427,10 +433,12 @@ export function createSSEStream(options = {}) {
           openAIResponsesTerminalSeen = true;
         }
 
-        if (!keepsOpenAIResponsesFormat || !openAIResponsesDoneSent) {
+        if (keepsOpenAIResponsesFormat && !openAIResponsesDoneSent && !streamDoneSent) {
           const doneOutput = "data: [DONE]\n\n";
           reqLogger?.appendConvertedChunk?.(doneOutput);
           controller.enqueue(sharedEncoder.encode(doneOutput));
+          openAIResponsesDoneSent = true;
+          streamDoneSent = true;
         }
 
         if (!hasValidUsage(state?.usage) && totalContentLength > 0) {
@@ -442,7 +450,7 @@ export function createSSEStream(options = {}) {
         } else {
           appendRequestLog({ model, provider, connectionId, tokens: null, status: "200 OK" }).catch(() => { });
         }
-        
+
         if (onStreamComplete) {
           onStreamComplete({
             content: accumulatedContent,
