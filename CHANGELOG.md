@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.44 (2026-07-04)
+
+### Features
+
+- **Selective database import**: Added granular import controls for merging or replacing supported settings and provider data.
+
+### Improvements
+
+- **Release pipeline**: Added native AMD64/ARM64 Docker builds, digest-based manifest publishing, optional npm publishing, and manual release-tag support.
+- **Offline builds**: Self-hosted the Inter font to remove the Google Fonts dependency from Docker and CI builds.
+- **Upstream sync**: Integrated the latest upstream provider, translator, localization, and test improvements while retaining n9Router fork behavior.
+
 ## v0.4.43 (2026-06-05)
 
 ### Fixes
