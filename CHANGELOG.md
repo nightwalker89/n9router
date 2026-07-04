@@ -5,12 +5,20 @@
 ### Features
 
 - **Selective database import**: Added granular import controls for merging or replacing supported settings and provider data.
+- **Upstream v0.4.71 providers and models**: Added Xiaomi MiMo V2.5 Pro routing, Qoder latest-model discovery/import, and MiniMax-M3 model, pricing, and quota support.
+- **Caveman and localization**: Added Wenyan classical-Chinese Caveman levels, locale-based visibility, translated endpoint exposure notices, and a Russian README.
 
 ### Improvements
 
 - **Release pipeline**: Added native AMD64/ARM64 Docker builds, digest-based manifest publishing, optional npm publishing, and manual release-tag support.
 - **Offline builds**: Self-hosted the Inter font to remove the Google Fonts dependency from Docker and CI builds.
-- **Upstream sync**: Integrated the latest upstream provider, translator, localization, and test improvements while retaining n9Router fork behavior.
+- **Dashboard and test coverage**: Reorganized language/menu/profile actions and expanded translator, provider, and real-provider smoke-test coverage.
+
+### Fixes
+
+- **Codex reliability**: Hardened streaming timeouts and terminal events, preventing hanging clients, and improved OAuth token refresh durability.
+- **Kiro and Claude compatibility**: Fixed Kiro binary EventStream handling, tool-bearing history, model/TTS filtering, and Claude OAuth `tool_choice` requests.
+- **Routing and infrastructure**: Corrected image/STT model tests, MiniMax reasoning follow-ups, Antigravity autocomplete, provider connection guards, tunnel interface detection, and configurable proxy uploads up to 128 MB.
 
 ## v0.4.43 (2026-06-05)
 
