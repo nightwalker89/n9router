@@ -1,4 +1,13 @@
 # Changelog
+## v0.4.46 (2026-07-04)
+
+### Fixes
+- **ClinePass connection tests**: Added ClinePass OAuth/API-key validation support so dashboard provider tests no longer report unsupported or invalid credentials when real requests work.
+- **ClinePass model tests**: Normalized successful ClinePass `data.choices` response envelopes into standard OpenAI `choices`, fixing false “Provider returned no completion choices” errors in the model test UI.
+
+### Tests
+- Added regression coverage for ClinePass provider validation and non-streaming response-envelope normalization.
+
 ## v0.4.45 (2026-07-04)
 
 ### Features

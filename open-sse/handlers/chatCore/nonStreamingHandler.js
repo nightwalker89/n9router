@@ -20,6 +20,16 @@ function parseToolArguments(value) {
   }
 }
 
+function unwrapOpenAIDataEnvelope(responseBody) {
+  const inner = responseBody?.data;
+  if (!inner || typeof inner !== "object" || !Array.isArray(inner.choices)) return responseBody;
+  return {
+    ...inner,
+    object: inner.object || responseBody.object,
+    created: inner.created || responseBody.created,
+  };
+}
+
 function openAICompletionToClaudeMessage(responseBody) {
   if (!responseBody?.choices?.[0]) return responseBody;
   const choice = responseBody.choices[0];
@@ -232,6 +242,7 @@ export async function handleNonStreamingResponse({ providerResponse, provider, m
 
   // Decloak tool_use names once on raw Claude body, before any translation (INPUT side)
   responseBody = decloakToolNames(responseBody, toolNameMap);
+  responseBody = unwrapOpenAIDataEnvelope(responseBody);
 
   const usage = extractUsageFromResponse(responseBody);
   appendLog({ tokens: usage, status: "200 OK" });

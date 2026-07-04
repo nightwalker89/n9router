@@ -15,6 +15,7 @@ import {
   QWEN_CONFIG,
   CLAUDE_CONFIG,
   CLINE_CONFIG,
+  CLINEPASS_CONFIG,
   KILOCODE_CONFIG,
   KIMCHI_CONFIG,
 } from "@/lib/oauth/constants/oauth";
@@ -84,6 +85,7 @@ const OAUTH_TEST_CONFIG = {
     authPrefix: "Bearer ",
   },
   cline: { refreshable: true },
+  clinepass: { refreshable: true },
   gitlab: {
     // Test by hitting the GitLab user API — requires api or read_user scope
     url: "https://gitlab.com/api/v4/user",
@@ -246,8 +248,9 @@ async function refreshOAuthToken(connection) {
       return { accessToken: data.access_token, expiresIn: data.expires_in, refreshToken: data.refresh_token || refreshToken };
     }
 
-    if (provider === "cline") {
-      const response = await fetch(CLINE_CONFIG.refreshUrl, {
+    if (provider === "cline" || provider === "clinepass") {
+      const config = provider === "clinepass" ? CLINEPASS_CONFIG : CLINE_CONFIG;
+      const response = await fetch(config.refreshUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
@@ -343,7 +346,7 @@ async function testOAuthConnection(connection, effectiveProxy = null, options = 
     return { valid: false, error: initial.error, refreshed };
   }
 
-  if (connection.provider === "cline") {
+  if (connection.provider === "cline" || connection.provider === "clinepass") {
     const tryProbe = async (token) => {
       const res = await probeClineAccessToken(token);
       if (res.ok) return { valid: true, error: null, refreshed, newTokens };
@@ -505,6 +508,12 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
       }
       case "vercel-ai-gateway": {
         const res = await fetchWithConnectionProxy("https://ai-gateway.vercel.sh/v1/models", { headers: { Authorization: `Bearer ${connection.apiKey}` } }, effectiveProxy);
+        return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
+      }
+      case "clinepass": {
+        const res = await fetchWithConnectionProxy("https://api.cline.bot/api/v1/models", {
+          headers: { Accept: "application/json", Authorization: `Bearer ${connection.apiKey}` },
+        }, effectiveProxy);
         return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
       }
       case "anthropic": {
