@@ -14,6 +14,7 @@ const STEP_BADGES = {
 
 function StatusBadge({ status }) {
   if (!status) return <Badge size="sm">Loading</Badge>;
+  if (!status.platformSupported) return <Badge variant="error" size="sm">Unsupported platform</Badge>;
   if (status.installed) return <Badge variant="success" size="sm">Installed</Badge>;
   if (status.cursorDetected) return <Badge variant="warning" size="sm">Ready</Badge>;
   return <Badge variant="default" size="sm">Cursor not found</Badge>;
@@ -56,8 +57,12 @@ export default function CursorByokToolCard({ tool }) {
   const [submittingPassword, setSubmittingPassword] = useState(false);
 
   const activeJob = job && !TERMINAL_STATUSES.has(job.status);
-  const canRestore = status?.backupAvailable || job?.action === "restore" || job?.action === "uninstall";
-  const canUninstall = status?.installed && status?.backupAvailable;
+  const platformReady = status?.platformSupported && status?.cursorDetected;
+  const writeBlocked = !platformReady || status?.cursorRunning;
+  const canRestore = platformReady && !status?.cursorRunning && (
+    status?.backupAvailable || job?.action === "restore" || job?.action === "uninstall"
+  );
+  const canUninstall = platformReady && !status?.cursorRunning && status?.installed && status?.backupAvailable;
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -191,10 +196,34 @@ export default function CursorByokToolCard({ tool }) {
           <div className="rounded-lg border border-border-subtle bg-bg p-3">
             <div className="text-xs font-semibold uppercase tracking-wide text-text-muted">Permission</div>
             <div className="mt-1 text-sm text-text-main">
-              {status?.needsSudoPassword ? (status?.hasCachedPassword ? "Sudo cached for session" : "Sudo required") : "No sudo prompt"}
+              {status?.isWin
+                ? (status?.needsUac ? "Windows UAC required" : "Direct write available")
+                : (status?.needsSudoPassword
+                  ? (status?.hasCachedPassword ? "Sudo cached for session" : "Sudo required")
+                  : "No sudo prompt")}
             </div>
           </div>
         </div>
+
+        {status?.isWin && (
+          <div className={`rounded-lg border p-3 text-xs leading-relaxed ${
+            status.cursorRunning
+              ? "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-300"
+              : "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300"
+          }`}>
+            {status.cursorRunning
+              ? "Cursor is running. Fully quit Cursor, including background processes, before Install, Restore, or Uninstall."
+              : status.needsUac
+                ? `Detected a protected ${status.installScope || "system"} installation. Windows will show one UAC confirmation dialog for file changes.`
+                : `Detected a writable ${status.installScope || "user"} installation. n9router can update it directly without a password or UAC dialog.`}
+          </div>
+        )}
+
+        {!status?.platformSupported && status?.supportReason && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-500">
+            {status.supportReason}
+          </div>
+        )}
 
         <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs leading-relaxed text-yellow-700 dark:text-yellow-300">
           Advanced feature: installation patches the local Cursor app bundle. Run Prepare after every Cursor update. Keep the generated backup until Cursor BYOK has been fully removed and Cursor works normally after restart.
@@ -204,13 +233,13 @@ export default function CursorByokToolCard({ tool }) {
           <div className="rounded-lg border border-border-subtle bg-bg p-3">
             <div className="text-sm font-semibold text-text-main">Prepare</div>
             <p className="mt-1 text-xs leading-relaxed text-text-muted">
-              Downloads the pinned source, installs dependencies, and checks compatibility. It does not modify Cursor and does not require sudo.
+              Downloads the pinned source, installs dependencies, and checks compatibility. It does not modify Cursor or request administrator permission.
             </p>
           </div>
           <div className="rounded-lg border border-border-subtle bg-bg p-3">
             <div className="text-sm font-semibold text-text-main">Install</div>
             <p className="mt-1 text-xs leading-relaxed text-text-muted">
-              Installs the extension and patches Cursor files after preflight succeeds. Restart Cursor when finished.
+              Installs the extension and patches Cursor after preflight. Writable Windows user installs are modified directly; protected installs use UAC.
             </p>
           </div>
           <div className="rounded-lg border border-border-subtle bg-bg p-3">
@@ -227,13 +256,24 @@ export default function CursorByokToolCard({ tool }) {
           </div>
         </div>
 
+        {status?.targets && (
+          <details className="rounded-lg border border-border-subtle bg-bg p-3 text-xs">
+            <summary className="cursor-pointer font-semibold text-text-main">Detected Cursor targets</summary>
+            <div className="mt-2 flex flex-col gap-1 break-all font-mono text-text-muted" data-i18n-skip="true">
+              <span>Root: {status.cursorRoot}</span>
+              <span>Workbench: {status.targets.workbench}</span>
+              <span>Extension host: {status.targets.extensionHost}</span>
+            </div>
+          </details>
+        )}
+
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <Button
             variant="secondary"
             icon="fact_check"
             onClick={() => startAction("prepare")}
             loading={startingAction === "prepare"}
-            disabled={activeJob}
+            disabled={activeJob || !platformReady}
           >
             Prepare
           </Button>
@@ -241,7 +281,7 @@ export default function CursorByokToolCard({ tool }) {
             icon="download"
             onClick={() => startAction("install")}
             loading={startingAction === "install"}
-            disabled={activeJob}
+            disabled={activeJob || writeBlocked}
           >
             Install
           </Button>
@@ -282,6 +322,12 @@ export default function CursorByokToolCard({ tool }) {
         {job?.status === "success" && (
           <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-3 text-sm text-green-700 dark:text-green-300">
             {getSuccessMessage(job.action)}
+          </div>
+        )}
+
+        {job?.status === "waiting_uac" && (
+          <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-700 dark:text-blue-300">
+            Approve the Windows User Account Control dialog to continue. It may appear behind another window.
           </div>
         )}
 

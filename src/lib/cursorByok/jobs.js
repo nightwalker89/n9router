@@ -18,6 +18,14 @@ import {
   getCursorByokCachedPassword,
   setCursorByokCachedPassword,
 } from "./passwordCache";
+import {
+  getNpmInvocation,
+  getTarInvocation,
+  isCursorRunning,
+  isWindowsAdmin,
+  resolveCursorInstallation,
+} from "./platform";
+import { runWindowsCursorAction } from "./windowsRunner";
 
 const STORE_KEY = "__n9routerCursorByokJobs";
 
@@ -40,7 +48,7 @@ function makeSteps(action) {
     steps.push({ id: "preflight", label: "Run Cursor preflight check", status: "pending" });
   }
   if (action !== "prepare") {
-    steps.push({ id: "sudo", label: "Confirm administrator permission", status: "pending" });
+    steps.push({ id: "permission", label: "Confirm system permission", status: "pending" });
   }
   if (action === "install") {
     steps.push({ id: "install", label: "Install Cursor BYOK extension", status: "pending" });
@@ -178,6 +186,15 @@ function runCommand(job, command, args, options = {}) {
   });
 }
 
+function runInvocation(job, invocation, args, options = {}) {
+  return runCommand(
+    job,
+    invocation.command,
+    [...invocation.prefixArgs, ...args],
+    options,
+  );
+}
+
 async function ensureSource(job) {
   updateStep(job, "download", "running");
   if (await pathExists(path.join(CURSOR_BYOK_SOURCE_DIR, "package.json"))) {
@@ -190,40 +207,80 @@ async function ensureSource(job) {
   await fs.rm(CURSOR_BYOK_SOURCE_DIR, { recursive: true, force: true });
   await downloadFile(CURSOR_BYOK_TARBALL_URL, CURSOR_BYOK_TARBALL_PATH);
   await fs.mkdir(CURSOR_BYOK_SOURCE_DIR, { recursive: true });
-  await runCommand(job, "tar", ["-xzf", CURSOR_BYOK_TARBALL_PATH, "-C", CURSOR_BYOK_SOURCE_DIR, "--strip-components=1"], {
-    cwd: CURSOR_BYOK_ROOT,
-  });
+  await runInvocation(
+    job,
+    getTarInvocation(),
+    ["-xzf", CURSOR_BYOK_TARBALL_PATH, "-C", CURSOR_BYOK_SOURCE_DIR, "--strip-components=1"],
+    { cwd: CURSOR_BYOK_ROOT },
+  );
   if (!(await pathExists(path.join(CURSOR_BYOK_SOURCE_DIR, "package.json")))) {
     throw new Error("Downloaded cursor-byok archive did not contain package.json");
   }
   updateStep(job, "download", "success", CURSOR_BYOK_REF.slice(0, 12));
 }
 
+async function verifySourcePackage() {
+  const packagePath = path.join(CURSOR_BYOK_SOURCE_DIR, "package.json");
+  const pkg = JSON.parse(await fs.readFile(packagePath, "utf8"));
+  if (pkg.publisher !== "starduster" || pkg.name !== "cursor-byok") {
+    throw new Error("Downloaded package identity does not match starduster.cursor-byok");
+  }
+  for (const relativePath of [
+    path.join("scripts", "install-cursor.js"),
+    path.join("scripts", "install-workbench-hook.js"),
+  ]) {
+    if (!(await pathExists(path.join(CURSOR_BYOK_SOURCE_DIR, relativePath)))) {
+      throw new Error(`Downloaded cursor-byok source is missing ${relativePath}`);
+    }
+  }
+}
+
 async function installDependencies(job) {
   updateStep(job, "dependencies", "running");
+  const npm = getNpmInvocation();
   try {
-    await runCommand(job, "npm", ["ci", "--ignore-scripts"], { cwd: CURSOR_BYOK_SOURCE_DIR });
+    await runInvocation(job, npm, ["ci", "--ignore-scripts"], { cwd: CURSOR_BYOK_SOURCE_DIR });
   } catch (error) {
     appendLog(job, `npm ci failed, retrying with npm install: ${error.message}`, "stderr");
-    await runCommand(job, "npm", ["install", "--ignore-scripts"], { cwd: CURSOR_BYOK_SOURCE_DIR });
+    await runInvocation(job, npm, ["install", "--ignore-scripts"], { cwd: CURSOR_BYOK_SOURCE_DIR });
   }
   updateStep(job, "dependencies", "success");
 }
 
-async function runPreflight(job) {
+async function runPreflight(job, installation) {
   updateStep(job, "preflight", "running");
-  await runCommand(job, "npm", ["run", "preflight:cursor"], { cwd: CURSOR_BYOK_SOURCE_DIR });
+  if (process.platform === "win32") {
+    await runCommand(
+      job,
+      process.execPath,
+      [path.join(CURSOR_BYOK_SOURCE_DIR, "scripts", "install-workbench-hook.js"), "--dry-run"],
+      {
+        cwd: CURSOR_BYOK_SOURCE_DIR,
+        env: {
+          CURSOR_WORKBENCH: installation.workbench,
+          CURSOR_EXT_HOST: installation.extensionHost,
+        },
+      },
+    );
+  } else {
+    await runInvocation(
+      job,
+      getNpmInvocation(),
+      ["run", "preflight:cursor"],
+      { cwd: CURSOR_BYOK_SOURCE_DIR },
+    );
+  }
   updateStep(job, "preflight", "success");
 }
 
 function waitForSudo(job) {
   const cached = getCursorByokCachedPassword();
-  if (cached || process.platform === "win32") {
-    updateStep(job, "sudo", "success", cached ? "Using cached password for this session" : "Windows admin context");
-    return Promise.resolve(cached || "");
+  if (cached) {
+    updateStep(job, "permission", "success", "Using cached password for this session");
+    return Promise.resolve(cached);
   }
 
-  updateStep(job, "sudo", "waiting", "Waiting for sudo password");
+  updateStep(job, "permission", "waiting", "Waiting for sudo password");
   job.status = "waiting_sudo";
   emitJob(job);
   return new Promise((resolve) => {
@@ -232,9 +289,6 @@ function waitForSudo(job) {
 }
 
 function runPrivilegedNpm(job, script, password) {
-  if (process.platform === "win32") {
-    return runCommand(job, "npm", ["run", script], { cwd: CURSOR_BYOK_SOURCE_DIR });
-  }
   const command = `sudo -S -p "" env HOME="$HOME" PATH="$PATH" npm run ${script}`;
   return runCommand(job, "sh", ["-c", command], {
     cwd: CURSOR_BYOK_SOURCE_DIR,
@@ -302,14 +356,65 @@ async function removeCursorByokExtension(job, password) {
   updateStep(job, "uninstall", "success");
 }
 
+async function runWindowsAction(job, installation) {
+  if (isCursorRunning()) {
+    const error = new Error("Cursor is running. Fully quit Cursor, including background processes, and retry.");
+    error.code = "CURSOR_RUNNING";
+    throw error;
+  }
+
+  const needsElevation = !installation.targetWritable && !isWindowsAdmin();
+  const primaryStep = job.action === "install" ? "install" : "restore";
+  updateStep(
+    job,
+    "permission",
+    needsElevation ? "waiting" : "success",
+    needsElevation ? "Waiting for Windows UAC confirmation" : "Target is writable without elevation",
+  );
+  updateStep(job, primaryStep, "running");
+  if (job.action === "uninstall") updateStep(job, "uninstall", "running");
+  emitJob(job);
+
+  await runWindowsCursorAction({
+    jobId: job.id,
+    action: job.action,
+    sourceDir: CURSOR_BYOK_SOURCE_DIR,
+    installation,
+    extensionsDir: CURSOR_EXTENSIONS_DIR,
+    byokHomeDir: CURSOR_BYOK_HOME_DIR,
+    npmInvocation: getNpmInvocation(),
+    needsElevation,
+    onLog: (message) => appendLog(job, message, "stdout"),
+    onUacRequested: () => {
+      job.status = "waiting_uac";
+      updateStep(job, "permission", "waiting", "Approve the Windows UAC dialog");
+      emitJob(job);
+    },
+    onElevatedStart: () => {
+      job.status = "running_elevated";
+      updateStep(job, "permission", "success", "Windows administrator approval granted");
+      emitJob(job);
+    },
+  });
+
+  updateStep(job, "permission", "success");
+  updateStep(job, primaryStep, "success");
+  if (job.action === "uninstall") updateStep(job, "uninstall", "success");
+}
+
 async function runJob(job) {
   try {
     job.status = "running";
     emitJob(job);
+    const installation = await resolveCursorInstallation();
+    if (!installation) {
+      throw new Error("Cursor installation or required workbench files were not found");
+    }
     await ensureSource(job);
+    await verifySourcePackage();
     await installDependencies(job);
     if (job.action === "prepare" || job.action === "install") {
-      await runPreflight(job);
+      await runPreflight(job, installation);
     }
 
     if (job.action === "prepare") {
@@ -317,21 +422,28 @@ async function runJob(job) {
       return;
     }
 
-    const password = await waitForSudo(job);
-    if (job.action === "install") {
-      await runPrivilegedScript(job, "install", "install:cursor", password);
+    if (process.platform === "win32") {
+      await runWindowsAction(job, installation);
     } else {
-      await runPrivilegedScript(job, "restore", "restore:cursor", password);
-      if (job.action === "uninstall") {
-        await removeCursorByokExtension(job, password);
+      const password = await waitForSudo(job);
+      if (job.action === "install") {
+        await runPrivilegedScript(job, "install", "install:cursor", password);
+      } else {
+        await runPrivilegedScript(job, "restore", "restore:cursor", password);
+        if (job.action === "uninstall") {
+          await removeCursorByokExtension(job, password);
+        }
       }
     }
     completeJob(job, "success");
   } catch (error) {
     const message = error?.message || "Cursor BYOK job failed";
     appendLog(job, message, "stderr");
-    const currentStep = job.steps.find((step) => step.status === "running" || step.status === "waiting");
-    if (currentStep) updateStep(job, currentStep.id, "error", message);
+    for (const step of job.steps) {
+      if (step.status === "running" || step.status === "waiting") {
+        updateStep(job, step.id, "error", message);
+      }
+    }
     completeJob(job, "error", message);
   }
 }
@@ -407,7 +519,7 @@ export function provideCursorByokSudo(jobId, password) {
   }
   const resolver = job.sudoResolver;
   job.sudoResolver = null;
-  updateStep(job, "sudo", "success", "Password received");
+  updateStep(job, "permission", "success", "Password received");
   job.status = "running";
   emitJob(job);
   resolver(String(password));

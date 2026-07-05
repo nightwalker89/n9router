@@ -1,8 +1,11 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
-import { createRequire } from "node:module";
 import { getCursorByokCachedPassword } from "./passwordCache";
+import {
+  isCursorRunning,
+  isWindowsAdmin,
+  resolveCursorInstallation,
+} from "./platform";
 import {
   CURSOR_BYOK_HOME_DIR,
   CURSOR_BYOK_OWNER,
@@ -13,8 +16,6 @@ import {
   CURSOR_EXTENSIONS_DIR,
 } from "./constants";
 
-const require = createRequire(import.meta.url);
-
 async function exists(targetPath) {
   try {
     await fs.access(targetPath);
@@ -22,31 +23,6 @@ async function exists(targetPath) {
   } catch {
     return false;
   }
-}
-
-async function firstExisting(paths) {
-  for (const candidate of paths) {
-    if (await exists(candidate)) return candidate;
-  }
-  return null;
-}
-
-function getCursorCandidates() {
-  if (process.platform === "darwin") {
-    return [
-      "/Applications/Cursor.app",
-      path.join(os.homedir(), "Applications", "Cursor.app"),
-    ];
-  }
-  if (process.platform === "win32") {
-    const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
-    return [path.join(localAppData, "Programs", "cursor", "Cursor.exe")];
-  }
-  return [
-    "/usr/bin/cursor",
-    "/usr/local/bin/cursor",
-    path.join(os.homedir(), ".local", "bin", "cursor"),
-  ];
 }
 
 async function detectCursorByokExtension() {
@@ -74,24 +50,16 @@ async function detectHookState() {
   return exists(path.join(CURSOR_BYOK_HOME_DIR, "workbench-hook-state.json"));
 }
 
-function checkIsAdmin() {
-  if (process.platform !== "win32") return true;
-  try {
-    return require("../../mitm/dns/dnsConfig").isWindowsAdmin();
-  } catch {
-    return false;
-  }
-}
-
 export async function getCursorByokStatus() {
+  const installationPromise = resolveCursorInstallation();
   const [
-    cursorPath,
+    installation,
     sourceReady,
     extensionInstalled,
     hookStateExists,
     backupAvailable,
   ] = await Promise.all([
-    firstExisting(getCursorCandidates()),
+    installationPromise,
     exists(path.join(CURSOR_BYOK_SOURCE_DIR, "package.json")),
     detectCursorByokExtension(),
     detectHookState(),
@@ -99,12 +67,30 @@ export async function getCursorByokStatus() {
   ]);
   const installed = extensionInstalled || hookStateExists;
   const isWin = process.platform === "win32";
+  const isMac = process.platform === "darwin";
+  const platformSupported = isWin || isMac;
+  const isAdmin = isWin ? isWindowsAdmin() : true;
+  const cursorRunning = isWin ? isCursorRunning() : false;
+  const needsUac = isWin && !!installation && !installation.targetWritable && !isAdmin;
 
   return {
     installed,
     has9Router: installed,
-    cursorDetected: !!cursorPath,
-    cursorPath,
+    cursorDetected: !!installation,
+    cursorPath: installation?.executable || null,
+    cursorRoot: installation?.cursorRoot || null,
+    installScope: installation?.installScope || null,
+    targetWritable: installation?.targetWritable ?? false,
+    cursorRunning,
+    platformSupported,
+    supportReason: platformSupported
+      ? null
+      : "Cursor BYOK installer currently supports native macOS and Windows only",
+    needsUac,
+    targets: installation ? {
+      workbench: installation.workbench,
+      extensionHost: installation.extensionHost,
+    } : null,
     extensionInstalled,
     hookStateExists,
     backupAvailable,
@@ -118,8 +104,8 @@ export async function getCursorByokStatus() {
     },
     platform: process.platform,
     isWin,
-    isAdmin: checkIsAdmin(),
+    isAdmin,
     hasCachedPassword: !!getCursorByokCachedPassword(),
-    needsSudoPassword: !isWin,
+    needsSudoPassword: isMac,
   };
 }
