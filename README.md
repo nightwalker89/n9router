@@ -472,6 +472,7 @@ Antigravity IDE  →  n9router MITM proxy  →  Antigravity Account A
 
 | Feature | What It Does | Why It Matters |
 |---------|--------------|----------------|
+| 🔑 **Cursor BYOK** | Guided installer to bring your own API key to Cursor (macOS + Windows) | Use Cursor with your own provider keys — code-signature validated, UAC-aware |
 | 🔀 **Token Rotate** | MITM-level Antigravity account rotation (round-robin or sticky) | Bypass quota limits across accounts transparently |
 | 🚀 **RTK Token Saver** | Auto-compress tool_result content (git-diff, grep, find, ls, tree...) before sending to LLM | Save 20-40% tokens per request, keep more context window |
 | 🎯 **Smart 3-Tier Fallback** | Auto-route: Subscription → Cheap → Free | Never stop coding, zero downtime |
