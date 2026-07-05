@@ -228,19 +228,28 @@ export default function CursorByokToolCard({ tool }) {
 
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="rounded-lg border border-border-subtle bg-bg p-3">
-            <div className="text-sm font-semibold text-text-main">Prepare</div>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-500/15 text-[11px] font-bold text-brand-600 dark:text-brand-300">1</span>
+              <div className="text-sm font-semibold text-text-main">Prepare</div>
+            </div>
             <p className="mt-1 text-xs leading-relaxed text-text-muted">
               Downloads the pinned source, installs dependencies, and checks compatibility. It does not modify Cursor or request administrator permission.
             </p>
           </div>
           <div className="rounded-lg border border-border-subtle bg-bg p-3">
-            <div className="text-sm font-semibold text-text-main">Install</div>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-500/15 text-[11px] font-bold text-brand-600 dark:text-brand-300">2</span>
+              <div className="text-sm font-semibold text-text-main">Install</div>
+            </div>
             <p className="mt-1 text-xs leading-relaxed text-text-muted">
               Installs the extension and patches Cursor after preflight. Writable Windows user installs are modified directly; protected installs use UAC.
             </p>
           </div>
           <div className="rounded-lg border border-border-subtle bg-bg p-3">
-            <div className="text-sm font-semibold text-text-main">Restore Cursor Files</div>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-surface-3 text-[11px] font-bold text-text-muted">3</span>
+              <div className="text-sm font-semibold text-text-main">Restore Cursor Files</div>
+            </div>
             <p className="mt-1 text-xs leading-relaxed text-text-muted">
               Rolls back the Cursor application patch from backup. The BYOK extension and its settings remain installed.
             </p>
@@ -258,6 +267,30 @@ export default function CursorByokToolCard({ tool }) {
           </details>
         )}
 
+        <div className="rounded-lg border border-border-subtle bg-surface-2/50 p-3">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-[18px] text-primary">menu_book</span>
+            <h3 className="text-sm font-semibold text-text-main">Quick Guide</h3>
+          </div>
+          <ol className="mt-2 flex flex-col gap-1.5 text-xs leading-relaxed text-text-muted">
+            <li className="flex gap-2">
+              <span className="font-semibold text-text-main">1.</span>
+              <span><span className="font-medium text-text-main">Prepare</span> — downloads the source and verifies your Cursor version. Safe to re-run after any Cursor update.</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-semibold text-text-main">2.</span>
+              <span><span className="font-medium text-text-main">Install</span> — patches Cursor and adds the BYOK extension. Fully quit Cursor first, then restart it afterward.</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-semibold text-text-main">3.</span>
+              <span><span className="font-medium text-text-main">Restore Cursor Files</span> — optional. Rolls back the Cursor patch from a matching backup; the extension and settings stay.</span>
+            </li>
+          </ol>
+          <p className="mt-2 text-[11px] text-text-muted/80">
+            Tip: Run <span className="font-medium">Prepare</span> again after every Cursor update before re-installing.
+          </p>
+        </div>
+
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <Button
             variant="secondary"
@@ -266,7 +299,7 @@ export default function CursorByokToolCard({ tool }) {
             loading={startingAction === "prepare"}
             disabled={activeJob || !platformReady}
           >
-            Prepare
+            1. Prepare
           </Button>
           <Button
             icon="download"
@@ -274,7 +307,7 @@ export default function CursorByokToolCard({ tool }) {
             loading={startingAction === "install"}
             disabled={activeJob || writeBlocked}
           >
-            Install
+            2. Install
           </Button>
           <Button
             variant="outline"
@@ -284,7 +317,7 @@ export default function CursorByokToolCard({ tool }) {
             disabled={activeJob || !canRestore}
             title={!canRestore ? "A workbench backup is required to restore Cursor files" : undefined}
           >
-            Restore Cursor Files
+            3. Restore Cursor Files
           </Button>
         </div>
 
