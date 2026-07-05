@@ -6,10 +6,6 @@ import { Card, Button, Input, Modal, CardSkeleton, Toggle, ConfirmModal } from "
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { useKeyLimits } from "./hooks/useKeyLimits";
 import ApiKeyRow from "./components/ApiKeyRow";
-import { getCurrentLocale, onLocaleChange } from "@/i18n/runtime";
-
-// Locales that unlock wenyan (classical Chinese) caveman levels
-const WENYAN_LOCALES = ["zh-CN", "zh-TW"];
 
 const TUNNEL_BENEFITS = [
   { icon: "public", title: "Access Anywhere", desc: "Use your API from any network" },
@@ -55,14 +51,6 @@ async function clientPingAny(...urls) {
   });
 }
 
-const CAVEMAN_LEVELS = [
-  { id: "lite", label: "Lite", desc: "Drop filler, keep grammar" },
-  { id: "full", label: "Full", desc: "Drop articles, fragments OK" },
-  { id: "ultra", label: "Ultra", desc: "Telegraphic, max compression" },
-  { id: "wenyan-lite", label: "文 Lite", desc: "Classical Chinese, light compression", wenyan: true },
-  { id: "wenyan", label: "文 Full", desc: "Maximum 文言文, 80-90% reduction", wenyan: true },
-  { id: "wenyan-ultra", label: "文 Ultra", desc: "Extreme classical compression", wenyan: true },
-];
 export default function APIPageClient({ machineId }) {
   const [keys, setKeys] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -75,10 +63,6 @@ export default function APIPageClient({ machineId }) {
   const [requireLogin, setRequireLogin] = useState(true);
   const [hasPassword, setHasPassword] = useState(true);
   const [tunnelDashboardAccess, setTunnelDashboardAccess] = useState(false);
-  const [rtkEnabled, setRtkEnabledState] = useState(true);
-  const [cavemanEnabled, setCavemanEnabled] = useState(false);
-  const [cavemanLevel, setCavemanLevel] = useState("full");
-  const [locale, setLocale] = useState("en");
 
   // Cloudflare Tunnel state
   const [tunnelChecking, setTunnelChecking] = useState(true);
@@ -133,26 +117,6 @@ export default function APIPageClient({ machineId }) {
     if (typeof window !== "undefined")
       setIsRemoteHost(!["localhost", "127.0.0.1", "::1"].includes(window.location.hostname));
   }, []);
-
-  // Track app UI locale to gate wenyan caveman levels
-  useEffect(() => {
-    setLocale(getCurrentLocale());
-    return onLocaleChange(() => setLocale(getCurrentLocale()));
-  }, []);
-
-  const isWenyanLocale = WENYAN_LOCALES.includes(locale);
-  const visibleCavemanLevels = isWenyanLocale
-    ? CAVEMAN_LEVELS
-    : CAVEMAN_LEVELS.filter((lvl) => !lvl.wenyan);
-
-  // Reset wenyan level to "ultra" when leaving a Chinese locale
-  useEffect(() => {
-    const current = CAVEMAN_LEVELS.find((lvl) => lvl.id === cavemanLevel);
-    if (current?.wenyan && !isWenyanLocale) {
-      setCavemanLevel("ultra");
-      patchSetting({ cavemanLevel: "ultra" });
-    }
-  }, [isWenyanLocale, cavemanLevel]);
 
   const { copied, copy } = useCopyToClipboard();
   const keyLimits = useKeyLimits(setKeys);
@@ -285,9 +249,6 @@ export default function APIPageClient({ machineId }) {
         setRequireLogin(data.requireLogin !== false);
         setHasPassword(data.hasPassword || false);
         setTunnelDashboardAccess(data.tunnelDashboardAccess || false);
-        setRtkEnabledState(data.rtkEnabled !== false);
-        setCavemanEnabled(!!data.cavemanEnabled);
-        setCavemanLevel(data.cavemanLevel || "full");
       }
       if (statusRes.ok) {
         const data = await statusRes.json();
@@ -335,41 +296,6 @@ export default function APIPageClient({ machineId }) {
     } catch (error) {
       console.log("Error updating requireApiKey:", error);
     }
-  };
-
-  const handleRtkEnabled = async (value) => {
-    try {
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rtkEnabled: value }),
-      });
-      if (res.ok) setRtkEnabledState(value);
-    } catch (error) {
-      console.log("Error updating rtkEnabled:", error);
-    }
-  };
-
-  const patchSetting = async (patch) => {
-    try {
-      await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-      });
-    } catch (error) {
-      console.log("Error updating setting:", error);
-    }
-  };
-
-  const handleCavemanEnabled = (value) => {
-    setCavemanEnabled(value);
-    patchSetting({ cavemanEnabled: value });
-  };
-
-  const handleCavemanLevel = (level) => {
-    setCavemanLevel(level);
-    patchSetting({ cavemanLevel: level });
   };
 
   const fetchData = async () => {
@@ -1076,85 +1002,6 @@ export default function APIPageClient({ machineId }) {
             </div>
           </div>
         )}
-      </Card>
-
-      {/* Token Saver (RTK + Caveman) */}
-      <Card id="rtk">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary">bolt</span>
-            Token Saver
-          </h2>
-        </div>
-        <div className="flex items-center justify-between pt-2 pb-4 border-b border-border gap-4">
-          <div className="min-w-0 flex-1">
-            <p className="font-medium">
-              Compress tool output{" "}
-              <a
-                href="https://github.com/rtk-ai/rtk"
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs font-normal text-primary underline hover:opacity-80"
-              >
-                (RTK)
-              </a>
-            </p>
-            <p className="text-sm text-text-muted">
-              git/grep/ls/tree/logs → 60-90% fewer input tokens
-            </p>
-          </div>
-          <Toggle
-            checked={rtkEnabled}
-            onChange={() => handleRtkEnabled(!rtkEnabled)}
-          />
-        </div>
-        <div className="flex items-center justify-between pt-4 gap-4 flex-wrap">
-          <div className="min-w-0 flex-1">
-            <p className="font-medium">
-              Compress LLM output{" "}
-              <a
-                href="https://github.com/JuliusBrussee/caveman"
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs font-normal text-primary underline hover:opacity-80"
-              >
-                (Caveman)
-              </a>
-            </p>
-            <p className="text-sm text-text-muted">
-              Terse-style system prompt → ~65% fewer output tokens (up to 87%)
-            </p>
-          </div>
-          <div className="flex items-center gap-3 shrink-0">
-            {cavemanEnabled && (
-              <div className="flex flex-col items-end gap-1">
-                <div className="flex items-center gap-1.5">
-                  {visibleCavemanLevels.map((lvl) => (
-                    <button
-                      key={lvl.id}
-                      onClick={() => handleCavemanLevel(lvl.id)}
-                      className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
-                        cavemanLevel === lvl.id
-                          ? "bg-primary text-white border-primary"
-                          : "bg-transparent border-border text-text-muted hover:bg-surface-2"
-                      }`}
-                      title={lvl.desc}
-                    >
-                      {lvl.label}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xs text-primary">
-                  {CAVEMAN_LEVELS.find((lvl) => lvl.id === cavemanLevel)?.desc}
-                </p>
-              </div>
-            )}
-            <Toggle
-              checked={cavemanEnabled}
-              onChange={() => handleCavemanEnabled(!cavemanEnabled)}
-            />
-          </div>
-        </div>
       </Card>
 
       {/* API Keys */}
