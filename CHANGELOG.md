@@ -1,4 +1,16 @@
 # Changelog
+## v0.4.47 (2026-07-05)
+
+### Features
+- **Cursor BYOK installer**: Added a guided CLI installer for bringing your own API key to Cursor, with step-by-step process cards, step indicators, and a quick-guide reference section.
+- **Cursor BYOK Windows support**: Implemented the full BYOK workflow on Windows including UAC elevation handling and restore-state management.
+- **Cursor BYOK macOS hardening**: Implemented secure macOS code-signature validation for the BYOK workflow and improved restore-state management.
+
+### Improvements
+- **Dashboard navigation**: Added a MITM proxy navigation link to the dashboard sidebar for easier access to proxy settings.
+- **Endpoint page**: Updated the endpoint page UI.
+
+
 ## v0.4.46 (2026-07-04)
 
 ### Fixes
