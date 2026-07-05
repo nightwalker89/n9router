@@ -36,7 +36,7 @@ afterEach(async () => {
 });
 
 describe("Cursor BYOK Windows worker", () => {
-  it("installs with explicit targets and restores before uninstalling", async () => {
+  it("installs with explicit targets and restores Cursor files without removing the extension", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "n9router-windows-worker-"));
     tempDirs.push(root);
     const sourceDir = path.join(root, "source");
@@ -46,7 +46,6 @@ describe("Cursor BYOK Windows worker", () => {
     const extensionHost = path.join(resourcesRoot, "out", "vs", "workbench", "api", "node", "extensionHostProcess.js");
     const appExtensions = path.join(resourcesRoot, "extensions");
     const extensionsDir = path.join(root, ".cursor", "extensions");
-    const byokHomeDir = path.join(root, ".cursor-byok");
     const expectedExtensionRoot = path.join(extensionsDir, "starduster.cursor-byok-1.0.0");
     const fakeNpmPath = path.join(root, "fake-npm.cjs");
 
@@ -95,7 +94,6 @@ describe("Cursor BYOK Windows worker", () => {
       sourceDir,
       extensionsDir,
       expectedExtensionRoot,
-      byokHomeDir,
       npmInvocation: { command: process.execPath, prefixArgs: [fakeNpmPath] },
       installation: {
         cursorRoot,
@@ -111,12 +109,10 @@ describe("Cursor BYOK Windows worker", () => {
     expect(await fs.readFile(workbench, "utf8")).toBe("patched");
     expect(await fs.readFile(path.join(expectedExtensionRoot, "package.json"), "utf8")).toContain("cursor-byok");
 
-    await writeFile(path.join(byokHomeDir, "workbench-hook-state.json"), "{}");
-    const uninstalled = await runWorker(root, { ...baseRequest, action: "uninstall" }, "uninstall");
-    expect(uninstalled.processResult.status).toBe(0);
-    expect(uninstalled.result.ok).toBe(true);
+    const restored = await runWorker(root, { ...baseRequest, action: "restore" }, "restore");
+    expect(restored.processResult.status).toBe(0);
+    expect(restored.result.ok).toBe(true);
     expect(await fs.readFile(workbench, "utf8")).toBe("restored");
-    await expect(fs.access(expectedExtensionRoot)).rejects.toThrow();
-    await expect(fs.access(path.join(byokHomeDir, "workbench-hook-state.json"))).rejects.toThrow();
+    expect(await fs.readFile(path.join(expectedExtensionRoot, "package.json"), "utf8")).toContain("cursor-byok");
   });
 });

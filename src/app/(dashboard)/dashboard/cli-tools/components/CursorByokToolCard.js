@@ -43,7 +43,7 @@ function getSuccessMessage(action) {
   if (action === "restore") {
     return "Original Cursor files were restored. The Cursor BYOK extension and settings remain installed. Restart Cursor to apply the rollback.";
   }
-  return "Cursor BYOK was removed and original Cursor files were restored. Configuration and backups were preserved. Restart Cursor to finish.";
+  return "Cursor BYOK action completed.";
 }
 
 export default function CursorByokToolCard({ tool }) {
@@ -59,10 +59,7 @@ export default function CursorByokToolCard({ tool }) {
   const activeJob = job && !TERMINAL_STATUSES.has(job.status);
   const platformReady = status?.platformSupported && status?.cursorDetected;
   const writeBlocked = !platformReady || status?.cursorRunning;
-  const canRestore = platformReady && !status?.cursorRunning && (
-    status?.backupAvailable || job?.action === "restore" || job?.action === "uninstall"
-  );
-  const canUninstall = platformReady && !status?.cursorRunning && status?.installed && status?.backupAvailable;
+  const canRestore = platformReady && !status?.cursorRunning && status?.restoreAvailable;
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -174,7 +171,7 @@ export default function CursorByokToolCard({ tool }) {
               <StatusBadge status={status} />
             </div>
             <p className="mt-1 text-sm text-text-muted">
-              Install, roll back, or remove Cursor BYOK with every step and command result shown here.
+              Install or safely restore Cursor BYOK with every step and command result shown here.
             </p>
           </div>
           <Button variant="ghost" size="sm" icon="refresh" onClick={fetchStatus} disabled={activeJob}>
@@ -212,7 +209,7 @@ export default function CursorByokToolCard({ tool }) {
               : "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300"
           }`}>
             {status.cursorRunning
-              ? "Cursor is running. Fully quit Cursor, including background processes, before Install, Restore, or Uninstall."
+              ? "Cursor is running. Fully quit Cursor, including background processes, before Install or Restore."
               : status.needsUac
                 ? `Detected a protected ${status.installScope || "system"} installation. Windows will show one UAC confirmation dialog for file changes.`
                 : `Detected a writable ${status.installScope || "user"} installation. n9router can update it directly without a password or UAC dialog.`}
@@ -226,7 +223,7 @@ export default function CursorByokToolCard({ tool }) {
         )}
 
         <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs leading-relaxed text-yellow-700 dark:text-yellow-300">
-          Advanced feature: installation patches the local Cursor app bundle. Run Prepare after every Cursor update. Keep the generated backup until Cursor BYOK has been fully removed and Cursor works normally after restart.
+          Advanced feature: installation patches the local Cursor app bundle. Run Prepare after every Cursor update. Restore is allowed only when the saved backup matches the current signed Cursor version.
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2">
@@ -246,12 +243,6 @@ export default function CursorByokToolCard({ tool }) {
             <div className="text-sm font-semibold text-text-main">Restore Cursor Files</div>
             <p className="mt-1 text-xs leading-relaxed text-text-muted">
               Rolls back the Cursor application patch from backup. The BYOK extension and its settings remain installed.
-            </p>
-          </div>
-          <div className="rounded-lg border border-border-subtle bg-bg p-3">
-            <div className="text-sm font-semibold text-text-main">Uninstall Cursor BYOK</div>
-            <p className="mt-1 text-xs leading-relaxed text-text-muted">
-              Restores Cursor first, then removes the extension and registry entry. Configuration and backups are preserved.
             </p>
           </div>
         </div>
@@ -295,21 +286,11 @@ export default function CursorByokToolCard({ tool }) {
           >
             Restore Cursor Files
           </Button>
-          <Button
-            variant="danger"
-            icon="delete"
-            onClick={() => startAction("uninstall")}
-            loading={startingAction === "uninstall"}
-            disabled={activeJob || !canUninstall}
-            title={!canUninstall ? "A detected installation and backup are required for safe uninstall" : undefined}
-          >
-            Uninstall
-          </Button>
         </div>
 
-        {status?.installed && !status?.backupAvailable && (
+        {status?.backupFilesAvailable && !status?.restoreAvailable && (
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-500">
-            Safe uninstall is unavailable because no Cursor workbench backup was detected. Reinstall or provide a pristine Cursor copy before removing the extension.
+            {status.restoreReason}. Restore is disabled because backup filenames alone do not identify their original Cursor targets. If Cursor BYOK is not installed and Cursor works normally, these are retained archival backups and no restore is needed.
           </div>
         )}
 
@@ -365,7 +346,7 @@ export default function CursorByokToolCard({ tool }) {
             <p className="mb-4 text-sm text-text-muted">
               {job?.action === "install"
                 ? "Required to patch the local Cursor app bundle. The password is kept only in this n9router process session."
-                : "Required to restore the original Cursor app files from backup. Uninstall removes the extension only after restore succeeds."}
+                : "Required to restore the original Cursor app files from a verified matching backup. The extension and settings remain installed."}
             </p>
             <Input
               type="password"

@@ -14,4 +14,4 @@ export const CURSOR_BYOK_TARBALL_PATH = path.join(CURSOR_BYOK_ROOT, `${CURSOR_BY
 export const CURSOR_BYOK_HOME_DIR = path.join(os.homedir(), ".cursor-byok");
 export const CURSOR_EXTENSIONS_DIR = path.join(os.homedir(), ".cursor", "extensions");
 
-export const CURSOR_BYOK_ACTIONS = new Set(["prepare", "install", "restore", "uninstall"]);
+export const CURSOR_BYOK_ACTIONS = new Set(["prepare", "install", "restore"]);

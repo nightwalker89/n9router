@@ -90,7 +90,6 @@ export async function runWindowsCursorAction({
   sourceDir,
   installation,
   extensionsDir,
-  byokHomeDir,
   npmInvocation,
   needsElevation,
   onLog,
@@ -116,7 +115,6 @@ export async function runWindowsCursorAction({
     installation,
     extensionsDir,
     expectedExtensionRoot,
-    byokHomeDir,
     npmInvocation,
   };
 

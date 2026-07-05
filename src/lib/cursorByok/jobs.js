@@ -6,7 +6,6 @@ import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import {
   CURSOR_BYOK_ACTIONS,
-  CURSOR_BYOK_HOME_DIR,
   CURSOR_BYOK_REF,
   CURSOR_BYOK_ROOT,
   CURSOR_BYOK_SOURCE_DIR,
@@ -26,6 +25,11 @@ import {
   resolveCursorInstallation,
 } from "./platform";
 import { runWindowsCursorAction } from "./windowsRunner";
+import { getCursorByokRestoreState } from "./restoreState";
+import {
+  validateMacRestoreBackups,
+  verifyMacCursorCodeSignature,
+} from "./macSignature";
 
 const STORE_KEY = "__n9routerCursorByokJobs";
 
@@ -53,11 +57,8 @@ function makeSteps(action) {
   if (action === "install") {
     steps.push({ id: "install", label: "Install Cursor BYOK extension", status: "pending" });
   }
-  if (action === "restore" || action === "uninstall") {
+  if (action === "restore") {
     steps.push({ id: "restore", label: "Restore original Cursor files from backup", status: "pending" });
-  }
-  if (action === "uninstall") {
-    steps.push({ id: "uninstall", label: "Remove Cursor BYOK extension and registry entry", status: "pending" });
   }
   return steps;
 }
@@ -305,57 +306,6 @@ async function runPrivilegedScript(job, stepId, script, password) {
   updateStep(job, stepId, "success");
 }
 
-const UNINSTALL_SCRIPT = `
-"use strict";
-const fs = require("node:fs");
-const path = require("node:path");
-const [extensionsDir, byokHomeDir] = process.argv.slice(1);
-const removedDirectories = [];
-if (fs.existsSync(extensionsDir)) {
-  for (const entry of fs.readdirSync(extensionsDir, { withFileTypes: true })) {
-    if (!entry.isDirectory() || !entry.name.startsWith("starduster.cursor-byok-")) continue;
-    fs.rmSync(path.join(extensionsDir, entry.name), { recursive: true, force: true });
-    removedDirectories.push(entry.name);
-  }
-}
-const registryPath = path.join(extensionsDir, "extensions.json");
-let registryUpdated = false;
-if (fs.existsSync(registryPath)) {
-  const entries = JSON.parse(fs.readFileSync(registryPath, "utf8"));
-  if (Array.isArray(entries)) {
-    const filtered = entries.filter((entry) => entry?.identifier?.id !== "starduster.cursor-byok");
-    if (filtered.length !== entries.length) {
-      fs.writeFileSync(registryPath, JSON.stringify(filtered, null, 2) + "\\n", "utf8");
-      registryUpdated = true;
-    }
-  }
-}
-fs.rmSync(path.join(byokHomeDir, "workbench-hook-state.json"), { force: true });
-console.log(JSON.stringify({ removedDirectories, registryUpdated }));
-`;
-
-async function removeCursorByokExtension(job, password) {
-  updateStep(job, "uninstall", "running");
-  const nodeArgs = ["-e", UNINSTALL_SCRIPT, CURSOR_EXTENSIONS_DIR, CURSOR_BYOK_HOME_DIR];
-  if (process.platform === "win32") {
-    await runCommand(job, process.execPath, nodeArgs, {
-      displayArgs: ["<cursor-byok-uninstall>"],
-    });
-  } else {
-    await runCommand(
-      job,
-      "sudo",
-      ["-S", "-p", "", process.execPath, ...nodeArgs],
-      {
-        stdin: `${password}\n`,
-        displayArgs: ["<scoped-cursor-byok-uninstall>"],
-      },
-    );
-  }
-  appendLog(job, `Preserved Cursor BYOK configuration and backups in ${CURSOR_BYOK_HOME_DIR}`);
-  updateStep(job, "uninstall", "success");
-}
-
 async function runWindowsAction(job, installation) {
   if (isCursorRunning()) {
     const error = new Error("Cursor is running. Fully quit Cursor, including background processes, and retry.");
@@ -372,7 +322,6 @@ async function runWindowsAction(job, installation) {
     needsElevation ? "Waiting for Windows UAC confirmation" : "Target is writable without elevation",
   );
   updateStep(job, primaryStep, "running");
-  if (job.action === "uninstall") updateStep(job, "uninstall", "running");
   emitJob(job);
 
   await runWindowsCursorAction({
@@ -381,7 +330,6 @@ async function runWindowsAction(job, installation) {
     sourceDir: CURSOR_BYOK_SOURCE_DIR,
     installation,
     extensionsDir: CURSOR_EXTENSIONS_DIR,
-    byokHomeDir: CURSOR_BYOK_HOME_DIR,
     npmInvocation: getNpmInvocation(),
     needsElevation,
     onLog: (message) => appendLog(job, message, "stdout"),
@@ -399,7 +347,6 @@ async function runWindowsAction(job, installation) {
 
   updateStep(job, "permission", "success");
   updateStep(job, primaryStep, "success");
-  if (job.action === "uninstall") updateStep(job, "uninstall", "success");
 }
 
 async function runJob(job) {
@@ -409,6 +356,30 @@ async function runJob(job) {
     const installation = await resolveCursorInstallation();
     if (!installation) {
       throw new Error("Cursor installation or required workbench files were not found");
+    }
+    let restoreState = null;
+    if (job.action === "restore") {
+      restoreState = await getCursorByokRestoreState();
+      if (!restoreState.restoreAvailable) {
+        const message = `Restore unavailable: ${restoreState.restoreReason}. Backup files alone cannot be safely restored without their target mapping.`;
+        updateStep(job, "restore", "error", message);
+        const error = new Error(message);
+        error.code = "RESTORE_STATE_UNAVAILABLE";
+        throw error;
+      }
+    }
+    if (process.platform === "darwin") {
+      if (job.action === "restore") {
+        await validateMacRestoreBackups(installation, restoreState);
+      } else if (job.action === "install") {
+        const installRestoreState = await getCursorByokRestoreState();
+        try {
+          verifyMacCursorCodeSignature(installation);
+        } catch (signatureError) {
+          if (!installRestoreState.restoreAvailable) throw signatureError;
+          await validateMacRestoreBackups(installation, installRestoreState);
+        }
+      }
     }
     await ensureSource(job);
     await verifySourcePackage();
@@ -430,9 +401,7 @@ async function runJob(job) {
         await runPrivilegedScript(job, "install", "install:cursor", password);
       } else {
         await runPrivilegedScript(job, "restore", "restore:cursor", password);
-        if (job.action === "uninstall") {
-          await removeCursorByokExtension(job, password);
-        }
+        verifyMacCursorCodeSignature(installation);
       }
     }
     completeJob(job, "success");

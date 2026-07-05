@@ -47,35 +47,9 @@ function runNpm(invocation, args, cwd) {
   }
 }
 
-function removeInstalledExtension(extensionsDir, byokHomeDir) {
-  const removedDirectories = [];
-  if (fs.existsSync(extensionsDir)) {
-    for (const entry of fs.readdirSync(extensionsDir, { withFileTypes: true })) {
-      if (!entry.isDirectory() || !entry.name.startsWith("starduster.cursor-byok-")) continue;
-      fs.rmSync(path.join(extensionsDir, entry.name), { recursive: true, force: true });
-      removedDirectories.push(entry.name);
-    }
-  }
-
-  const registryPath = path.join(extensionsDir, "extensions.json");
-  let registryUpdated = false;
-  if (fs.existsSync(registryPath)) {
-    const entries = JSON.parse(fs.readFileSync(registryPath, "utf8"));
-    if (Array.isArray(entries)) {
-      const filtered = entries.filter((entry) => entry?.identifier?.id !== "starduster.cursor-byok");
-      if (filtered.length !== entries.length) {
-        fs.writeFileSync(registryPath, JSON.stringify(filtered, null, 2) + "\n", "utf8");
-        registryUpdated = true;
-      }
-    }
-  }
-  fs.rmSync(path.join(byokHomeDir, "workbench-hook-state.json"), { force: true });
-  return { removedDirectories, registryUpdated };
-}
-
 try {
   const request = JSON.parse(fs.readFileSync(requestPath, "utf8"));
-  if (!["install", "restore", "uninstall"].includes(request.action)) {
+  if (!["install", "restore"].includes(request.action)) {
     throw new Error("Unsupported Windows Cursor BYOK action");
   }
   for (const [label, target] of [
@@ -128,10 +102,6 @@ try {
       extHost: request.installation.extensionHost,
     });
     log("Original Cursor files restored from backup");
-    if (request.action === "uninstall") {
-      result.uninstall = removeInstalledExtension(request.extensionsDir, request.byokHomeDir);
-      log("Cursor BYOK extension and registry entry removed");
-    }
   }
 
   fs.writeFileSync(resultPath, JSON.stringify({ ok: true, result }), "utf8");

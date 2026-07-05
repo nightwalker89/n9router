@@ -6,8 +6,8 @@ import {
   isWindowsAdmin,
   resolveCursorInstallation,
 } from "./platform";
+import { getCursorByokRestoreState } from "./restoreState";
 import {
-  CURSOR_BYOK_HOME_DIR,
   CURSOR_BYOK_OWNER,
   CURSOR_BYOK_REF,
   CURSOR_BYOK_REPO,
@@ -36,35 +36,20 @@ async function detectCursorByokExtension() {
   }
 }
 
-async function detectBackupAvailable() {
-  const backupDir = path.join(CURSOR_BYOK_HOME_DIR, "workbench-backups");
-  try {
-    const entries = await fs.readdir(backupDir);
-    return entries.length > 0;
-  } catch {
-    return false;
-  }
-}
-
-async function detectHookState() {
-  return exists(path.join(CURSOR_BYOK_HOME_DIR, "workbench-hook-state.json"));
-}
-
 export async function getCursorByokStatus() {
   const installationPromise = resolveCursorInstallation();
   const [
     installation,
     sourceReady,
     extensionInstalled,
-    hookStateExists,
-    backupAvailable,
+    restoreState,
   ] = await Promise.all([
     installationPromise,
     exists(path.join(CURSOR_BYOK_SOURCE_DIR, "package.json")),
     detectCursorByokExtension(),
-    detectHookState(),
-    detectBackupAvailable(),
+    getCursorByokRestoreState(),
   ]);
+  const hookStateExists = restoreState.stateExists;
   const installed = extensionInstalled || hookStateExists;
   const isWin = process.platform === "win32";
   const isMac = process.platform === "darwin";
@@ -93,7 +78,11 @@ export async function getCursorByokStatus() {
     } : null,
     extensionInstalled,
     hookStateExists,
-    backupAvailable,
+    backupAvailable: restoreState.restoreAvailable,
+    backupFilesAvailable: restoreState.backupFilesAvailable,
+    restoreAvailable: restoreState.restoreAvailable,
+    restoreStateMissing: restoreState.restoreStateMissing,
+    restoreReason: restoreState.restoreReason,
     sourceReady,
     sourceDir: CURSOR_BYOK_SOURCE_DIR,
     repo: {
