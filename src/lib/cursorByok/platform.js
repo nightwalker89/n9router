@@ -29,14 +29,43 @@ export function getCursorInstallCandidates({
     ]);
   }
   if (platform === "win32") {
-    return uniquePaths([
+    const candidates = [
       explicitRoot,
       env.LOCALAPPDATA && path.join(env.LOCALAPPDATA, "Programs", "cursor"),
       env.LOCALAPPDATA && path.join(env.LOCALAPPDATA, "Programs", "Cursor"),
+    ];
+
+    // If LOCALAPPDATA has a drive letter and the current workspace is on a different drive,
+    // also search the corresponding directory on the current drive.
+    if (env.LOCALAPPDATA && env.LOCALAPPDATA.length > 1 && env.LOCALAPPDATA[1] === ":") {
+      const currentDrive = path.resolve(".").slice(0, 2);
+      const localAppDataDrive = env.LOCALAPPDATA.slice(0, 2);
+      if (currentDrive.toLowerCase() !== localAppDataDrive.toLowerCase()) {
+        const driveLocalAppData = currentDrive + env.LOCALAPPDATA.slice(2);
+        candidates.push(path.join(driveLocalAppData, "Programs", "cursor"));
+        candidates.push(path.join(driveLocalAppData, "Programs", "Cursor"));
+      }
+    }
+
+    candidates.push(
       env.ProgramW6432 && path.join(env.ProgramW6432, "Cursor"),
       env.ProgramFiles && path.join(env.ProgramFiles, "Cursor"),
       env["ProgramFiles(x86)"] && path.join(env["ProgramFiles(x86)"], "Cursor"),
-    ]);
+    );
+
+    // Try to extract from the PATH environment variable
+    if (env.PATH) {
+      const pathDirs = env.PATH.split(path.delimiter);
+      for (const dir of pathDirs) {
+        if (!dir) continue;
+        const normalized = dir.replace(/\\/g, "/").toLowerCase();
+        if (normalized.endsWith("/resources/app/bin") && normalized.includes("cursor")) {
+          candidates.push(path.resolve(dir, "../../.."));
+        }
+      }
+    }
+
+    return uniquePaths(candidates);
   }
   return [];
 }

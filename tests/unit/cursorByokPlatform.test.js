@@ -59,6 +59,35 @@ describe("Cursor BYOK Windows platform adapter", () => {
     expect(candidates.some((candidate) => candidate.includes("Program Files"))).toBe(true);
   });
 
+  it("extracts candidates from PATH and handles alternative drives on Windows", () => {
+    const candidates = getCursorInstallCandidates({
+      platform: "win32",
+      homeDir: "C:\\Users\\test",
+      env: {
+        LOCALAPPDATA: "C:\\Users\\test\\AppData\\Local",
+        PATH: [
+          "C:\\Windows\\system32",
+          "E:\\Users\\test\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin",
+          "D:\\Tools\\Cursor\\Resources\\app\\bin",
+        ].join(path.delimiter),
+      },
+    });
+
+    // Should include LOCALAPPDATA path on C:
+    expect(candidates).toContain("C:\\Users\\test\\AppData\\Local\\Programs\\cursor");
+
+    // Since we are running the test on whatever current drive path.resolve(".") returns,
+    // let's verify drive-fallback exists if path.resolve(".") is not on C:
+    const currentDrive = path.resolve(".").slice(0, 2);
+    if (currentDrive.toLowerCase() !== "c:") {
+      expect(candidates).toContain(`${currentDrive}\\Users\\test\\AppData\\Local\\Programs\\cursor`);
+    }
+
+    // Should extract from PATH
+    expect(candidates).toContain("E:\\Users\\test\\AppData\\Local\\Programs\\cursor");
+    expect(candidates).toContain("D:\\Tools\\Cursor");
+  });
+
   it("resolves a writable Windows user installation", async () => {
     const fixture = await makeCursorFixture("user");
     const resolved = await resolveCursorInstallation({
