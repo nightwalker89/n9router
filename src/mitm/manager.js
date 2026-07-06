@@ -39,7 +39,6 @@ async function resolveMitmRouterBaseUrl() {
 const MITM_PORT = 443;
 const MITM_WIN_NODE_PORT = 8443;
 const PID_FILE = path.join(MITM_DIR, ".mitm.pid");
-const LOCK_FILE = path.join(MITM_DIR, ".mitm.lock");
 
 const MITM_MAX_RESTARTS = 5;
 const MITM_RESTART_DELAYS_MS = [5000, 10000, 20000, 30000, 60000];
@@ -388,19 +387,7 @@ async function startServer(apiKey, sudoPassword) {
     throw new Error("MITM server is already running");
   }
 
-  // Atomically claim lock to prevent concurrent startServer across processes.
-  // O_EXCL (flag: "wx") fails with EEXIST if the file already exists.
-  try {
-    fs.writeFileSync(LOCK_FILE, String(process.pid), { flag: "wx" });
-  } catch (e) {
-    if (e.code === "EEXIST") {
-      throw new Error("MITM server is already starting (lock contention)");
-    }
-    throw e;
-  }
-
-  try {
-    await killLeftoverMitm(sudoPassword);
+  await killLeftoverMitm(sudoPassword);
 
   if (!IS_WIN) {
     const portStatus = await checkPort443Free();
@@ -575,7 +562,6 @@ async function startServer(apiKey, sudoPassword) {
       serverProcess = null;
       serverPid = null;
       try { fs.unlinkSync(PID_FILE); } catch { /* ignore */ }
-      try { fs.unlinkSync(LOCK_FILE); } catch { /* ignore */ }
       // Auto-restart on unexpected exit
       if (code !== 0 && !mitmIsRestarting) scheduleMitmRestart(apiKey);
     });
@@ -603,15 +589,7 @@ async function startServer(apiKey, sudoPassword) {
   await saveMitmSettings(true, sudoPassword);
   if (sudoPassword) setCachedPassword(sudoPassword);
 
-  // Server is healthy — remove lock file (PID file persists as the marker)
-  try { fs.unlinkSync(LOCK_FILE); } catch { /* ignore */ }
-
   return { running: true, pid: serverPid };
-  } catch (e) {
-    // Clean up lock on any failure
-    try { fs.unlinkSync(LOCK_FILE); } catch { /* ignore */ }
-    throw e;
-  }
 }
 
 /**
@@ -685,7 +663,6 @@ async function stopServer(sudoPassword) {
   }
 
   try { fs.unlinkSync(PID_FILE); } catch { /* ignore */ }
-  try { fs.unlinkSync(LOCK_FILE); } catch { /* ignore */ }
   await saveMitmSettings(false, null);
   mitmIsRestarting = false;
 

@@ -1,4 +1,9 @@
 # Changelog
+## v0.4.48 (2026-07-06)
+
+### Fixes
+- **MITM lock contention**: Reverted the `.mitm.lock` file introduced by the security-audit patch. A crash or kill during startup could leave a stale lock that permanently blocked both auto-start and manual Start with "MITM server is already starting (lock contention)". Startup now guards on the in-process handle and PID file, as it did before.
+
 ## v0.4.47 (2026-07-05)
 
 ### Features
