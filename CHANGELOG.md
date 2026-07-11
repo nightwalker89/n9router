@@ -1,4 +1,22 @@
 # Changelog
+## v0.4.49 (2026-07-11)
+
+### Features
+- **New providers**: Added Grok CLI OAuth/device-code routing, Featherless presets, Perplexity Agent API, configurable SearXNG, and updated provider/model catalogs.
+- **PXPipe token saver**: Added multimodal prompt compression with dashboard controls and lifecycle, status, log, and statistics APIs.
+- **Headroom**: Added extras detection, installation, restart, and app-proxied dashboard support.
+- **Routing and translation**: Added per-model thinking levels, stronger OpenAI Responses multi-turn conversion, structured Anthropic token counting, and RTK git-log/Windows parsing.
+- **Dashboard and i18n**: Added Farsi, expanded Chinese translations, cached-token display, and provider-model UI refinements.
+
+### Improvements
+- **Reliability**: Improved Codex fast-tier/capacity handling, provider refresh and usage tracking, Antigravity IDE fingerprinting/usage headers, and request-detail handling.
+- **Coverage**: Added regression tests for Grok CLI, PXPipe, token counting, thinking levels, request details, and translator edge cases.
+
+### n9router preservation
+- **Persistence**: Rejected the upstream SQLite migration; n9router continues to use lowdb at `~/.n9router/db.json`.
+- **MITM and streaming**: Retained token-swap cooldown/retry behavior, watchdog controls, terminal `[DONE]` handling, and raw-source MITM runtime packaging.
+- **Fork capabilities**: Retained Cursor BYOK, selective database import, usage reporting, API-key limits, MoMo donations, and n9router branding.
+
 ## v0.4.48 (2026-07-06)
 
 ### Fixes

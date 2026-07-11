@@ -14,6 +14,7 @@ import {
   WATCHDOG_INTERVAL_MS, NETWORK_CHECK_INTERVAL_MS, VIRTUAL_IFACE_REGEX,
 } from "@/lib/tunnel";
 import { getMitmStatus, startMitm, loadEncryptedPassword, initDbHooks, restoreToolDNS, removeAllDNSEntriesSync } from "@/mitm/manager";
+import { killAllBridges } from "@/lib/mcp/stdioSseBridge";
 import { startQuotaAutoPing } from "@/shared/services/quotaAutoPing";
 
 // Inject correct paths and DB hooks into manager.js (CJS) from ESM context
@@ -31,6 +32,9 @@ import { startQuotaAutoPing } from "@/shared/services/quotaAutoPing";
 
 process.setMaxListeners(20);
 
+// Defer DB cleanup, tunnel setup, and MITM probes so initial requests are responsive.
+const STARTUP_DEFER_MS = 3000;
+
 // Survive Next.js hot reload
 const g = global.__appSingleton ??= {
   signalHandlersRegistered: false,
@@ -40,28 +44,16 @@ const g = global.__appSingleton ??= {
   lastWatchdogTick: Date.now(),
   lastOnline: null,
   mitmStartInProgress: false,
+  tunnelAutoResumed: false,
+  tailscaleAutoResumed: false,
 };
 
 export async function initializeApp() {
   try {
-    await cleanupProviderConnections();
-    const settings = await getSettings();
-
-    // Auto-resume tunnel
-    if (settings.tunnelEnabled) {
-      console.log("[InitApp] Tunnel was enabled, auto-resuming...");
-      safeRestartTunnel("startup").catch((e) => console.log("[InitApp] Tunnel resume failed:", e.message));
-    }
-
-    // Auto-resume tailscale
-    if (settings.tailscaleEnabled) {
-      console.log("[InitApp] Tailscale was enabled, auto-resuming...");
-      safeRestartTailscale("startup").catch((e) => console.log("[InitApp] Tailscale resume failed:", e.message));
-    }
-
     if (!g.signalHandlersRegistered) {
       const cleanup = () => {
         try { removeAllDNSEntriesSync(); } catch { /* best effort */ }
+        try { killAllBridges(); } catch { /* best effort */ }
         killCloudflared();
         process.exit();
       };
@@ -71,20 +63,39 @@ export async function initializeApp() {
       g.signalHandlersRegistered = true;
     }
 
-    ensureCloudflared().catch(() => {});
-
-    // Auto-respawn tunnel when cloudflared exits unexpectedly (e.g. network change drop)
     setTunnelUnexpectedExitCallback(() => {
       safeRestartTunnel("unexpected-exit").catch(() => {});
     });
 
-    startWatchdog();
-    startNetworkMonitor();
-    autoStartMitm();
-    startQuotaAutoPing();
+    setTimeout(() => {
+      runHeavyStartup().catch((e) => console.error("[InitApp] deferred startup failed:", e.message));
+    }, STARTUP_DEFER_MS);
   } catch (error) {
     console.error("[InitApp] Error:", error);
   }
+}
+
+async function runHeavyStartup() {
+  await cleanupProviderConnections();
+  const settings = await getSettings();
+
+  if (settings.tunnelEnabled && !g.tunnelAutoResumed) {
+    g.tunnelAutoResumed = true;
+    console.log("[InitApp] Tunnel was enabled, auto-resuming...");
+    safeRestartTunnel("startup").catch((e) => console.log("[InitApp] Tunnel resume failed:", e.message));
+  }
+
+  if (settings.tailscaleEnabled && !g.tailscaleAutoResumed) {
+    g.tailscaleAutoResumed = true;
+    console.log("[InitApp] Tailscale was enabled, auto-resuming...");
+    safeRestartTailscale("startup").catch((e) => console.log("[InitApp] Tailscale resume failed:", e.message));
+  }
+
+  ensureCloudflared().catch(() => {});
+  startWatchdog();
+  startNetworkMonitor();
+  autoStartMitm();
+  startQuotaAutoPing();
 }
 
 async function autoStartMitm() {
