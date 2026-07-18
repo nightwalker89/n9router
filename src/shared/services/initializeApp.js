@@ -92,8 +92,7 @@ async function runHeavyStartup() {
   }
 
   ensureCloudflared().catch(() => {});
-  startWatchdog();
-  startNetworkMonitor();
+  configureTunnelMonitoring(settings);
   autoStartMitm();
   startQuotaAutoPing();
 }
@@ -221,6 +220,12 @@ function startWatchdog() {
   if (g.watchdogInterval.unref) g.watchdogInterval.unref();
 }
 
+function stopWatchdog() {
+  if (!g.watchdogInterval) return;
+  clearInterval(g.watchdogInterval);
+  g.watchdogInterval = null;
+}
+
 // ─── Network monitor: detect IPv4 fingerprint change + sleep/wake ────────────
 
 function getNetworkFingerprint() {
@@ -280,6 +285,24 @@ function startNetworkMonitor() {
   }, NETWORK_CHECK_INTERVAL_MS);
 
   if (g.networkMonitorInterval.unref) g.networkMonitorInterval.unref();
+}
+
+function stopNetworkMonitor() {
+  if (!g.networkMonitorInterval) return;
+  clearInterval(g.networkMonitorInterval);
+  g.networkMonitorInterval = null;
+  g.lastNetworkFingerprint = null;
+  g.lastOnline = null;
+}
+
+export function configureTunnelMonitoring(settings) {
+  if (settings?.tunnelEnabled || settings?.tailscaleEnabled) {
+    startWatchdog();
+    startNetworkMonitor();
+    return;
+  }
+  stopWatchdog();
+  stopNetworkMonitor();
 }
 
 export default initializeApp;

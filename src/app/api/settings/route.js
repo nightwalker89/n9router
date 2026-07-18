@@ -5,7 +5,6 @@ import { DATA_DIR } from "@/lib/dataDir";
 import { createRequire } from "node:module";
 import { setRtkEnabled } from "open-sse/rtk/index.js";
 import { resetComboRotation } from "open-sse/services/combo.js";
-import { runQuotaAutoPingTick } from "@/shared/services/quotaAutoPing";
 import bcrypt from "bcryptjs";
 import path from "path";
 
@@ -120,10 +119,12 @@ export async function PATCH(request) {
       Object.prototype.hasOwnProperty.call(body, "claudeAutoPing") ||
       Object.prototype.hasOwnProperty.call(body, "codexAutoPing")
     ) {
-      // Run once immediately after opt-in changes so users don't wait for the next scheduler tick.
-      runQuotaAutoPingTick().catch((error) => {
-        console.warn("[AutoPing] settings-triggered tick failed:", error.message);
-      });
+      // Keep the scheduler absent when no account opted in; load its provider graph only on demand.
+      import("@/shared/services/quotaAutoPing")
+        .then(({ configureQuotaAutoPing }) => {
+          configureQuotaAutoPing(settings);
+        })
+        .catch((error) => console.warn("[AutoPing] settings update failed:", error.message));
     }
 
     const { password, oidcClientSecret, ...safeSettings } = settings;

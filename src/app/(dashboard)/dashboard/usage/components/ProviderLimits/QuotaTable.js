@@ -55,6 +55,7 @@ export default function QuotaTable({
   compact = false,
   sortMode = "default",
   showSortLabel = false,
+  onHideQuota = null,
 }) {
   const [page, setPage] = useState(1);
 
@@ -98,6 +99,7 @@ export default function QuotaTable({
   const resetPrimary = compact ? "text-[11px]" : "text-sm";
   const resetSecondary = compact ? "text-[10px] leading-tight" : "text-xs";
   const sortLabel = "Sorted by account remaining";
+  const hasHideAction = typeof onHideQuota === "function";
 
   return (
     <div className="space-y-2">
@@ -161,7 +163,7 @@ export default function QuotaTable({
                     </div>
                   </td>
 
-                  <td className={`${cellPad} w-[25%]`}>
+                  <td className={`${cellPad} ${hasHideAction ? "w-[20%]" : "w-[25%]"}`}>
                     {countdown !== "-" || resetDisplay ? (
                       compact ? (
                         <div
@@ -188,6 +190,22 @@ export default function QuotaTable({
                       <div className={`${resetPrimary} text-text-muted italic`}>N/A</div>
                     )}
                   </td>
+
+                  {hasHideAction && (
+                    <td className={`${cellPad} w-[5%] text-right`}>
+                      <button
+                        type="button"
+                        onClick={() => onHideQuota(quota)}
+                        className="inline-flex h-6 w-6 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-black/5 hover:text-text-primary dark:hover:bg-white/5"
+                        title="Hide this quota row"
+                        aria-label={`Hide quota ${quota.name}`}
+                      >
+                        <span className="material-symbols-outlined text-[15px]">
+                          visibility_off
+                        </span>
+                      </button>
+                    </td>
+                  )}
                 </tr>
               );
             })}

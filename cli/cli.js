@@ -67,6 +67,18 @@ const { ensureSqliteRuntime, buildEnvWithRuntime } = require("./hooks/sqliteRunt
 const { ensureTrayRuntime } = require("./hooks/trayRuntime");
 const args = process.argv.slice(2);
 
+// Subcommands run against an already-running gateway and bypass launcher setup.
+if (args[0] === "xai" && args[1] === "video") {
+  const { run } = require("./src/cli/commands/xaiVideo");
+  run(args.slice(2))
+    .then((code) => process.exit(code))
+    .catch((err) => {
+      console.error(`❌ ${err?.message || err}`);
+      process.exit(1);
+    });
+  return;
+}
+
 // Self-heal the better-sqlite3 native runtime dependency into
 // ~/.n9router/runtime so usage limiting works in the packaged CLI.
 try { ensureSqliteRuntime({ silent: true }); } catch {}
@@ -138,6 +150,11 @@ Options:
   --skip-update       Skip auto-update check
   -h, --help          Show this help message
   -v, --version       Show version
+
+Commands:
+  xai video --prompt "..." --output video.mp4
+                      Generate a Grok Imagine video via the running gateway
+                      (see: ${APP_NAME} xai video --help)
 `);
     process.exit(0);
   } else if (args[i] === "--version" || args[i] === "-v") {
