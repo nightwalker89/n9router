@@ -1,4 +1,19 @@
 # Changelog
+## v0.4.50 (2026-07-18)
+
+### Features
+- **XAI Grok Imagine video**: Added OpenAI-compatible `/v1/videos/*` proxy routes, account-aware generation/polling, and the `n9router xai video` CLI command.
+- **Grok Build**: Added dashboard setup/status integration, live model discovery, subscription-aware billing and quota reporting, token-expiry propagation, and current protocol support.
+- **Usage and providers**: Added per-provider quota visibility controls, safer bulk API-key additions, expanded `/v1/models` capability handling, Kiro GPT-5.6 slots, and Alibaba International endpoint compatibility.
+- **Token saver control**: Added a per-request bypass header for token-saver features.
+
+### n9router merge policy
+- **Preserved fork behavior**: Retained lowdb/db.json persistence, Cursor BYOK, token-pool and stream-watchdog safeguards, usage reporting, and n9router branding.
+- **Excluded translation updates**: Did not adopt upstream locale updates or request-format/Kiro session-replay translator changes.
+
+### Tests
+- Added upstream coverage for XAI video, Grok Build, quota visibility, bulk API-key naming, provider updates, and Grok CLI usage.
+
 ## v0.4.49 (2026-07-11)
 
 ### Features
