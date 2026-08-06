@@ -1,4 +1,22 @@
 # Changelog
+
+## v0.4.51 (2026-08-07)
+
+### Upstream merge
+- **9router v0.5.50**: Adopted refreshed provider, quota, pricing, OAuth, usage, dashboard, media-provider, and CLI packaging improvements.
+- **Routing and translation**: Added Kiro direct Claude routing, conversation/session continuity improvements, native reasoning mapping, custom-tool Responses handling, cache-inclusive token accounting, and stronger terminal-stream handling.
+- **Providers**: Added or expanded Devin CLI, Trae, Windsurf, Zed, CodeBuddy International, TokenRouter, and self-hosted embedding/STT/TTS support.
+
+### Fixes
+- **Vision Adapter**: Removing the last model now actually clears the pool and disables that adapter; enabling it again explicitly restores its default fallback model.
+- **Merge compatibility**: Restored Kiro session/continuation helpers and the Kiro thinking-field guard; updated background token refresh and usage-provider lookup to use n9router's lowdb persistence.
+
+### n9router preservation
+- Retained lowdb (`db.json`) as the sole state store, including MITM token swapping/retry/cooldowns, stream watchdog and `[DONE]` handling, API-key limits, usage reports, Cursor BYOK, selective import, and fork branding.
+
+### Validation
+- Added capacity-adapter model-control regression coverage; the focused test suite and production build pass.
+
 ## v0.4.50 (2026-07-18)
 
 ### Features

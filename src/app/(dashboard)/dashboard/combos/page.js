@@ -9,6 +9,7 @@ import { Card, Button, Modal, Input, CardSkeleton, ModelSelectModal, ConfirmModa
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { useModelCaps } from "@/shared/hooks/useModelCaps";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
+import { enableCapacityAdapter, removeCapacityAdapterModel } from "@/shared/utils/capacityAdapterState";
 
 // Validate combo name: only a-z, A-Z, 0-9, -, _
 const VALID_NAME_REGEX = /^[a-zA-Z0-9_.\-]+$/;
@@ -452,8 +453,13 @@ function CapacityAdapterCap({ cap, entry, onChange, activeProviders, getCaps }) 
   };
 
   const handleRemove = (index) => {
-    const next = models.filter((_, i) => i !== index);
-    patch({ models: next.length === 0 ? [DEFAULT_FALLBACK_MODEL] : next });
+    onChange(removeCapacityAdapterModel(entry, index));
+  };
+
+  const handleEnabledChange = (nextEnabled) => {
+    onChange(nextEnabled
+      ? enableCapacityAdapter(entry, DEFAULT_FALLBACK_MODEL)
+      : { ...entry, enabled: false });
   };
 
   const handleMove = (index, delta) => {
@@ -471,7 +477,7 @@ function CapacityAdapterCap({ cap, entry, onChange, activeProviders, getCaps }) 
         <div className="flex min-w-0 flex-1 items-start gap-2.5 sm:items-center">
           <Toggle
             checked={enabled}
-            onChange={(v) => patch({ enabled: v })}
+            onChange={handleEnabledChange}
             aria-label={`Enable ${cap.label} adapter`}
           />
           <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
