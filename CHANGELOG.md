@@ -9,6 +9,7 @@
 
 ### Fixes
 - **Vision Adapter**: Removing the last model now actually clears the pool and disables that adapter; enabling it again explicitly restores its default fallback model.
+- **Antigravity project IDs**: Stopped proactive OAuth-refresh onboarding retries. Existing project IDs remain intact; lookup still occurs only for an explicit import/onboarding flow or a request-time cold miss.
 - **Merge compatibility**: Restored Kiro session/continuation helpers and the Kiro thinking-field guard; updated background token refresh and usage-provider lookup to use n9router's lowdb persistence.
 
 ### n9router preservation

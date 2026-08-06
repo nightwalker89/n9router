@@ -2,8 +2,6 @@
 import * as log from "../utils/logger.js";
 import { updateProviderConnection } from "../../lib/localDb.js";
 import {
-  getProjectIdForConnection,
-  invalidateProjectId,
   removeConnection,
 } from "open-sse/services/projectId.js";
 import {
@@ -101,48 +99,6 @@ function normalizeExpiresAt(expiresAt) {
   const date = new Date(expiresAt);
   if (!Number.isFinite(date.getTime())) return null;
   return date.toISOString();
-}
-
-/**
- * Providers that carry a real Google project ID.
- * @param {string} provider
- * @returns {boolean}
- */
-function needsProjectId(provider) {
-  return provider === "antigravity" || provider === "gemini-cli";
-}
-
-/**
- * Non-blocking: fetch the project ID for a connection after a token refresh and
- * persist it to localDb.  Invalidates the stale cached value first so the fetch
- * always retrieves a fresh one.
- *
- * @param {string} provider
- * @param {string} connectionId
- * @param {string} accessToken
- */
-function _refreshProjectId(provider, connectionId, accessToken) {
-  if (!needsProjectId(provider) || !connectionId || !accessToken) return;
-
-  // Evict the stale cached entry so getProjectIdForConnection does a real fetch
-  invalidateProjectId(connectionId);
-
-  getProjectIdForConnection(connectionId, accessToken)
-    .then((projectId) => {
-      if (!projectId) return;
-      updateProviderCredentials(connectionId, { projectId }).catch((err) => {
-        log.debug("TOKEN_REFRESH", "Failed to persist refreshed projectId", {
-          connectionId,
-          error: err?.message ?? err,
-        });
-      });
-    })
-    .catch((err) => {
-      log.debug("TOKEN_REFRESH", "Failed to fetch projectId after token refresh", {
-        connectionId,
-        error: err?.message ?? err,
-      });
-    });
 }
 
 // ─── Local-specific: persist credentials to localDb ──────────────────────────
@@ -257,9 +213,6 @@ export async function checkAndRefreshToken(provider, credentials, options = {}) 
           ? { ...creds.providerSpecificData, ...newCreds.providerSpecificData }
           : creds.providerSpecificData,
       };
-
-      // Non-blocking: refresh projectId with the new access token
-      _refreshProjectId(provider, creds.connectionId, creds.accessToken);
     }
   }
 
