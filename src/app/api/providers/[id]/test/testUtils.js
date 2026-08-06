@@ -12,7 +12,6 @@ import {
   GEMINI_CONFIG,
   ANTIGRAVITY_CONFIG,
   KIRO_CONFIG,
-  QWEN_CONFIG,
   CLAUDE_CONFIG,
   CLINE_CONFIG,
   CLINEPASS_CONFIG,
@@ -63,7 +62,6 @@ const OAUTH_TEST_CONFIG = {
     method: "GET",
     noAuth: true,
   },
-  qwen: { checkExpiry: true, refreshable: true },
   kiro: { checkExpiry: true, refreshable: true },
   qoder: {
     // Test by hitting Qoder's userinfo endpoint with the device token.
@@ -76,7 +74,8 @@ const OAUTH_TEST_CONFIG = {
     authPrefix: "Bearer ",
     refreshable: false,
   },
-  "kimi-coding": { checkExpiry: true, refreshable: false },
+  kimi: { checkExpiry: true, refreshable: true },
+  "kimi-coding": { checkExpiry: true, refreshable: true },
   cursor: { tokenExists: true },
   kilocode: {
     url: `${KILOCODE_CONFIG.apiBaseUrl}/api/profile`,
@@ -286,21 +285,6 @@ async function refreshOAuthToken(connection) {
       return { accessToken: data.accessToken, expiresIn: data.expiresIn || 3600, refreshToken: data.refreshToken || refreshToken };
     }
 
-    if (provider === "qwen") {
-      const response = await fetch(QWEN_CONFIG.tokenUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
-        body: new URLSearchParams({
-          grant_type: "refresh_token",
-          refresh_token: refreshToken,
-          client_id: QWEN_CONFIG.clientId,
-        }),
-      });
-      if (!response.ok) return null;
-      const data = await response.json();
-      return { accessToken: data.access_token, expiresIn: data.expires_in, refreshToken: data.refresh_token || refreshToken };
-    }
-
     if (provider === "cline" || provider === "clinepass") {
       const config = provider === "clinepass" ? CLINEPASS_CONFIG : CLINE_CONFIG;
       const response = await fetch(config.refreshUrl, {
@@ -333,12 +317,10 @@ async function refreshOAuthToken(connection) {
 }
 
 function isTokenExpired(connection) {
-  // Fork (v0.4.42): refresh when expiresAt is missing but a refresh token exists —
-  // upstream's shouldRefreshCredentials returns false in that case, regressing the fix.
+  // A refreshable connection without expiresAt must be refreshed instead of
+  // being treated as indefinitely valid.
   if (!connection.expiresAt) return true;
-  const expiresAt = new Date(connection.expiresAt).getTime();
-  const buffer = 5 * 60 * 1000;
-  return expiresAt <= Date.now() + buffer;
+  return shouldRefreshCredentials(connection.provider, connection);
 }
 
 async function testOAuthConnection(connection, effectiveProxy = null, options = {}) {
@@ -399,7 +381,7 @@ async function testOAuthConnection(connection, effectiveProxy = null, options = 
     return { valid: false, error: initial.error, refreshed };
   }
 
-  if (connection.provider === "cline" || connection.provider === "clinepass") {
+  if (connection.provider === "cline") {
     const tryProbe = async (token) => {
       const res = await probeClineAccessToken(token);
       if (res.ok) return { valid: true, error: null, refreshed, newTokens };
@@ -580,12 +562,6 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
         const res = await fetchWithConnectionProxy("https://ai-gateway.vercel.sh/v1/models", { headers: { Authorization: `Bearer ${connection.apiKey}` } }, effectiveProxy);
         return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
       }
-      case "clinepass": {
-        const res = await fetchWithConnectionProxy("https://api.cline.bot/api/v1/models", {
-          headers: { Accept: "application/json", Authorization: `Bearer ${connection.apiKey}` },
-        }, effectiveProxy);
-        return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
-      }
       case "anthropic": {
         const res = await fetchWithConnectionProxy("https://api.anthropic.com/v1/messages", {
           method: "POST",
@@ -642,10 +618,13 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
         return { valid, error: valid ? null : "Invalid API key" };
       }
       case "alicode":
-      case "alicode-intl": {
-        // Aliyun Coding Plan uses OpenAI-compatible API
+      case "alicode-intl":
+      case "alims-intl": {
+        // Aliyun Coding Plan uses OpenAI-compatible API; alims-intl uses Model Studio compatible-mode
         const aliBaseUrl = connection.provider === "alicode-intl"
           ? "https://coding-intl.dashscope.aliyuncs.com/v1/chat/completions"
+          : connection.provider === "alims-intl"
+          ? "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
           : "https://coding.dashscope.aliyuncs.com/v1/chat/completions";
         const res = await fetchWithConnectionProxy(aliBaseUrl, {
           method: "POST",
@@ -803,6 +782,26 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
           headers: { Authorization: `Bearer ${connection.apiKey}` },
         }, effectiveProxy);
         return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
+      }
+      case "qoder": {
+        // PAT (pt-...) exchange → job token. A successful exchange proves the PAT.
+        const raw = connection.apiKey || "";
+        const pat = raw.startsWith("pt-") ? raw : `pt-${raw}`;
+        const exRes = await fetchWithConnectionProxy(
+          "https://openapi.qoder.sh/api/v1/jobToken/exchange",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+              "Cosy-Version": "1.0.1",
+              "Cosy-ClientType": "5",
+            },
+            body: JSON.stringify({ personal_token: pat }),
+          },
+          effectiveProxy,
+        );
+        return { valid: exRes.ok, error: exRes.ok ? null : "Invalid Personal Access Token" };
       }
       default:
         return { valid: false, error: "Provider test not supported" };

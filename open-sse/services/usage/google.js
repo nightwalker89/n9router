@@ -122,7 +122,7 @@ export async function getAntigravityUsage(accessToken, providerSpecificData, pro
     const subscriptionInfo = await getAntigravitySubscriptionInfo(accessToken, proxyOptions);
     const projectId = subscriptionInfo?.cloudaicompanionProject || null;
 
-    const requestOptions = {
+    const response = await fetchWithTimeout(ANTIGRAVITY_CONFIG.quotaApiUrl, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${accessToken}`,
@@ -134,39 +134,18 @@ export async function getAntigravityUsage(accessToken, providerSpecificData, pro
       body: JSON.stringify({
         ...(projectId ? { project: projectId } : {})
       }),
-    };
-    let response = await fetchWithTimeout(
-      ANTIGRAVITY_CONFIG.quotaApiUrl,
-      requestOptions,
-      10000,
-      proxyOptions,
-    );
-
-    // Some Antigravity accounts reject quota requests carrying the project id
-    // even though loadCodeAssist returned it. Retry once without the project.
-    if (response.status === 403 && projectId) {
-      response = await fetchWithTimeout(
-        ANTIGRAVITY_CONFIG.quotaApiUrl,
-        { ...requestOptions, body: JSON.stringify({}) },
-        10000,
-        proxyOptions,
-      );
-    }
+    }, 10000, proxyOptions);
 
     if (response.status === 403) {
       return {
-        plan: subscriptionInfo?.subscriptionTier || "Unknown",
         message: "Antigravity quota API access forbidden. Chat may still work.",
-        isForbidden: true,
         quotas: {}
       };
     }
 
     if (response.status === 401) {
       return {
-        plan: subscriptionInfo?.subscriptionTier || "Unknown",
         message: "Antigravity quota API authentication expired. Chat may still work.",
-        isExpired: true,
         quotas: {}
       };
     }
@@ -180,22 +159,30 @@ export async function getAntigravityUsage(accessToken, providerSpecificData, pro
 
     // Parse model quotas (inspired by vscode-antigravity-cockpit)
     if (data.models) {
+      // Filter only recommended/important models (must match PROVIDER_MODELS ag ids)
+      const importantModels = [
+        'gemini-3.6-flash-high',
+        'gemini-3.6-flash-medium',
+        'gemini-3.6-flash-low',
+        'gemini-3.5-flash-low',
+        'gemini-3.5-flash-extra-low',
+        'gemini-pro-agent',
+        'gemini-3.1-pro-low',
+        'claude-sonnet-4-6',
+        'claude-opus-4-6-thinking',
+        'gpt-oss-120b-medium',
+        // Image generation models
+        'gemini-3.1-flash-image',
+      ];
+
       for (const [modelKey, info] of Object.entries(data.models)) {
         // Skip models without quota info
         if (!info.quotaInfo) {
           continue;
         }
 
-        const matchesTarget =
-          modelKey === "claude-opus-4-6-thinking" ||
-          modelKey === "claude-sonnet-4-6" ||
-          modelKey.startsWith("gemini-3.1-pro-") ||
-          modelKey === "gemini-3.1-pro" ||
-          modelKey.startsWith("gemini-3.5-") ||
-          modelKey === "gemini-3.5" ||
-          modelKey === "gemini-3-flash-agent";
-
-        if (info.isInternal || !matchesTarget) {
+        // Skip internal models and non-important models
+        if (info.isInternal || !importantModels.includes(modelKey)) {
           continue;
         }
 
@@ -220,7 +207,7 @@ export async function getAntigravityUsage(accessToken, providerSpecificData, pro
     }
 
     return {
-      plan: subscriptionInfo?.subscriptionTier || "Unknown",
+      plan: subscriptionInfo?.currentTier?.name || "Unknown",
       quotas,
       subscriptionInfo,
     };
@@ -246,30 +233,7 @@ async function getAntigravitySubscriptionInfo(accessToken, proxyOptions = null) 
     }, 10000, proxyOptions);
 
     if (!response.ok) return null;
-    const data = await response.json();
-    const paidTier = data.paidTier;
-    const currentTier = data.currentTier;
-    const allowedTiers = data.allowedTiers;
-    const ineligibleTiers = data.ineligibleTiers;
-    const isIneligible = Array.isArray(ineligibleTiers) && ineligibleTiers.length > 0;
-
-    let subscriptionTier = paidTier?.name || paidTier?.id || null;
-    if (!subscriptionTier) {
-      if (!isIneligible) {
-        subscriptionTier = currentTier?.name || currentTier?.id || null;
-      } else if (Array.isArray(allowedTiers)) {
-        const defaultTier = allowedTiers.find((tier) => tier.isDefault === true);
-        const nameOrId = defaultTier?.name || defaultTier?.id;
-        if (nameOrId) subscriptionTier = `${nameOrId} (Restricted)`;
-      }
-    }
-
-    if (!subscriptionTier && currentTier && !isIneligible) {
-      subscriptionTier = "Free";
-    }
-
-    data.subscriptionTier = subscriptionTier;
-    return data;
+    return await response.json();
   } catch (error) {
     console.error("[Antigravity Subscription] Error:", error.message);
     return null;

@@ -126,6 +126,14 @@ export default function ComboDetailPage() {
     await saveCombo({ models: next });
   };
 
+  const handleDeselectModel = async (model) => {
+    const value = model?.value || model;
+    if (!value || !providers.includes(value)) return;
+    const next = providers.filter((p) => p !== value);
+    setProviders(next);
+    await saveCombo({ models: next });
+  };
+
   const handleRemoveProvider = async (idx) => {
     const next = providers.filter((_, i) => i !== idx);
     setProviders(next);
@@ -349,7 +357,7 @@ export default function ComboDetailPage() {
                       Download
                     </a>
                   </div>
-                  <img src={testResult.imageUrl} alt="Generated" className="max-w-full rounded-lg border border-border" />
+                  <img src={testResult.imageUrl} alt="Generated" className="max-w-full rounded-lg border border-border" loading="lazy" decoding="async" />
                 </div>
               )}
               {testResult.audioUrl && (
@@ -385,15 +393,20 @@ export default function ComboDetailPage() {
         )}
       </Card>
 
-      <ModelSelectModal
-        isOpen={showPicker}
-        onClose={() => setShowPicker(false)}
-        onSelect={handleAddModel}
-        activeProviders={connections}
-        modelAliases={modelAliases}
-        title={`Add ${kindLabel} Model`}
-        kindFilter={combo.kind}
-      />
+      {showPicker && (
+        <ModelSelectModal
+          isOpen={showPicker}
+          onClose={() => setShowPicker(false)}
+          onSelect={handleAddModel}
+          onDeselect={handleDeselectModel}
+          activeProviders={connections}
+          modelAliases={modelAliases}
+          title={`Add ${kindLabel} Model`}
+          kindFilter={combo.kind}
+          addedModelValues={providers}
+          closeOnSelect={false}
+        />
+      )}
     </div>
   );
 }

@@ -102,7 +102,7 @@ Docker image: [`nightwalker8x/n9router`](https://hub.docker.com/r/nightwalker8x/
 
 **2. Connect a FREE provider (no signup needed):**
 
-Dashboard → Providers → Connect **Kiro AI** (free Claude unlimited) or **OpenCode Free** (no auth) → Done!
+Dashboard → Providers → Connect **Kiro AI** (~50 credits/month free: Claude 4.5 + GLM-5 + MiniMax) or **OpenCode Free** (no auth) → Done!
 
 **3. Use in your CLI tool:**
 
@@ -214,6 +214,32 @@ Default URLs:
         <b>Kilo Code</b>
       </td>
     </tr>
+    <tr>
+      <td align="center" width="120">
+        <img src="./public/providers/opendesign.png" width="60" alt="OpenDesign"/><br/>
+        <b>OpenDesign</b>
+      </td>
+      <td align="center" width="120">
+        <img src="./public/providers/jcode.png" width="60" alt="jcode"/><br/>
+        <b>jcode</b>
+      </td>
+      <td align="center" width="120">
+        <img src="./public/providers/grok-cli.png" width="60" alt="Grok Build"/><br/>
+        <b>Grok Build</b>
+      </td>
+      <td align="center" width="120">
+        <img src="./public/providers/devin-cli.png" width="60" alt="Devin CLI"/><br/>
+        <b>Devin CLI</b>
+      </td>
+      <td align="center" width="120">
+        <img src="./public/providers/deepseek-tui.png" width="60" alt="DeepSeek TUI"/><br/>
+        <b>DeepSeek TUI</b>
+      </td>
+      <td align="center" width="120">
+        <img src="./public/providers/qwen.png" width="60" alt="Qwen Code"/><br/>
+        <b>Qwen Code</b>
+      </td>
+    </tr>
   </table>
 </div>
 
@@ -258,12 +284,12 @@ Default URLs:
       <td align="center" width="150">
         <img src="./public/providers/kiro.png" width="70" alt="Kiro"/><br/>
         <b>Kiro AI</b><br/>
-        <sub>Claude 4.5 + GLM-5 + MiniMax<br/>Unlimited FREE</sub>
+        <sub>Claude 4.5 + GLM-5 + MiniMax<br/>50 credits/month free</sub>
       </td>
       <td align="center" width="150">
         <img src="./public/providers/opencode.png" width="70" alt="OpenCode Free"/><br/>
         <b>OpenCode Free</b><br/>
-        <sub>No auth • Auto-fetch models<br/>Unlimited FREE</sub>
+        <sub>No auth • Auto-fetch models<br/>Free (model list varies)</sub>
       </td>
       <td align="center" width="150">
         <img src="./public/providers/gemini.png" width="70" alt="Vertex AI"/><br/>
@@ -274,7 +300,11 @@ Default URLs:
   </table>
 </div>
 
-> **Note:** iFlow, Qwen and Gemini CLI free tiers were discontinued in 2026. Use Kiro / OpenCode Free / Vertex instead.
+> **Note:** iFlow, Qwen Code and Gemini CLI free tiers were discontinued in 2026. Use Kiro / OpenCode Free / Vertex instead.
+>
+> **Kiro AI** moved to a paid model in Sep 2025 — the free tier is now capped at **50 credits/month** (plus 500 trial credits for new accounts in the first 30 days). Paid tiers: Pro $20/mo (1,000 credits), Pro+ $40/mo (2,000), Pro Max $100/mo (5,000), Power $200/mo (10,000).
+> **OpenCode Free** model list fluctuates over time (some models free only for limited promos) — subject to change without notice.
+> **Vertex AI**: the $300 free credit for new GCP accounts is still valid, but since Mar 2026 the **Gemini API endpoint no longer consumes these credits** — call the **Vertex AI Studio** endpoint instead.
 
 ### 🔑 API Key Providers (40+)
 
@@ -361,6 +391,46 @@ Default URLs:
   </table>
   <p><i>...and 20+ more providers including Nebius, Chutes, Hyperbolic, and custom OpenAI/Anthropic compatible endpoints</i></p>
 </div>
+
+### 🏠 Self-hosted Providers
+
+For speech and embeddings served from **your own** machine — whisper.cpp,
+faster-whisper, Speaches, Kokoro-FastAPI, openedai-speech, llama.cpp/llama-server,
+vLLM, Infinity, text-embeddings-inference, or anything else that speaks the OpenAI
+shape.
+
+| Provider | Endpoint used | Typical server |
+| --- | --- | --- |
+| **Self-hosted STT** | `/v1/audio/transcriptions` | whisper.cpp, faster-whisper |
+| **Self-hosted TTS** | `/v1/audio/speech` | Kokoro-FastAPI, openedai-speech |
+| **Self-hosted Embedding** | `/v1/embeddings` | llama-server, vLLM, Infinity |
+
+Every other speech provider is a named cloud service with a fixed endpoint. These
+three read their address from **each connection**, so one provider can front
+several machines and load-balance across them like any other.
+
+Set it on the connection as `providerSpecificData.baseUrl`:
+
+| Provider | Give it | Result |
+| --- | --- | --- |
+| Self-hosted STT | the full URL — `http://host:8080/v1/audio/transcriptions` | used as-is |
+| Self-hosted TTS | the server root — `http://host:8880` | `+ /v1/audio/speech` |
+| Self-hosted Embedding | the **OpenAI base**, `/v1` included — `http://host:8080/v1` | `+ /embeddings` |
+
+> **Mind the `/v1` on embeddings.** The adapter appends `/embeddings`, so
+> `http://host:8080` resolves to `http://host:8080/embeddings` and misses the
+> OpenAI route — llama-server answers **501**. Give it the same base URL an OpenAI
+> client would use. A full `.../v1/embeddings` is also accepted, so a value pasted
+> from a `curl` example works too.
+
+The API key is not checked by most local servers, but the field must be non-empty:
+it is what gives the connection a credentials record, and `baseUrl` lives there.
+Any placeholder works.
+
+Self-hosted Embedding has **no cloud fallback by design** — a connection saved
+without a `baseUrl` is reported as a configuration error rather than quietly
+falling back to `api.openai.com`, which would send your input text and API key to
+a third party under a provider named "Self-hosted".
 
 ---
 
@@ -656,7 +726,7 @@ Prerequisites: MITM Server running + DNS redirected
 ✅ **9Router software = FREE forever** (open source, never charges)  
 ✅ **Dashboard "costs" = Display/tracking only** (not actual bills)  
 ✅ **You pay providers directly** (subscriptions or API fees)  
-✅ **FREE providers stay FREE** (iFlow, Kiro, Qwen = $0 unlimited)  
+✅ **FREE providers stay FREE** (Kiro ~50 credits/mo, OpenCode Free, Vertex $300 credits = $0 within free-tier limits) — note iFlow/Qwen/Gemini CLI free tiers were discontinued in 2026
 ❌ **9Router never sends invoices** or charges your card
 
 **How Cost Display Works:**
@@ -671,7 +741,7 @@ Dashboard Display:
 • Display Cost: $290
 
 Reality Check:
-• Provider: iFlow (FREE unlimited)
+• Provider: Kiro (free tier: ~50 credits/mo)
 • Actual Payment: $0.00
 • What $290 Means: Amount you SAVED by using free models!
 ```
@@ -708,7 +778,7 @@ vs. $20 + hitting limits = frustration
 **Solution:**
 ```
 Combo: "free-forever"
-  1. kr/claude-sonnet-4.5      (Claude 4.5 free unlimited)
+  1. kr/claude-sonnet-4.5      (Claude 4.5 free via Kiro, ~50 credits/mo)
   2. kr/glm-5                  (GLM-5 free via Kiro)
   3. oc/<auto>                 (OpenCode Free, no auth)
 
@@ -727,7 +797,7 @@ Combo: "always-on"
   2. cx/gpt-5.5                (second subscription)
   3. glm/glm-5.1               (cheap, resets daily)
   4. minimax/MiniMax-M2.7      (cheapest, 5h reset)
-  5. kr/claude-sonnet-4.5      (free unlimited)
+  5. kr/claude-sonnet-4.5      (free via Kiro, ~50 credits/mo)
 
 Result: 5 layers of fallback = zero downtime
 Monthly cost: $20-200 (subscriptions) + $10-20 (backup)
@@ -759,7 +829,7 @@ The dashboard tracks your token usage and displays **estimated costs** as if you
 
 **Example:**
 - **Dashboard shows:** "$290 total cost"
-- **Reality:** You're using iFlow (FREE unlimited)
+- **Reality:** You're using Kiro free models (~50 credits/mo)
 - **Your actual cost:** **$0.00**
 - **What $290 means:** Amount you **saved** by using free models instead of paid APIs!
 
@@ -784,19 +854,19 @@ The cost display is a "savings tracker" to help you understand your usage patter
 <details>
 <summary><b>🆓 Are FREE providers really unlimited?</b></summary>
 
-**Yes!** The current FREE providers (Kiro, OpenCode Free, Vertex) are genuinely free with **no hidden charges**.
+**Mostly!** The current FREE providers (Kiro, OpenCode Free, Vertex) are genuinely free, but free tiers have limits:
 
 These are free services offered by those respective companies:
 - **Kiro AI**: Free unlimited Claude 4.5 + GLM-5 + MiniMax via AWS Builder ID / Google / GitHub OAuth
 - **OpenCode Free**: No-auth passthrough proxy, models auto-fetched from `opencode.ai/zen/v1/models`
 - **Vertex AI**: $300 free credits for new Google Cloud accounts (90 days)
 
-9Router just routes your requests to them - there's no "catch" or future billing. They're truly free services, and 9Router makes them easy to use with fallback support.
+9Router just routes your requests to them - there's no "catch" or future billing from 9Router itself. They're truly free services, and 9Router makes them easy to use with fallback support.
 
 **Discontinued free tiers (no longer recommended):**
 - ❌ **iFlow**: Was free unlimited, now changed to paid (2026)
-- ❌ **Qwen Code**: Free OAuth tier discontinued by Alibaba on 2026-04-15
-- ❌ **Gemini CLI**: Still works, but using it with non-CLI tools (Claude, Codex, Cursor...) may result in account bans — only use if you stick to Gemini CLI itself
+- ❌ **Qwen Code**: Free OAuth tier fully discontinued by Alibaba on 2026-04-15
+- ❌ **Gemini CLI**: Service fully shut down by Google on 2026-06-18 (replaced by the closed-source Antigravity CLI). Discontinued — do not use.
 
 </details>
 
@@ -807,9 +877,9 @@ These are free services offered by those respective companies:
 
 1. **Start with 100% free combo:**
    ```
-   1. gc/gemini-3-flash (180K/month free from Google)
-   2. if/kimi-k2-thinking (unlimited free from iFlow)
-   3. qw/qwen3-coder-plus (unlimited free from Qwen)
+   1. kr/glm-5 (GLM-5 free via Kiro, ~50 credits/mo)
+   2. OpenCode Free models (no auth, auto-fetched)
+   3. Vertex AI Gemini 3 Pro (using the Vertex AI Studio endpoint with $300 credits)
    ```
    **Cost: $0/month**
 
@@ -1032,7 +1102,7 @@ Monthly cost example (100M tokens):
 ```
 Name: free-combo
 Models:
-  1. kr/claude-sonnet-4.5 (Claude 4.5 free unlimited)
+  1. kr/claude-sonnet-4.5 (Claude 4.5 free via Kiro, ~50 credits/mo)
   2. kr/glm-5 (GLM-5 free via Kiro)
   3. vertex/gemini-3.1-pro-preview ($300 free credits)
 

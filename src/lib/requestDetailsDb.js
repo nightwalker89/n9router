@@ -242,6 +242,18 @@ export async function getRequestDetails(filter = {}) {
   };
 }
 
+// Lowdb keeps request details in one JSON document, so this is necessarily an
+// in-memory scan. Return only unique provider IDs to preserve the lightweight
+// dashboard contract without reintroducing the SQLite repository layer.
+export async function getDistinctProviders() {
+  const db = await getDb();
+  return [...new Set(
+    db.data.records
+      .map((record) => record?.provider)
+      .filter((provider) => typeof provider === "string" && provider.length > 0)
+  )].sort();
+}
+
 export async function getRequestDetailById(id) {
   const db = await getDb();
   return db.data.records.find(r => r.id === id) || null;
