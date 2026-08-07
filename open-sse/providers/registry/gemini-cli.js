@@ -2,12 +2,16 @@ import { GOOGLE_OAUTH_CLIENT } from "../shared.js";
 
 export default {
   id: "gemini-cli",
+  // Google retired Gemini CLI in favor of Antigravity CLI (`agy`). Keep this
+  // registry entry and its executor for existing saved connections, but do not
+  // offer it for new provider setup in the dashboard.
+  hidden: true,
   priority: 20,
   hasFree: true,
   alias: "gc",
   uiAlias: "gc",
   display: {
-    name: "Gemini CLI",
+    name: "Gemini CLI (retired)",
     icon: "terminal",
     color: "#4285F4",
     website: "https://github.com/google-gemini/gemini-cli",
@@ -15,7 +19,8 @@ export default {
       signupUrl: "https://github.com/google-gemini/gemini-cli",
     },
     deprecated: true,
-    deprecationNotice: "RISK_NOTICE",
+    deprecationNotice:
+      "Google retired Gemini CLI. Create new connections with Antigravity CLI (agy); existing Gemini CLI connections remain available for compatibility.",
   },
   category: "free",
   transport: {
@@ -24,17 +29,23 @@ export default {
     cliVersion: "0.34.0",
     apiClient: "google-genai-sdk/1.41.0 gl-node/v22.19.0",
     usage: {
-      quotaUrl: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",
-      loadCodeAssistUrl: "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+      quotaUrl:
+        "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",
+      loadCodeAssistUrl:
+        "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
     },
-    clientId: "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com",
+    clientId:
+      "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com",
     clientSecret: "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",
   },
   models: [
     { id: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro Preview" },
     { id: "gemini-3-pro-preview", name: "Gemini 3 Pro Preview" },
     { id: "gemini-3-flash-preview", name: "Gemini 3 Flash Preview" },
-    { id: "gemini-3.1-flash-lite-preview", name: "Gemini 3.1 Flash Lite Preview" },
+    {
+      id: "gemini-3.1-flash-lite-preview",
+      name: "Gemini 3.1 Flash Lite Preview",
+    },
     { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
     { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
     { id: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash Lite" },
