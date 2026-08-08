@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.4.52 (2026-08-08)
+
+### Fixes
+- **Cursor BYOK**: Restored the dashboard installer card and updated the installer to resolve the latest upstream `main` commit before downloading its immutable source tarball.
+- **macOS Cursor BYOK**: Avoid unnecessary sudo when Cursor’s atomic-write targets are user-writable, preventing the `EPERM` install failure.
+
 ## v0.4.51 (2026-08-07)
 
 ### Upstream merge
