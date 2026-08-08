@@ -125,6 +125,10 @@ async function isWritable(targetPath) {
   }
 }
 
+async function isAtomicallyReplaceable(targetPath) {
+  return isWritable(path.dirname(targetPath));
+}
+
 export async function resolveCursorInstallation(options = {}) {
   const platform = options.platform || process.platform;
   const env = options.env || process.env;
@@ -145,8 +149,8 @@ export async function resolveCursorInstallation(options = {}) {
         ...installation,
         extensionHostExists,
         targetWritable:
-          await isWritable(installation.workbench) &&
-          (!extensionHostExists || await isWritable(installation.extensionHost)) &&
+          await isAtomicallyReplaceable(installation.workbench) &&
+          (!extensionHostExists || await isAtomicallyReplaceable(installation.extensionHost)) &&
           appExtensionsWritable,
       };
     }

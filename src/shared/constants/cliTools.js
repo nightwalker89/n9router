@@ -184,6 +184,18 @@ export const CLI_TOOLS = {
       { step: 6, title: "Select Model", type: "modelSelector" },
     ],
   },
+  "cursor-byok": {
+    id: "cursor-byok",
+    name: "Cursor BYOK",
+    image: "/providers/cursor.png",
+    color: "#111827",
+    description: "Guided installer for nightwalker89/cursor-byok",
+    configType: "custom",
+    notes: [
+      { type: "warning", text: "Checks nightwalker89/cursor-byok main for the latest commit at install time, then downloads that immutable commit tarball. Source is not bundled in 9Router." },
+      { type: "warning", text: "Patches the local Cursor app bundle and may need to be rerun after Cursor updates." },
+    ],
+  },
   cline: {
     id: "cline",
     name: "Cline",

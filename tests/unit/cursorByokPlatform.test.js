@@ -102,6 +102,22 @@ describe("Cursor BYOK Windows platform adapter", () => {
     expect(resolved.extensionHostExists).toBe(true);
   });
 
+  it("recognizes targets that can be atomically replaced even when the files are read-only", async () => {
+    const fixture = await makeCursorFixture("user");
+    await Promise.all([
+      fs.chmod(fixture.installation.workbench, 0o444),
+      fs.chmod(fixture.installation.extensionHost, 0o444),
+    ]);
+
+    const resolved = await resolveCursorInstallation({
+      platform: "win32",
+      env: { LOCALAPPDATA: fixture.localAppData, ProgramFiles: fixture.programFiles },
+      candidates: [fixture.root],
+    });
+
+    expect(resolved.targetWritable).toBe(true);
+  });
+
   it("resolves a Windows system installation", async () => {
     const fixture = await makeCursorFixture("system");
     const resolved = await resolveCursorInstallation({

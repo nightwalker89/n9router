@@ -8,13 +8,13 @@ import {
 } from "./platform";
 import { getCursorByokRestoreState } from "./restoreState";
 import {
+  CURSOR_BYOK_BRANCH,
   CURSOR_BYOK_OWNER,
-  CURSOR_BYOK_REF,
   CURSOR_BYOK_REPO,
   CURSOR_BYOK_SOURCE_DIR,
-  CURSOR_BYOK_TARBALL_URL,
   CURSOR_EXTENSIONS_DIR,
 } from "./constants";
+import { readCursorByokSourceMetadata } from "./source";
 
 async function exists(targetPath) {
   try {
@@ -43,11 +43,13 @@ export async function getCursorByokStatus() {
     sourceReady,
     extensionInstalled,
     restoreState,
+    source,
   ] = await Promise.all([
     installationPromise,
     exists(path.join(CURSOR_BYOK_SOURCE_DIR, "package.json")),
     detectCursorByokExtension(),
     getCursorByokRestoreState(),
+    readCursorByokSourceMetadata(),
   ]);
   const hookStateExists = restoreState.stateExists;
   const installed = extensionInstalled || hookStateExists;
@@ -88,13 +90,13 @@ export async function getCursorByokStatus() {
     repo: {
       owner: CURSOR_BYOK_OWNER,
       name: CURSOR_BYOK_REPO,
-      ref: CURSOR_BYOK_REF,
-      tarballUrl: CURSOR_BYOK_TARBALL_URL,
+      ref: source?.ref || CURSOR_BYOK_BRANCH,
+      tarballUrl: source?.tarballUrl || null,
     },
     platform: process.platform,
     isWin,
     isAdmin,
     hasCachedPassword: !!getCursorByokCachedPassword(),
-    needsSudoPassword: isMac,
+    needsSudoPassword: isMac && !installation?.targetWritable,
   };
 }

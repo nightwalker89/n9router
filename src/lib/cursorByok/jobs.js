@@ -6,13 +6,15 @@ import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import {
   CURSOR_BYOK_ACTIONS,
-  CURSOR_BYOK_REF,
   CURSOR_BYOK_ROOT,
   CURSOR_BYOK_SOURCE_DIR,
-  CURSOR_BYOK_TARBALL_PATH,
-  CURSOR_BYOK_TARBALL_URL,
   CURSOR_EXTENSIONS_DIR,
 } from "./constants";
+import {
+  getLatestCursorByokSource,
+  readCursorByokSourceMetadata,
+  writeCursorByokSourceMetadata,
+} from "./source";
 import {
   getCursorByokCachedPassword,
   setCursorByokCachedPassword,
@@ -45,7 +47,7 @@ function getStore() {
 
 function makeSteps(action) {
   const steps = [
-    { id: "download", label: "Download pinned cursor-byok tarball", status: "pending" },
+    { id: "download", label: "Check for and download the latest Cursor BYOK source", status: "pending" },
     { id: "dependencies", label: "Install package dependencies", status: "pending" },
   ];
   if (action === "prepare" || action === "install") {
@@ -198,30 +200,41 @@ function runInvocation(job, invocation, args, options = {}) {
 
 async function ensureSource(job) {
   updateStep(job, "download", "running");
-  if (await pathExists(path.join(CURSOR_BYOK_SOURCE_DIR, "package.json"))) {
-    appendLog(job, `Using cached cursor-byok source at ${CURSOR_BYOK_SOURCE_DIR}`);
-    updateStep(job, "download", "success", CURSOR_BYOK_REF.slice(0, 12));
-    return;
+  const source = await getLatestCursorByokSource();
+  const cachedSource = await readCursorByokSourceMetadata();
+  const packagePath = path.join(CURSOR_BYOK_SOURCE_DIR, "package.json");
+  if (cachedSource?.ref === source.ref && await pathExists(packagePath)) {
+    appendLog(job, `Using current Cursor BYOK source ${source.ref.slice(0, 12)} from ${CURSOR_BYOK_SOURCE_DIR}`);
+    updateStep(job, "download", "success", source.ref.slice(0, 12));
+    return source;
   }
 
-  appendLog(job, `Downloading ${CURSOR_BYOK_TARBALL_URL}`);
-  await fs.rm(CURSOR_BYOK_SOURCE_DIR, { recursive: true, force: true });
-  await downloadFile(CURSOR_BYOK_TARBALL_URL, CURSOR_BYOK_TARBALL_PATH);
-  await fs.mkdir(CURSOR_BYOK_SOURCE_DIR, { recursive: true });
-  await runInvocation(
-    job,
-    getTarInvocation(),
-    ["-xzf", CURSOR_BYOK_TARBALL_PATH, "-C", CURSOR_BYOK_SOURCE_DIR, "--strip-components=1"],
-    { cwd: CURSOR_BYOK_ROOT },
-  );
-  if (!(await pathExists(path.join(CURSOR_BYOK_SOURCE_DIR, "package.json")))) {
-    throw new Error("Downloaded cursor-byok archive did not contain package.json");
+  appendLog(job, `Downloading latest Cursor BYOK source ${source.ref.slice(0, 12)} from ${source.tarballUrl}`);
+  const tarballPath = path.join(CURSOR_BYOK_ROOT, `${source.ref}.tar.gz`);
+  const stagingDir = `${CURSOR_BYOK_SOURCE_DIR}.staging-${source.ref}`;
+  await fs.rm(stagingDir, { recursive: true, force: true });
+  await downloadFile(source.tarballUrl, tarballPath);
+  try {
+    await fs.mkdir(stagingDir, { recursive: true });
+    await runInvocation(
+      job,
+      getTarInvocation(),
+      ["-xzf", tarballPath, "-C", stagingDir, "--strip-components=1"],
+      { cwd: CURSOR_BYOK_ROOT },
+    );
+    await verifySourcePackage(stagingDir);
+    await fs.rm(CURSOR_BYOK_SOURCE_DIR, { recursive: true, force: true });
+    await fs.rename(stagingDir, CURSOR_BYOK_SOURCE_DIR);
+    await writeCursorByokSourceMetadata(source);
+  } finally {
+    await fs.rm(stagingDir, { recursive: true, force: true });
   }
-  updateStep(job, "download", "success", CURSOR_BYOK_REF.slice(0, 12));
+  updateStep(job, "download", "success", source.ref.slice(0, 12));
+  return source;
 }
 
-async function verifySourcePackage() {
-  const packagePath = path.join(CURSOR_BYOK_SOURCE_DIR, "package.json");
+async function verifySourcePackage(sourceDir = CURSOR_BYOK_SOURCE_DIR) {
+  const packagePath = path.join(sourceDir, "package.json");
   const pkg = JSON.parse(await fs.readFile(packagePath, "utf8"));
   if (pkg.publisher !== "starduster" || pkg.name !== "cursor-byok") {
     throw new Error("Downloaded package identity does not match starduster.cursor-byok");
@@ -230,7 +243,7 @@ async function verifySourcePackage() {
     path.join("scripts", "install-cursor.js"),
     path.join("scripts", "install-workbench-hook.js"),
   ]) {
-    if (!(await pathExists(path.join(CURSOR_BYOK_SOURCE_DIR, relativePath)))) {
+    if (!(await pathExists(path.join(sourceDir, relativePath)))) {
       throw new Error(`Downloaded cursor-byok source is missing ${relativePath}`);
     }
   }
@@ -290,6 +303,9 @@ function waitForSudo(job) {
 }
 
 function runPrivilegedNpm(job, script, password) {
+  if (!password) {
+    return runInvocation(job, getNpmInvocation(), ["run", script]);
+  }
   const command = `sudo -S -p "" env HOME="$HOME" PATH="$PATH" npm run ${script}`;
   return runCommand(job, "sh", ["-c", command], {
     cwd: CURSOR_BYOK_SOURCE_DIR,
@@ -396,7 +412,10 @@ async function runJob(job) {
     if (process.platform === "win32") {
       await runWindowsAction(job, installation);
     } else {
-      const password = await waitForSudo(job);
+      const password = installation.targetWritable ? null : await waitForSudo(job);
+      if (!password) {
+        updateStep(job, "permission", "success", "Cursor files are writable without sudo");
+      }
       if (job.action === "install") {
         await runPrivilegedScript(job, "install", "install:cursor", password);
       } else {
