@@ -31,6 +31,34 @@ describe("provider quota visibility", () => {
     ]);
   });
 
+  it("sorts the live Gemini 3.7 Flash tiered quota ahead of older Gemini 3.7 tiers", () => {
+    const quotas = parseQuotaData("antigravity", {
+      quotas: {
+        "gemini-3.6-flash-high": {
+          displayName: "Gemini 3.6 Flash (High)",
+          used: 100,
+          total: 1000,
+        },
+        "gemini-3.7-flash-tiered": {
+          displayName: "Gemini 3.7 Flash",
+          used: 150,
+          total: 1000,
+        },
+        "gemini-3.7-flash-high": {
+          displayName: "Gemini 3.7 Flash (High)",
+          used: 200,
+          total: 1000,
+        },
+      },
+    });
+
+    expect(quotas.map((q) => q.modelKey)).toEqual([
+      "gemini-3.7-flash-tiered",
+      "gemini-3.7-flash-high",
+      "gemini-3.6-flash-high",
+    ]);
+  });
+
   it("shows all quotas by default and hides configured provider rows", () => {
     const quotas = parseQuotaData("antigravity", data);
     expect(filterQuotasByVisibility("antigravity", quotas, {})).toHaveLength(2);

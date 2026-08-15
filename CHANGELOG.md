@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.53 (2026-08-15)
+
+### Features
+- **Antigravity Gemini 3.7 Flash**: Added `ag/gemini-3.7-flash-high|medium|low`, Gemini API `gemini-3.7-flash`, MITM aliases/slots, pricing, and capabilities.
+
+### Fixes
+- **Quota Tracker**: Antigravity now fingerprints as IDE **2.5.5**, the first client version whose `fetchAvailableModels` response includes Gemini 3.7 Flash quotas.
+- **Quota parsing**: Keep the live `gemini-3.7-flash-tiered` bucket as a fallback when Google has not split high/medium/low keys.
+
 ## v0.4.52 (2026-08-08)
 
 ### Fixes

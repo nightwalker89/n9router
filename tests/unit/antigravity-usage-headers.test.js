@@ -22,9 +22,12 @@ describe("Antigravity usage headers", () => {
     await getAntigravityUsage("access-token", {});
 
     expect(proxyAwareFetch).toHaveBeenCalledTimes(2);
-    for (const [, options] of proxyAwareFetch.mock.calls) {
-      expect(options.headers["User-Agent"]).toBe("antigravity/ide/2.1.1 darwin/arm64");
+    for (const [url, options] of proxyAwareFetch.mock.calls) {
+      expect(options.headers["User-Agent"]).toBe("antigravity/ide/2.5.5 darwin/arm64");
       expect(options.headers).not.toHaveProperty("x-request-source");
+      if (String(url).includes(":fetchAvailableModels")) {
+        expect(options.headers["X-Client-Version"]).toBe("2.5.5");
+      }
     }
   });
 });

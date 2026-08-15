@@ -594,10 +594,17 @@ export function parseQuotaData(provider, data) {
     return [];
   }
 
-  // Sort quotas according to PROVIDER_MODELS order
+  // Sort quotas according to PROVIDER_MODELS order.
+  // Live Antigravity still reports Gemini 3.7 as one `*-tiered` bucket.
   const modelOrder = getModelsByProviderId(provider);
   if (modelOrder.length > 0) {
     const orderMap = new Map(modelOrder.map((m, i) => [m.id, i]));
+    if (provider.toLowerCase() === "antigravity" && !orderMap.has("gemini-3.7-flash-tiered")) {
+      const first37 = orderMap.has("gemini-3.7-flash-high")
+        ? orderMap.get("gemini-3.7-flash-high")
+        : 0;
+      orderMap.set("gemini-3.7-flash-tiered", first37 - 0.5);
+    }
     
     normalizedQuotas.sort((a, b) => {
       // Use modelKey for antigravity, otherwise use name

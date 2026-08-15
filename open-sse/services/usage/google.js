@@ -159,21 +159,27 @@ export async function getAntigravityUsage(accessToken, providerSpecificData, pro
 
     // Parse model quotas (inspired by vscode-antigravity-cockpit)
     if (data.models) {
-      // Filter only recommended/important models (must match PROVIDER_MODELS ag ids)
-      const importantModels = [
-        'gemini-3.6-flash-high',
-        'gemini-3.6-flash-medium',
-        'gemini-3.6-flash-low',
-        'gemini-3.5-flash-low',
-        'gemini-3.5-flash-extra-low',
-        'gemini-pro-agent',
-        'gemini-3.1-pro-low',
-        'claude-sonnet-4-6',
-        'claude-opus-4-6-thinking',
-        'gpt-oss-120b-medium',
+      // Filter only recommended/important models (must match PROVIDER_MODELS ag ids,
+      // plus live fetchAvailableModels keys that have not been split into tiers yet).
+      const importantModels = {
+        // Live API currently ships 3.7 as one `*-tiered` bucket, not high/medium/low.
+        "gemini-3.7-flash-tiered": "Gemini 3.7 Flash",
+        "gemini-3.7-flash-high": "Gemini 3.7 Flash (High)",
+        "gemini-3.7-flash-medium": "Gemini 3.7 Flash (Medium)",
+        "gemini-3.7-flash-low": "Gemini 3.7 Flash (Low)",
+        "gemini-3.6-flash-high": "Gemini 3.6 Flash (High)",
+        "gemini-3.6-flash-medium": "Gemini 3.6 Flash (Medium)",
+        "gemini-3.6-flash-low": "Gemini 3.6 Flash (Low)",
+        "gemini-3.5-flash-low": "Gemini 3.5 Flash (Medium)",
+        "gemini-3.5-flash-extra-low": "Gemini 3.5 Flash (Low)",
+        "gemini-pro-agent": "Gemini 3.1 Pro (High)",
+        "gemini-3.1-pro-low": "Gemini 3.1 Pro (Low)",
+        "claude-sonnet-4-6": "Claude Sonnet 4.6 (Thinking)",
+        "claude-opus-4-6-thinking": "Claude Opus 4.6 (Thinking)",
+        "gpt-oss-120b-medium": "GPT-OSS 120B (Medium)",
         // Image generation models
-        'gemini-3.1-flash-image',
-      ];
+        "gemini-3.1-flash-image": "Gemini 3.1 Flash Image",
+      };
 
       for (const [modelKey, info] of Object.entries(data.models)) {
         // Skip models without quota info
@@ -182,7 +188,7 @@ export async function getAntigravityUsage(accessToken, providerSpecificData, pro
         }
 
         // Skip internal models and non-important models
-        if (info.isInternal || !importantModels.includes(modelKey)) {
+        if (info.isInternal || !Object.hasOwn(importantModels, modelKey)) {
           continue;
         }
 
@@ -201,7 +207,7 @@ export async function getAntigravityUsage(accessToken, providerSpecificData, pro
           resetAt: parseResetTime(info.quotaInfo.resetTime),
           remainingPercentage,
           unlimited: false,
-          displayName: info.displayName || modelKey,
+          displayName: info.displayName || importantModels[modelKey] || modelKey,
         };
       }
     }
