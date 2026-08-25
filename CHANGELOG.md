@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.4.54 (2026-08-25)
+
+### Upstream merge
+- **9router v0.5.55**: Adopted refreshed provider catalog, authentication, translation, streaming, and CLI packaging improvements.
+- **SAML 2.0 SSO**: Added native SAML 2.0 Single Sign-On integration, IdP metadata XML & certificate uploaders, SSO protocol switcher, dynamic SAML sign-in button, and SAML user badges.
+- **Providers and models**: Added Alibaba Token Plan (`token-plan.ap-southeast-1`), Kimchi dual auth (OAuth + API key), Fish Audio text-to-speech provider, `glm-5.3` for GLM Coding and GLM (China) registries, Opencode-Go transport format routing with per-model guards, and `llm7` test support.
+- **Routing and translation**: Added Kiro multi-surface auth-aware endpoint routing, integrity-gate streaming, header-based interception (`x-amz-target`), `auto` model slot, and accurate output token accounting. Added early billing error detection in Qoder SSE for failover. Fixed OpenAI Responses empty `tool_calls` array premature termination (#3234) and preserved `prompt_cache_key` when converting chat to responses (#3216).
+- **Quota and client handling**: Strip competitive system prompts in Antigravity to prevent 429 quota errors from Zed IDE. Forward official client headers for free-tier Opencode requests. Added 120s TTL caching and promise dedup for Claude quota calls with `?force=1` bypass for manual refresh. Re-anchored Claude passthrough cache breakpoints with 1h TTL.
+- **Combos and adapters**: Vision adapter image detection from Hermes and attachment payloads; stripped `stream_options` from Fusion panel fan-out; added `api_key` parameter in Hermes YAML config.
+- **Documentation and i18n**: Added Spanish (`README.es.md`), French (`README.fr.md`), and Brazilian Portuguese (`README.pt-BR.md`) documentation translations.
+
+### Security
+- **Socket peer validation**: Require proof that `x-9r-real-ip` originates from trusted local socket connections (GHSA-pjm4-8fpg-f9p6).
+- **SSRF guard**: Validate and reject non-public base URLs on web/search endpoints.
+- **Authentication**: Block fresh-install remote login using default password (returns 403 without issuing JWT).
+- **Privacy**: Redacted sensitive payload contents on `/api/usage/request-details`.
+
+### n9router preservation
+- **State DB**: Retained lowdb (`db.json`) as the sole state persistence layer, rejecting upstream SQLite migration.
+- **Fork capabilities**: Preserved MITM token pool swapping, retry classification, token cooldowns, stream watchdog controls, API-key limits, token-swap usage observer, Antigravity account-type badges, cached-token tracking, ApiKeyUsageReport, UsageFlexReport, Cursor BYOK installer, and fork branding.
+
 ## v0.4.53 (2026-08-15)
 
 ### Features
