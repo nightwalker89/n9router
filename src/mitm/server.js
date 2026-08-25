@@ -4,7 +4,7 @@ const path = require("path");
 const dns = require("dns");
 const { promisify } = require("util");
 const { log, err } = require("./logger");
-const { TARGET_HOSTS, URL_PATTERNS, getToolForHost } = require("./config");
+const { TARGET_HOSTS, getToolForHost, isChatRequest } = require("./config");
 const { DATA_DIR, MITM_DIR } = require("./paths");
 const {
   getMappedModelSelection,
@@ -652,9 +652,8 @@ const server = https.createServer(sslOptions, async (req, res) => {
       : null;
     debugContext?.logRequest({ tool });
 
-    const patterns = URL_PATTERNS[tool] || [];
-    const isChat = patterns.some(p => req.url.includes(p));
-    if (!isChat) {
+    // Kiro IDE posts chat to `/` with x-amz-target (not path /generateAssistantResponse)
+    if (!isChatRequest(tool, req)) {
       // log(`⏩ [request] url="${req.url}" not a chat pattern for tool=${tool}, passthrough`);
       debugContext?.log("route.selected", {
         tool,

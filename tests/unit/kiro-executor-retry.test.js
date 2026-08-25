@@ -76,6 +76,14 @@ describe("KiroExecutor retry logic", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     executor = new KiroExecutor();
+    // These tests exercise Kiro's own retry-config/backoff/400-classification
+    // logic in isolation from BaseExecutor's endpoint fallback (kiro has 3
+    // baseUrls; that cross-host failover is a separate upstream concern) and
+    // from the integrity gate's own repair-retry fetches (a separate concern
+    // covered by its own tests) — an empty mock stream reads as incomplete
+    // output and would otherwise trigger extra, unrelated fetch calls here.
+    vi.spyOn(executor, "getFallbackCount").mockReturnValue(1);
+    vi.spyOn(executor, "attachIntegrityGate").mockImplementation(() => {});
     // Mock _computeBackoff to return 0 for fast tests
     vi.spyOn(executor, "_computeBackoff").mockReturnValue(0);
     mockLog = {

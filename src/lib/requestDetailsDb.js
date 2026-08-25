@@ -259,6 +259,8 @@ export async function getRequestDetailById(id) {
   return db.data.records.find(r => r.id === id) || null;
 }
 
+export const __test__ = { sanitizeHeaders };
+
 // Graceful shutdown — use named handler so we can remove it on re-registration
 const _shutdownHandler = async () => {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
