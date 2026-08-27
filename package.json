@@ -1,6 +1,6 @@
 {
   "name": "n9router",
-  "version": "0.4.54",
+  "version": "0.4.55",
   "description": "Self-hosted AI routing gateway — local proxy for Claude, Gemini, OpenAI and 40+ providers",
   "keywords": [
     "ai",
@@ -34,11 +34,11 @@
   "scripts": {
     "dev": "next dev --webpack --port 20128",
     "build": "cross-env NODE_ENV=production next build --webpack",
-    "postbuild": "cp -r public .next/standalone/ && cp -r .next/static .next/standalone/.next/ && cp -r open-sse/. .next/standalone/open-sse/ && cp -r open-sse/. .next/open-sse/",
-    "start": "NODE_ENV=production next start",
+    "postbuild": "node scripts/copy-standalone-assets.mjs && cp -r open-sse/. .next/standalone/open-sse/ && cp -r open-sse/. .next/open-sse/",
+    "start": "NODE_ENV=production node ./.next/standalone/custom-server.js",
     "dev:bun": "bun --bun next dev --webpack --port 20128",
     "build:bun": "cross-env NODE_ENV=production bun --bun next build --webpack",
-    "start:bun": "NODE_ENV=production bun ./.next/standalone/server.js",
+    "start:bun": "NODE_ENV=production bun ./.next/standalone/custom-server.js",
     "postinstall": "node hooks/postinstall.js",
     "publish:npm:local": "./scripts/publish-npm.sh --local",
     "publish:npm": "./scripts/publish-npm.sh",

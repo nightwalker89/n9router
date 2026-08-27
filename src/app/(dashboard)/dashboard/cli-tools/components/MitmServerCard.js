@@ -30,16 +30,26 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
   const fetchStatus = useCallback(async () => {
     try {
       const res = await fetch("/api/cli-tools/antigravity-mitm");
-      if (res.ok) {
-        const data = await res.json();
-        setStatus(data);
-        if (data.mitmRouterBaseUrl) {
-          setMitmRouterBaseUrl(data.mitmRouterBaseUrl);
-        }
-        onStatusChange?.(data);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = data.error || `Unable to load MITM status (HTTP ${res.status}).`;
+        const authHint = res.status === 401 || res.status === 403
+          ? " Refresh the page or sign in again to restore local MITM access."
+          : "";
+        setStatus(null);
+        setActionError(`${detail}${authHint}`);
+        return;
       }
-    } catch {
-      setStatus({ running: false, certExists: false, dnsStatus: {} });
+
+      setActionError(null);
+      setStatus(data);
+      if (data.mitmRouterBaseUrl) {
+        setMitmRouterBaseUrl(data.mitmRouterBaseUrl);
+      }
+      onStatusChange?.(data);
+    } catch (error) {
+      setStatus(null);
+      setActionError(error?.message || "Unable to reach the MITM status endpoint.");
     }
   }, [onStatusChange]);
 

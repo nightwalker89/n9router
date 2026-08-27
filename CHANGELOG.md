@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.4.55 (2026-08-27)
+
+### Improvements
+- **MITM status feedback**: Improved error reporting and diagnostics on the CLI tools dashboard card (`MitmServerCard`), gracefully surfacing HTTP 401/403 auth hints and network error details when connecting to the Antigravity MITM status endpoint.
+
 ## v0.4.54 (2026-08-25)
 
 ### Upstream merge

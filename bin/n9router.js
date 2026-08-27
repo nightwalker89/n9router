@@ -125,6 +125,7 @@ if (process.argv.includes("--update")) {
 
 const appRoot = resolveAppRoot();
 const standaloneServer = appRoot && path.join(appRoot, "server.js");
+const customServer = appRoot && path.join(appRoot, "custom-server.js");
 
 if (!standaloneServer || !fs.existsSync(standaloneServer)) {
   console.error(
@@ -135,6 +136,17 @@ if (!standaloneServer || !fs.existsSync(standaloneServer)) {
       "This usually means the package was published without running `npm run build` first,\n" +
       "or the standalone app directory was excluded from the package.\n\n" +
       "If you cloned the repo, run:\n  npm install && npm run build && node bin/n9router.js"
+  );
+  process.exit(1);
+}
+
+if (!fs.existsSync(customServer)) {
+  console.error(
+    "[n9router] ERROR: The trusted request wrapper was not found at:\n" +
+      "  " + customServer +
+      "\n\n" +
+      "This package is incomplete: starting server.js directly would make local-only\n" +
+      "dashboard controls unavailable. Rebuild or reinstall n9router."
   );
   process.exit(1);
 }
@@ -174,7 +186,7 @@ fetchLatestVersion()
 
 const child = spawn(
   process.execPath, // node
-  [standaloneServer],
+  [customServer],
   {
     env: {
       ...process.env,
