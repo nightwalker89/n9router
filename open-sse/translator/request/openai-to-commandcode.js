@@ -41,9 +41,18 @@ function flattenText(content) {
 // OpenAI/Claude-shaped image part -> AI SDK v5 image part. Returns null when no
 // usable source is present, so the caller can fall back to the text placeholder.
 function toImagePart(part) {
-  const direct = part?.image_url?.url ?? part?.image ?? part?.url;
+  // `image_url` is either {url} or a flat string. Both shapes occur here — see
+  // prefetch.js, which rewrites a flat string in place, so a prefetched remote
+  // image arrives as a bare data-URI string and would otherwise be dropped
+  // after having already been fetched over the network.
+  const imageUrl = typeof part?.image_url === "string" ? part.image_url : part?.image_url?.url;
+  const direct = imageUrl ?? part?.image ?? part?.url;
   if (typeof direct === "string" && direct) {
-    return { type: OPENAI_BLOCK.IMAGE, image: direct };
+    // Upstream does accept bare base64 with no mediaType (verified), but when the
+    // caller states a type, keep it rather than making upstream sniff the bytes.
+    const isUri = /^(data:|https?:)/.test(direct);
+    const mime = part?.mediaType || part?.media_type || "image/png";
+    return { type: OPENAI_BLOCK.IMAGE, image: isUri ? direct : `data:${mime};base64,${direct}` };
   }
   const src = part?.source;
   if (src?.type === "base64" && src.data) {

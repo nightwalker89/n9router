@@ -116,6 +116,40 @@ describe("openaiToCommandCodeRequest — image parts", () => {
     ]);
   });
 
+  it("MUST map a flat-string image_url (not just {url}) to an image part", () => {
+    // prefetch.js rewrites a flat-string image_url in place, so a prefetched
+    // remote image reaches this translator as a bare data-URI string.
+    const out = openaiToCommandCodeRequest(MODEL, {
+      messages: [{ role: "user", content: [{ type: "image_url", image_url: DATA_URL }] }],
+    }, true);
+
+    expect(out.params.messages[0].content).toEqual([{ type: "image", image: DATA_URL }]);
+  });
+
+  it("MUST wrap bare base64 in a data URI using the stated media type", () => {
+    const out = openaiToCommandCodeRequest(MODEL, {
+      messages: [{ role: "user", content: [
+        { type: "image", image: "QUJD", mediaType: "image/jpeg" },
+      ] }],
+    }, true);
+
+    expect(out.params.messages[0].content).toEqual([
+      { type: "image", image: "data:image/jpeg;base64,QUJD" },
+    ]);
+  });
+
+  it("MUST leave an http(s) URL untouched rather than treating it as base64", () => {
+    const out = openaiToCommandCodeRequest(MODEL, {
+      messages: [{ role: "user", content: [
+        { type: "image_url", image_url: { url: "https://example.com/p.png" } },
+      ] }],
+    }, true);
+
+    expect(out.params.messages[0].content).toEqual([
+      { type: "image", image: "https://example.com/p.png" },
+    ]);
+  });
+
   it("MUST fall back to a text placeholder when the block carries no usable source", () => {
     const out = openaiToCommandCodeRequest(MODEL, {
       messages: [{ role: "user", content: [{ type: "image_url", image_url: {} }] }],

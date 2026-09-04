@@ -41,6 +41,9 @@ export default {
     { id: "Qwen/Qwen3.6-Plus", name: "Qwen 3.6 Plus" },
     { id: "Qwen/Qwen3.8-Flash", name: "Qwen 3.8 Flash" },
     { id: "Qwen/Qwen3.8-Max", name: "Qwen 3.8 Max" },
+    // Vendor prefix is "z-ai/" here, not the "zai-org/" used by GLM-5/5.1 above:
+    // that is what CommandCode actually serves (verified — "zai-org/glm-5.3-flash"
+    // and "z-ai/glm-5.1" are not entitled), not a typo.
     { id: "z-ai/glm-5.3-flash", name: "GLM 5.3 Flash" },
     { id: "stepfun/Step-3.5-Flash", name: "Step 3.5 Flash" },
   ],
