@@ -7,6 +7,7 @@
 
 ### Fixes
 - **Antigravity MITM (Windows)**: Added platform capability flags (`isWin`, `needsSudoPassword: !isWin`) to the Antigravity MITM status endpoint to avoid triggering sudo password prompts on Windows hosts.
+- **CommandCode vision (#7)**: Preserved image inputs for vision-capable CommandCode models by correcting capability detection, translating OpenAI/Claude image blocks to the upstream AI SDK format, and prefetching remote images as base64 before dispatch.
 
 ## v0.4.55 (2026-08-27)
 
