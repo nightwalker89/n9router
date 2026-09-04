@@ -87,6 +87,46 @@ describe("openaiToCommandCodeRequest — content shape", () => {
   });
 });
 
+describe("openaiToCommandCodeRequest — image parts", () => {
+  const DATA_URL = "data:image/png;base64,iVBORw0KGgo=";
+
+  it("MUST map an OpenAI image_url block to an AI SDK image part", () => {
+    const out = openaiToCommandCodeRequest(MODEL, {
+      messages: [{ role: "user", content: [
+        { type: "text", text: "what is this?" },
+        { type: "image_url", image_url: { url: DATA_URL } },
+      ] }],
+    }, true);
+
+    expect(out.params.messages[0].content).toEqual([
+      { type: "text", text: "what is this?" },
+      { type: "image", image: DATA_URL },
+    ]);
+  });
+
+  it("MUST map a Claude base64 image block to a data URL image part", () => {
+    const out = openaiToCommandCodeRequest(MODEL, {
+      messages: [{ role: "user", content: [
+        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "ZZZ" } },
+      ] }],
+    }, true);
+
+    expect(out.params.messages[0].content).toEqual([
+      { type: "image", image: "data:image/jpeg;base64,ZZZ" },
+    ]);
+  });
+
+  it("MUST fall back to a text placeholder when the block carries no usable source", () => {
+    const out = openaiToCommandCodeRequest(MODEL, {
+      messages: [{ role: "user", content: [{ type: "image_url", image_url: {} }] }],
+    }, true);
+
+    expect(out.params.messages[0].content).toEqual([
+      { type: "text", text: "[image omitted]" },
+    ]);
+  });
+});
+
 describe("openaiToCommandCodeRequest — tool role / tool-result (AI SDK)", () => {
   it("converts role:\"tool\" to role:\"tool\" with tool-result block; output is {type:\"text\",value}", () => {
     const out = openaiToCommandCodeRequest(MODEL, {
