@@ -7,7 +7,16 @@
  *  - params.messages[*].content: Array of content blocks (NEVER a string)
  *  - tool_use blocks (assistant): {type:"tool-call", toolCallId, toolName, input}
  *  - tool_result blocks (role=user): {type:"tool-result", toolCallId, toolName, output}
+ *  - image blocks (role=user): {type:"image", image:"data:<mime>;base64,<data>"}
  *  - tools[*]: Anthropic plain {name, description, input_schema}
+ *
+ * Image support verified live against /alpha/generate (2026-09-04): an AI SDK v5
+ * `image` part carrying a data URL (or bare base64 + mediaType) is accepted; AI SDK
+ * `file` parts and OpenAI `image_url` parts are both rejected with HTTP 400. A remote
+ * https URL passes validation but the backend cannot fetch it, so chatCore prefetches
+ * remote images to base64 first (FORMATS.COMMANDCODE is in TARGETS_NEED_BASE64).
+ * Models without vision still get the text placeholder, but that decision belongs to
+ * stripUnsupportedModalities upstream — not to this translator.
  */
 import { register } from "../index.js";
 import { FORMATS } from "../formats.js";
@@ -29,6 +38,32 @@ function flattenText(content) {
   return String(content);
 }
 
+// OpenAI/Claude-shaped image part -> AI SDK v5 image part. Returns null when no
+// usable source is present, so the caller can fall back to the text placeholder.
+function toImagePart(part) {
+  // `image_url` is either {url} or a flat string. Both shapes occur here — see
+  // prefetch.js, which rewrites a flat string in place, so a prefetched remote
+  // image arrives as a bare data-URI string and would otherwise be dropped
+  // after having already been fetched over the network.
+  const imageUrl = typeof part?.image_url === "string" ? part.image_url : part?.image_url?.url;
+  const direct = imageUrl ?? part?.image ?? part?.url;
+  if (typeof direct === "string" && direct) {
+    // Upstream does accept bare base64 with no mediaType (verified), but when the
+    // caller states a type, keep it rather than making upstream sniff the bytes.
+    const isUri = /^(data:|https?:)/.test(direct);
+    const mime = part?.mediaType || part?.media_type || "image/png";
+    return { type: OPENAI_BLOCK.IMAGE, image: isUri ? direct : `data:${mime};base64,${direct}` };
+  }
+  const src = part?.source;
+  if (src?.type === "base64" && src.data) {
+    return { type: OPENAI_BLOCK.IMAGE, image: `data:${src.media_type || "image/png"};base64,${src.data}` };
+  }
+  if (src?.type === "url" && typeof src.url === "string" && src.url) {
+    return { type: OPENAI_BLOCK.IMAGE, image: src.url };
+  }
+  return null;
+}
+
 function toContentBlocks(content) {
   if (content == null) return [{ type: OPENAI_BLOCK.TEXT, text: "" }];
   if (typeof content === "string") return [{ type: OPENAI_BLOCK.TEXT, text: content }];
@@ -41,7 +76,7 @@ function toContentBlocks(content) {
         if (part.type === OPENAI_BLOCK.TEXT && typeof part.text === "string") {
           blocks.push({ type: OPENAI_BLOCK.TEXT, text: part.text });
         } else if (part.type === OPENAI_BLOCK.IMAGE_URL || part.type === OPENAI_BLOCK.IMAGE) {
-          blocks.push({ type: OPENAI_BLOCK.TEXT, text: "[image omitted]" });
+          blocks.push(toImagePart(part) || { type: OPENAI_BLOCK.TEXT, text: "[image omitted]" });
         } else if (typeof part.text === "string") {
           blocks.push({ type: OPENAI_BLOCK.TEXT, text: part.text });
         }

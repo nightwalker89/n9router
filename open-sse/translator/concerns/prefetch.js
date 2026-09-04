@@ -8,6 +8,9 @@ import { fetchImageAsBase64, parseDataUri } from "./image.js";
 const TARGETS_NEED_BASE64 = new Set([
   FORMATS.GEMINI, FORMATS.GEMINI_CLI, FORMATS.VERTEX,
   FORMATS.ANTIGRAVITY, FORMATS.OLLAMA, FORMATS.KIRO,
+  // CommandCode accepts an https URL in an image part but its backend fails the
+  // fetch ("Failed to download image from ..."), so URLs must arrive as base64.
+  FORMATS.COMMANDCODE,
 ]);
 
 function isRemoteUrl(url) {
