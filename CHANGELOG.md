@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.4.57 (2026-09-04)
+
+### Improvements
+- **SQLite Engine (`node:sqlite`)**: Replaced third-party `better-sqlite3` native C++ dependency with Node.js built-in `node:sqlite` (`DatabaseSync`). Eliminates `node-gyp` compilation requirements, C++ build tools (`python3`, `make`, `g++`, `linux-headers`) in Docker, and over 400 lines of brittle prebuild-install and runtime self-healing hooks.
+- **Cursor Auto-Import**: Migrated local Cursor SQLite database (`state.vscdb`) token extraction to `node:sqlite` in read-only mode (`{ readOnly: true }`).
+- **Dependencies & Build**: Removed `better-sqlite3` from dependencies and Next.js external packages, added Node engine requirement `>=22.13.0`, and cleaned up standalone build and publish scripts.
+
 ## v0.4.56 (2026-09-04)
 
 ### Features

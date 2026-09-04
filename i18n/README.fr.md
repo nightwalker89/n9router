@@ -1361,7 +1361,7 @@ Remarques :
 - **Runtime** : Node.js 20+
 - **Framework** : Next.js 16
 - **UI** : React 19 + Tailwind CSS 4
-- **Base de données** : SQLite (better-sqlite3 / node:sqlite / sql.js en secours)
+- **Base de données** : SQLite (node:sqlite)
 - **Streaming** : Server-Sent Events (SSE)
 - **Authentification** : OAuth 2.0 (PKCE) + JWT + clés API
 

@@ -79,8 +79,7 @@ if (args[0] === "xai" && args[1] === "video") {
   return;
 }
 
-// Self-heal the better-sqlite3 native runtime dependency into
-// ~/.n9router/runtime so usage limiting works in the packaged CLI.
+// Check node:sqlite runtime availability so usage limiting works in the packaged CLI.
 try { ensureSqliteRuntime({ silent: true }); } catch {}
 
 // Self-heal tray runtime (systray for macOS/Linux only). Windows skipped.

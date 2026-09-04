@@ -2,7 +2,7 @@
  * API Key Usage Limiter
  *
  * SQLite-backed rolling window tracker for per-API-key usage limits.
- * Uses better-sqlite3 (already in project) for fast synchronous persistence.
+ * Uses node:sqlite (built into Node.js >= 22.13.0) for fast synchronous persistence.
  *
  * Architecture:
  * - SQLite stores every usage entry (input_tokens, cost, ts)
@@ -15,15 +15,15 @@ import path from "node:path";
 import fs from "node:fs";
 import { DATA_DIR } from "@/lib/dataDir.js";
 
-// ─── Better-SQLite3 with graceful fallback ──────────────────
-let Database = null;
+// ─── Node:sqlite with graceful fallback ──────────────────────
+let DatabaseSync = null;
 let sqliteAvailable = false;
 try {
-  const betterSqlite = await import("better-sqlite3");
-  Database = betterSqlite.default;
+  const sqliteModule = await import("node:sqlite");
+  DatabaseSync = sqliteModule.DatabaseSync;
   sqliteAvailable = true;
 } catch (err) {
-  console.warn("[usageLimiter] better-sqlite3 not available:", err.message);
+  console.warn("[usageLimiter] node:sqlite not available:", err.message);
   console.warn("[usageLimiter] API key usage limiting will be disabled.");
 }
 
@@ -63,9 +63,9 @@ function getDb() {
   }
 
   try {
-    const db = new Database(DB_PATH);
-    db.pragma("journal_mode = WAL"); // concurrent reads while writing
-    db.pragma("synchronous = NORMAL"); // balanced durability/perf
+    const db = new DatabaseSync(DB_PATH);
+    db.exec("PRAGMA journal_mode = WAL;"); // concurrent reads while writing
+    db.exec("PRAGMA synchronous = NORMAL;"); // balanced durability/perf
 
     db.exec(`
       CREATE TABLE IF NOT EXISTS usage_entries (
@@ -606,7 +606,7 @@ function backgroundRecalcAndPrune() {
 export function startBackgroundRecalc() {
   if (global._usageLimiterTimer) return;
   if (!sqliteAvailable) {
-    console.warn("[usageLimiter] Background recalc disabled: better-sqlite3 not available");
+    console.warn("[usageLimiter] Background recalc disabled: node:sqlite not available");
     return;
   }
 

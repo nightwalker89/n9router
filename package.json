@@ -1,6 +1,6 @@
 {
   "name": "n9router",
-  "version": "0.4.56",
+  "version": "0.4.57",
   "description": "Self-hosted AI routing gateway — local proxy for Claude, Gemini, OpenAI and 40+ providers",
   "keywords": [
     "ai",
@@ -59,7 +59,6 @@
     "@node-saml/node-saml": "^5.1.0",
     "@xyflow/react": "^12.10.1",
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^12.6.2",
     "confbox": "^0.2.4",
     "express": "^5.2.1",
     "fs": "^0.0.1-security",
@@ -93,5 +92,8 @@
     "eslint-config-next": "16.1.6",
     "postcss": "^8.5.6",
     "tailwindcss": "^4"
+  },
+  "engines": {
+    "node": ">=22.13.0"
   }
 }

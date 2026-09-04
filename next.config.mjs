@@ -25,7 +25,7 @@ const nextConfig = {
       "open-sse/rtk/**/*",
     ],
   },
-  serverExternalPackages: ["better-sqlite3"],
+  serverExternalPackages: [],
   turbopack: {
     root: tracingRoot,
   },
