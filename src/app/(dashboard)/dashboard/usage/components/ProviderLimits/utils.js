@@ -610,11 +610,19 @@ export function parseQuotaData(provider, data) {
   const modelOrder = getModelsByProviderId(provider);
   if (modelOrder.length > 0) {
     const orderMap = new Map(modelOrder.map((m, i) => [m.id, i]));
-    if (provider.toLowerCase() === "antigravity" && !orderMap.has("gemini-3.7-flash-tiered")) {
-      const first37 = orderMap.has("gemini-3.7-flash-high")
-        ? orderMap.get("gemini-3.7-flash-high")
-        : 0;
-      orderMap.set("gemini-3.7-flash-tiered", first37 - 0.5);
+    if (provider.toLowerCase() === "antigravity") {
+      if (!orderMap.has("gemini-3.8-flash-tiered")) {
+        const first38 = orderMap.has("gemini-3.8-flash-high")
+          ? orderMap.get("gemini-3.8-flash-high")
+          : 0;
+        orderMap.set("gemini-3.8-flash-tiered", first38 - 0.5);
+      }
+      if (!orderMap.has("gemini-3.7-flash-tiered")) {
+        const first37 = orderMap.has("gemini-3.7-flash-high")
+          ? orderMap.get("gemini-3.7-flash-high")
+          : 0;
+        orderMap.set("gemini-3.7-flash-tiered", first37 - 0.5);
+      }
     }
     
     normalizedQuotas.sort((a, b) => {

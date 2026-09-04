@@ -162,7 +162,11 @@ export async function getAntigravityUsage(accessToken, providerSpecificData, pro
       // Filter only recommended/important models (must match PROVIDER_MODELS ag ids,
       // plus live fetchAvailableModels keys that have not been split into tiers yet).
       const importantModels = {
-        // Live API currently ships 3.7 as one `*-tiered` bucket, not high/medium/low.
+        // Live API currently ships 3.8/3.7 as one `*-tiered` bucket, not high/medium/low.
+        "gemini-3.8-flash-tiered": "Gemini 3.8 Flash",
+        "gemini-3.8-flash-high": "Gemini 3.8 Flash (High)",
+        "gemini-3.8-flash-medium": "Gemini 3.8 Flash (Medium)",
+        "gemini-3.8-flash-low": "Gemini 3.8 Flash (Low)",
         "gemini-3.7-flash-tiered": "Gemini 3.7 Flash",
         "gemini-3.7-flash-high": "Gemini 3.7 Flash (High)",
         "gemini-3.7-flash-medium": "Gemini 3.7 Flash (Medium)",

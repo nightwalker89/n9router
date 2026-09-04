@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.4.56 (2026-09-04)
+
+### Features
+- **Antigravity Gemini 3.8 Flash**: Added `gemini-3.8-flash-high|medium|low`, Gemini direct API `gemini-3.8-flash`, MITM proxy extraction/synonyms, quota tracking, and capabilities.
+
+### Fixes
+- **Antigravity MITM (Windows)**: Added platform capability flags (`isWin`, `needsSudoPassword: !isWin`) to the Antigravity MITM status endpoint to avoid triggering sudo password prompts on Windows hosts.
+
 ## v0.4.55 (2026-08-27)
 
 ### Improvements
