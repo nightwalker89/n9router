@@ -91,6 +91,11 @@ export async function GET() {
     return NextResponse.json({
       running: status.running,
       pid: status.pid || null,
+      // The dashboard uses these capability flags to decide whether a
+      // password prompt is needed. Windows uses UAC (and never sudo), so the
+      // client must be able to distinguish it from Unix hosts.
+      isWin,
+      needsSudoPassword: !isWin,
       certExists: status.certExists || false,
       certTrusted: status.certTrusted || false,
       dnsStatus: status.dnsStatus || {},
