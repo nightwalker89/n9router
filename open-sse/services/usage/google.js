@@ -155,6 +155,34 @@ export async function getAntigravityUsage(accessToken, providerSpecificData, pro
     }
 
     const data = await response.json();
+    // Production can lag behind the IDE daily endpoint when new model buckets
+    // roll out. Merge only missing models so production values stay authoritative.
+    if (data.models && !Object.keys(data.models).some((modelKey) => modelKey.includes("gemini-3.8-flash"))) {
+      try {
+        const dailyResponse = await fetchWithTimeout(
+          "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+          {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${accessToken}`,
+              "User-Agent": ANTIGRAVITY_CONFIG.userAgent,
+              "Content-Type": "application/json",
+              "X-Client-Name": "antigravity",
+              "X-Client-Version": ANTIGRAVITY_IDE_VERSION,
+            },
+            body: JSON.stringify({ ...(projectId ? { project: projectId } : {}) }),
+          },
+          10000,
+          proxyOptions
+        );
+        if (dailyResponse.ok) {
+          const dailyData = await dailyResponse.json();
+          data.models = { ...dailyData.models, ...data.models };
+        }
+      } catch {
+        // Production quota data is still usable if the daily endpoint is unavailable.
+      }
+    }
     const quotas = {};
 
     // Parse model quotas (inspired by vscode-antigravity-cockpit)
@@ -162,7 +190,8 @@ export async function getAntigravityUsage(accessToken, providerSpecificData, pro
       // Filter only recommended/important models (must match PROVIDER_MODELS ag ids,
       // plus live fetchAvailableModels keys that have not been split into tiers yet).
       const importantModels = {
-        // Live API currently ships 3.8/3.7 as one `*-tiered` bucket, not high/medium/low.
+        // Live API may ship base or `*-tiered` buckets instead of split tiers.
+        "gemini-3.8-flash": "Gemini 3.8 Flash",
         "gemini-3.8-flash-tiered": "Gemini 3.8 Flash",
         "gemini-3.8-flash-high": "Gemini 3.8 Flash (High)",
         "gemini-3.8-flash-medium": "Gemini 3.8 Flash (Medium)",
