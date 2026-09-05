@@ -11,6 +11,7 @@ import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import Button from "./Button";
 import { ConfirmModal } from "./Modal";
 import NineRemotePromoModal from "./NineRemotePromoModal";
+import AgentKitPromo from "./AgentKitPromo";
 
 // const VISIBLE_MEDIA_KINDS = ["embedding", "image", "imageToText", "tts", "stt", "webSearch", "webFetch", "video", "music"];
 const VISIBLE_MEDIA_KINDS = ["embedding", "image", "video", "tts", "stt"];
@@ -347,6 +348,7 @@ export default function Sidebar({ onClose }) {
           </div>
         </nav>
 
+        <AgentKitPromo variant="sidebar" onClick={onClose} />
       </aside>
 
       {/* Remote Promo Modal */}

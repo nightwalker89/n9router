@@ -14,6 +14,7 @@
   [![Docker Pulls](https://img.shields.io/docker/pulls/nightwalker8x/n9router.svg)](https://hub.docker.com/r/nightwalker8x/n9router)
   [![Docker Image](https://img.shields.io/badge/docker-nightwalker8x%2Fn9router-blue)](https://hub.docker.com/r/nightwalker8x/n9router)
   [![License](https://img.shields.io/npm/l/n9router.svg)](https://github.com/nightwalker89/n9router/blob/main/LICENSE)
+  [![AgentKit](https://img.shields.io/badge/AgentKit_(was_ClaudeKit)-20%25_OFF-10B981?style=flat-square)](https://agentkit.best/?ref=RCRJ2I8M)
   
   [🚀 Quick Start](#-quick-start) • [💡 Features](#-key-features) • [📖 Setup](#-setup-guide) • [🌐 Website](https://9router.com)
 
@@ -23,6 +24,20 @@
 ---
 
 **n9router** is a self-hosted AI routing gateway and OpenAI-compatible Docker proxy for Claude Code, Cursor, Antigravity, Copilot, Codex, Gemini CLI, OpenCode, Cline, OpenClaw, and 40+ AI providers. Run it locally, on a VPS, or with the public Docker Hub image to get model fallback, quota tracking, token savings, format translation, and multi-account routing.
+
+---
+
+## ⚡ Power Tools
+
+Supercharge your AI coding workflows and autonomous agents with recommended companion tools and bundles:
+
+### [AgentKit (was ClaudeKit)](https://agentkit.best/?ref=RCRJ2I8M) — Production-Ready AI Agent Bundles
+
+**[AgentKit](https://agentkit.best/?ref=RCRJ2I8M)** provides turnkey starter kits, multi-agent workflows, CLI tool integrations, and specialized prompt engineering templates designed to work seamlessly with tools like Claude Code, Cursor, Codex, OpenClaw, and Cline.
+
+- 🛠️ **Full-Stack Agent Templates**: Ready-to-use configurations for automated debugging, refactoring, and code review.
+- ⚡ **Seamless Integration**: Plugs directly into your coding agents and custom LLM routing setup.
+- 🎁 **Special 20% Discount**: Get **20% OFF** all AgentKit bundles via referral link: **[https://agentkit.best/?ref=RCRJ2I8M](https://agentkit.best/?ref=RCRJ2I8M)**
 
 ---
 
