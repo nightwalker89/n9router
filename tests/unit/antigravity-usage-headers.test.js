@@ -15,18 +15,16 @@ vi.mock("../../open-sse/utils/proxyFetch.js", () => ({
 
 describe("Antigravity usage headers", () => {
   beforeEach(() => proxyAwareFetch.mockClear());
-
   it("uses the official IDE user agent and omits router-only source headers", async () => {
     const { getAntigravityUsage } = await import("../../open-sse/services/usage/google.js");
-
     await getAntigravityUsage("access-token", {});
 
-    expect(proxyAwareFetch).toHaveBeenCalledTimes(2);
+    expect(proxyAwareFetch).toHaveBeenCalledTimes(3);
     for (const [url, options] of proxyAwareFetch.mock.calls) {
-      expect(options.headers["User-Agent"]).toBe("antigravity/ide/2.5.5 darwin/arm64");
+      expect(options.headers["User-Agent"]).toBe("antigravity/ide/2.11.0 darwin/arm64");
       expect(options.headers).not.toHaveProperty("x-request-source");
       if (String(url).includes(":fetchAvailableModels")) {
-        expect(options.headers["X-Client-Version"]).toBe("2.5.5");
+        expect(options.headers["X-Client-Version"]).toBe("2.11.0");
       }
     }
   });

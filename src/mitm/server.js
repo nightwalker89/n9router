@@ -166,7 +166,7 @@ async function passthrough(req, res, bodyBuffer, onResponse, debugContext = null
   const targetIP = await resolveTargetIP(targetHost);
   const tool = getToolForHost(req.headers.host);
   const versionOverride = tool === "antigravity"
-    ? applyAntigravityIdeVersionOverride(bodyBuffer, req.headers, DB_FILE, log)
+    ? applyAntigravityIdeVersionOverride(bodyBuffer, req.headers, DB_FILE, log, req.url)
     : { bodyBuffer, headers: req.headers };
   const bodyForForwarding = versionOverride.bodyBuffer;
   const headersForForwarding = {

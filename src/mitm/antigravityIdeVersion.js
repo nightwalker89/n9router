@@ -6,6 +6,9 @@ const {
   normalizeAntigravityIdeVersion,
 } = require("./mitmSettings");
 
+const ANTIGRAVITY_IDE_VERSION = "2.11.0";
+const ANTIGRAVITY_IDE_VERSION_OVERRIDE_ENABLED = true;
+
 function loadAntigravityIdeVersionSettings(dbFile) {
   return getAntigravityIdeVersionSettings(dbFile);
 }
@@ -24,14 +27,42 @@ function rewriteAntigravityUserAgent(userAgent, version) {
   return userAgent.replace(/antigravity\/[^\s]+/, `antigravity/${version}`);
 }
 
-function applyAntigravityIdeVersionOverride(bodyBuffer, headers, dbFile, log = () => {}) {
-  const settings = loadAntigravityIdeVersionSettings(dbFile);
-  if (!settings.enabled) {
-    return { bodyBuffer, headers, applied: false, version: settings.version };
+function isDbFile(val) {
+  return typeof val === "string" && val.endsWith(".json");
+}
+
+function isUrlString(val) {
+  return typeof val === "string" && !val.endsWith(".json") && (val.startsWith("/") || val.includes(":"));
+}
+
+function applyAntigravityIdeVersionOverride(bodyBuffer, headers, dbFileOrUrl, logOrUrl = () => {}, requestUrl = null) {
+  let targetVersion = ANTIGRAVITY_IDE_VERSION;
+  let enabled = true;
+  let log = typeof logOrUrl === "function" ? logOrUrl : () => {};
+  let url = requestUrl || (isUrlString(logOrUrl) ? logOrUrl : (isUrlString(dbFileOrUrl) ? dbFileOrUrl : null));
+
+  if (isDbFile(dbFileOrUrl)) {
+    const settings = loadAntigravityIdeVersionSettings(dbFileOrUrl);
+    enabled = settings.enabled;
+    targetVersion = settings.version || DEFAULT_ANTIGRAVITY_IDE_VERSION;
+  } else {
+    enabled = ANTIGRAVITY_IDE_VERSION_OVERRIDE_ENABLED;
+    targetVersion = ANTIGRAVITY_IDE_VERSION;
+  }
+
+  if (url) {
+    const isGenerationEndpoint = url.includes(":generateContent") || url.includes(":streamGenerateContent");
+    if (!isGenerationEndpoint) {
+      return { bodyBuffer, headers, applied: false, version: targetVersion };
+    }
+  }
+
+  if (!enabled) {
+    return { bodyBuffer, headers, applied: false, version: targetVersion };
   }
 
   const nextHeaders = { ...headers };
-  const nextUserAgent = rewriteAntigravityUserAgent(nextHeaders["user-agent"], settings.version);
+  const nextUserAgent = rewriteAntigravityUserAgent(nextHeaders["user-agent"], targetVersion);
   const userAgentChanged = nextUserAgent !== nextHeaders["user-agent"];
   if (userAgentChanged) {
     nextHeaders["user-agent"] = nextUserAgent;
@@ -41,33 +72,38 @@ function applyAntigravityIdeVersionOverride(bodyBuffer, headers, dbFile, log = (
     const parsed = JSON.parse(bodyBuffer.toString());
     if (!shouldRewriteMetadata(parsed?.metadata)) {
       if (userAgentChanged) {
-        log(`🛰️ [antigravity] user-agent version override → ${settings.version}`);
+        log(`🛰️ [antigravity] user-agent version override → ${targetVersion}`);
+        return { bodyBuffer, headers: nextHeaders, applied: true, version: targetVersion };
       }
-      return { bodyBuffer, headers: nextHeaders, applied: userAgentChanged, version: settings.version };
+      return { bodyBuffer, headers, applied: false, version: targetVersion };
     }
 
     const previousVersion = parsed.metadata.ideVersion;
-    parsed.metadata.ideVersion = settings.version;
+    parsed.metadata.ideVersion = targetVersion;
 
     const nextBodyBuffer = Buffer.from(JSON.stringify(parsed));
-    log(`🛰️ [antigravity] IDE version override: ${previousVersion || "unknown"} → ${settings.version}`);
+    if (url) {
+      nextHeaders["content-length"] = String(nextBodyBuffer.length);
+    }
+    log(`🛰️ [antigravity] IDE version override: ${previousVersion || "unknown"} → ${targetVersion}`);
     return {
       bodyBuffer: nextBodyBuffer,
       headers: nextHeaders,
       applied: true,
-      version: settings.version,
+      version: targetVersion,
     };
   } catch (e) {
     if (userAgentChanged) {
-      log(`🛰️ [antigravity] user-agent version override → ${settings.version}`);
-      return { bodyBuffer, headers: nextHeaders, applied: true, version: settings.version };
+      log(`🛰️ [antigravity] user-agent version override → ${targetVersion}`);
+      return { bodyBuffer, headers: nextHeaders, applied: true, version: targetVersion };
     }
     log(`🛰️ [antigravity] IDE version override skipped: ${e.message}`);
-    return { bodyBuffer, headers: nextHeaders, applied: false, version: settings.version };
+    return { bodyBuffer, headers, applied: false, version: targetVersion };
   }
 }
 
 module.exports = {
+  ANTIGRAVITY_IDE_VERSION,
   DEFAULT_ANTIGRAVITY_IDE_VERSION,
   applyAntigravityIdeVersionOverride,
   loadAntigravityIdeVersionSettings,
