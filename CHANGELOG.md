@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.4.58 (2026-09-05)
+
+### Upstream merge
+- **9router v0.5.65**: Merged latest upstream capabilities, model catalog refresh, and protocol improvements.
+- **Web Search & Fetch**: Added Ollama Cloud remote web fetch (`/v1/fetch`), Google Search grounded via Antigravity OAuth (`/v1/search`), native Xquik X/Twitter search provider with cursor pagination, and credential fallback for Ollama/ZAI/GLM search.
+- **Dynamic Model Catalog**: Integrated daily background sync of model capabilities, modalities, and context limits from `models.dev` (with ETag/mtime caching and `MODEL_CATALOG_SYNC=off` toggle). Added custom model capability switches for vision/reasoning with live refresh. Converted `/v1/models/[kind]` to catch-all `/v1/models/[...model]` for single-model inspection with provider-prefixed IDs.
+- **Catalog Refreshes**: Added Claude Fable 5.1 with adaptive thinking (`output_config.effort`) and updated Claude Code fingerprint (2.1.258); GLM-5.3 & GLM-5.3-Flash with 1M context, vision/multimodal, and reasoning effort; DeepSeek V4 Vision and Grok 4.5/4.6 (500k context); CodeBuddy-CN preview models; streamlined TokenRouter seed models; added provider icons for alims-intl, alitp-intl, fish-audio, selfhosted-*, and xquik.
+- **Antigravity Quota Routing**: Added 429 strike-breaker circuit breaker (blocks connection/model in RAM for 15m after 3 strikes within 60s, clears on success); reset-aware fallback returning earliest upstream `resetAt` when exhausted; automatic `-WxH` aspect-ratio suffix mapping for image models; and competitive branding prompt sanitization (stripping Zed Claude prompt and rewriting OpenCode references). Bumped default Antigravity IDE version to 2.11.0 with dual-signature override support.
+- **CLI Tools & Dashboard**: Added Bulk Grok CLI account batch import modal; centralized unified CLI endpoint and API key presets across all tool cards; provider status filter (`All`, `Active`, `Inactive`, `No connection`); connection list scrollable UX; and flash-of-unstyled-theme fix on first paint.
+- **Quota Tracking & Observability**: Added Groq rate-limit headers tracking (`x-ratelimit-*`), Zed plan quotas (edit predictions, hosted requests, billing cycle reset), GPT-5.3-Codex-Spark quota windows (`spark_session` and `spark_weekly`), GLM multi-interval quotas (`CREDIT_LIMIT` and 5h/7d intervals), and captured `cached_tokens` on non-streaming OpenAI Responses/Codex requests.
+- **Security & Protocols**: SSRF guard hardening against alternate IPv6 encodings, trailing dots, and DNS rebinding; protected `/responses` in dashboard guard; stripped Claude Code `[1m]` context markers; dropped foreign `server_tool_use` IDs; prevented caching on `defer_loading` tools; tool name decloaking in same-format streaming; CommandCode in-stream error frame translation; Kiro MITM AWS EventStream binary and inline image forwarding; and consolidated stream disconnect handling.
+
+### n9router preservation
+- **State DB**: Preserved lowdb (`db.json`) storage with atomic writes and corruption recovery, rejecting upstream SQLite migration.
+- **Runtime**: Retained native `node:sqlite` for usage limiting and CLI hooks, rejecting `better-sqlite3` and `sql.js`.
+- **Fork capabilities**: Preserved Antigravity Token Swap with 503 backoff retries, account health monitor (`healthStore.js`), Gemini 3.8 Flash tiered models (`gemini-3.8-flash-high|medium|low`), stream watchdog, Cursor BYOK catalog, ApiKeyUsageReport, UsageFlexReport, and EndpointPresetControl.
+
 ## v0.4.57 (2026-09-04)
 
 ### Improvements
