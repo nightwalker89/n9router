@@ -500,7 +500,7 @@ export function provideCursorByokSudo(jobId, password) {
     error.statusCode = 409;
     throw error;
   }
-  if (!password || !String(password).trim()) {
+  if (!password) {
     const error = new Error("Sudo password is required");
     error.statusCode = 400;
     throw error;

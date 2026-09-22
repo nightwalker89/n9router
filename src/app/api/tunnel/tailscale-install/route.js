@@ -23,7 +23,7 @@ export async function POST(request) {
 
   const sudoPassword = body.sudoPassword || getCachedPassword() || await loadEncryptedPassword() || "";
 
-  if (needsPassword && !sudoPassword.trim()) {
+  if (needsPassword && !sudoPassword) {
     return new Response(JSON.stringify({ error: "Sudo password is required" }), {
       status: 400,
       headers: { "Content-Type": "application/json" },

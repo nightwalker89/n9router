@@ -2,13 +2,28 @@ const path = require("path");
 const os = require("os");
 const fs = require("fs");
 
-// Single source of truth for data directory — matches localDb.js logic
-function getDataDir() {
-  if (process.env.DATA_DIR) return process.env.DATA_DIR;
+// Single source of truth for data directory — matches dataDir.js logic
+function defaultDir() {
   if (process.platform === "win32") {
     return path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "n9router");
   }
   return path.join(os.homedir(), ".n9router");
+}
+
+function getDataDir() {
+  const configured = process.env.DATA_DIR;
+  if (!configured) return defaultDir();
+  if (process.platform === "win32" && /^\//.test(configured)) return defaultDir();
+  try {
+    fs.mkdirSync(configured, { recursive: true });
+    fs.accessSync(configured, fs.constants.W_OK);
+    return configured;
+  } catch (e) {
+    if (e?.code === "EACCES" || e?.code === "EPERM") {
+      return defaultDir();
+    }
+    throw e;
+  }
 }
 
 const DATA_DIR = getDataDir();

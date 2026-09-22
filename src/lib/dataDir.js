@@ -24,6 +24,7 @@ export function getDataDir() {
 
   try {
     fs.mkdirSync(configured, { recursive: true });
+    fs.accessSync(configured, fs.constants.W_OK);
     return configured;
   } catch (e) {
     if (e?.code === "EACCES" || e?.code === "EPERM") {
