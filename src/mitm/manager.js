@@ -12,7 +12,7 @@ const IS_MAC = process.platform === "darwin";
 const { generateCert } = require("./cert/generate");
 const { installCert, uninstallCert, checkCertInstalled, isWSL } = require("./cert/install");
 const { isCertExpired } = require("./cert/rootCA");
-const { MITM_DIR } = require("./paths");
+const { DATA_DIR, MITM_DIR } = require("./paths");
 const { log, err } = require("./logger");
 
 const DEFAULT_MITM_ROUTER_BASE = "http://localhost:20128";
@@ -483,6 +483,7 @@ async function startServer(apiKey, sudoPassword) {
     // instead of /root when sudo resets the environment.
     const inlineCmd = [
       `HOME=${shellQuoteSingle(os.homedir())}`,
+      `DATA_DIR=${shellQuoteSingle(DATA_DIR)}`,
       `ROUTER_API_KEY=${shellQuoteSingle(apiKey)}`,
       `MITM_ROUTER_BASE=${shellQuoteSingle(mitmRouterBase)}`,
       "NODE_ENV=production",
@@ -503,6 +504,7 @@ async function startServer(apiKey, sudoPassword) {
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
+        DATA_DIR,
         ROUTER_API_KEY: apiKey,
         NODE_ENV: "production",
         MITM_ROUTER_BASE: mitmRouterBase,

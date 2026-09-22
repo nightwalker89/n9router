@@ -131,7 +131,7 @@ export default function CursorByokToolCard({ tool }) {
   };
 
   const submitPassword = async () => {
-    if (!sudoPassword.trim()) {
+    if (!sudoPassword) {
       setModalError("Sudo password is required");
       return;
     }
