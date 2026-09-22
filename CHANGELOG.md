@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.4.61 (2026-09-22)
+
+### Bug Fixes & Improvements
+- **MITM Child Process DATA_DIR Propagation**: Explicitly passed `DATA_DIR` into the child server environment and inline sudo command in `src/mitm/manager.js`, ensuring custom data directory paths persist when starting the MITM server with sudo instead of defaulting to `/root`.
+- **DATA_DIR Write Permission Validation**: Added write permission verification (`fs.accessSync(configured, fs.constants.W_OK)`) in `src/lib/dataDir.js` and `src/mitm/paths.js`, gracefully falling back to the default user directory on `EACCES` or `EPERM`.
+- **Sudo Password Whitespace Handling**: Removed `.trim()` checks on sudo passwords across CLI cards and jobs (`CursorByokToolCard`, `MitmServerCard`, `tailscale-install/route.js`, `cursorByok/jobs.js`), allowing passwords containing whitespace to authenticate successfully.
+
+
 ## v0.4.60 (2026-09-14)
 
 ### Upstream merge
