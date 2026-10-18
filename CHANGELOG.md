@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.4.62 (2026-10-18)
+
+### Upstream merge
+- **9router v0.5.104**: Merged upstream v0.5.81 through v0.5.104 (218 commits from upstream master);
+- **Per-API-Key Access Control**: Restrict an API key to selected combos and models from the Endpoint page (`KeyAccessControls` inside the fork's `ApiKeyRow`, next to rate limits, rename, and usage reset). Enforced on `/v1/*` chat, media, search, and model-list routes via `src/sse/services/keyAccess.js`, backed by a new lowdb `getApiKeyByKey()`.
+- **Models & Providers**: Gemini 4 Argon (Gemini, Vertex, and `gemini-4-argon-high` on Antigravity); Claude Sonnet 5.5 / Opus 5.5 with effort variants on Antigravity; Amazon Bedrock (`bedrock`, `bedrock-xai`) with static keys and AWS SSO profiles; Nous Research OAuth; MiniMax Code; OpenCode Zen; refreshed CommandCode, Codex, Cursor, Qoder, and OpenCode Go catalogs.
+- **Antigravity**: Retired the deprecated Gemini 3.5 / `gemini-3-flash` models (MITM remaps legacy 3.5 requests to Gemini 3.8 Flash); `gemini-3.8-flash-medium` is the mandatory MITM default; IDE fingerprint bumped to 2.22.0; quota-reset times parsed from 429/409 errors. Kept the fork's `*-tiered` Gemini 3.7/3.8 upstream ids and the daily `fetchAvailableModels` fallback.
+- **CommandCode**: Native `{type:"image", image, mimeType, mediaType}` blocks merged with the fork's image handling (https URLs, bare base64, flat-string `image_url`, `[image omitted]` fallback); `reasoning_effort` forwarded inside params; provider-scoped capabilities that mirror the CommandCode CLI text-only list.
+- **Streaming**: Aborts after HTTP 200 now emit an in-band error frame (with the abort reason, e.g. stall timeout) before `[DONE]`, alongside the fork's `streamWatchdogEnabled` toggle.
+- **Providers & Dispatch**: Per-provider custom header overrides (`providerOverrides` setting); Kiro AWS EventStream parsing moved to a shared decoder while keeping the fork's Kiro retry/backoff; capability metadata on `/v1/models` and combo capability aggregation.
+- **Usage & Dashboard**: "Requests" chart mode and "All" usage period; quota auto-ping schedules; provider labels in the quota tracker next to the fork's Antigravity account-tier badge; centered overview cards keeping the fork's cache-ratio line.
+- **CLI**: New `connect` and `show` commands, Pi / Oh My Pi tool support, arm64 tray binaries build.
+
+### n9router preservation & fixes
+- **lowdb Ports of SQLite-only Upstream Changes**: Custom-model `transport` persistence (Gemini Live STT), `allowOverwrite` → HTTP 409 `PROVIDER_NAME_CONFLICT` instead of silently replacing a provider key with the same name, pruning a node's custom models on node deletion, the retired `oc/mimo-v2.5-free` vision-adapter fallback migrated to `oc/mimo-v2.6-flash-free`, and per-day `requests` in chart data.
+- **Model Catalog Source**: Routes now install the synced catalog reader only when none is installed, instead of replacing it on every request; upstream's `globalThis` slot supersedes the fork's earlier key.
+- **Build**: Restored the optional `@aws-sdk/credential-providers` dependency (Bedrock profile/SSO mode) and re-externalized `open` in `next.config.mjs` (Windows `import.meta.url` fix that an earlier merge had dropped).
+- **Fork Contracts Kept**: Antigravity Token Swap, Payload Guard project rewrite, `node:sqlite` per-key rate limits, Usage Reports, stream watchdog `[DONE]` sentinel, Cursor BYOK, MITM `DATA_DIR` propagation, and sudo password whitespace handling.
+
 ## v0.4.61 (2026-09-22)
 
 ### Bug Fixes & Improvements

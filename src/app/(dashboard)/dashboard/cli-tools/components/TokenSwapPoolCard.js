@@ -9,10 +9,7 @@ import {
   formatResetTime,
   formatResetTimeDisplay,
 } from "@/app/(dashboard)/dashboard/usage/components/ProviderLimits/utils";
-
-// Models to highlight in the quota summary
-const SONNET_HIGHLIGHT_MODEL = "claude-sonnet-4-6";
-const FLASH_HIGHLIGHT_TERM = "flash";
+import { pickQuotaFamilyBars } from "./tokenSwapQuotaBars";
 
 // Cache TTL: 2 minutes — avoid hammering the upstream API
 const QUOTA_CACHE_TTL_MS = 2 * 60 * 1000;
@@ -46,17 +43,14 @@ function getQuotaPercentage(quota) {
   return null;
 }
 
-function quotaMatchesTerm(quota, term) {
-  const needle = term.toLowerCase();
-  return (
-    quota.modelKey?.toLowerCase().includes(needle) ||
-    quota.name?.toLowerCase().includes(needle)
-  );
-}
-
 function getFutureResetAt(quota) {
   if (!quota?.resetAt) return null;
   return new Date(quota.resetAt).getTime() > Date.now() ? quota.resetAt : null;
+}
+
+// "6d 23h 54m" -> "6d 23h" so the countdown fits the compact quota row
+function formatCompactCountdown(resetAt) {
+  return formatResetTime(resetAt).split(" ").slice(0, 2).join(" ");
 }
 
 function maskEmail(email) {
@@ -403,37 +397,11 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
     if (q.error) return { state: "error", error: q.error };
     if (!q.quotas || q.quotas.length === 0) return { state: "no-data" };
 
-    const sonnetQuota = q.quotas.find(m =>
-      m.modelKey?.includes(SONNET_HIGHLIGHT_MODEL) || m.name?.toLowerCase().includes("sonnet")
-    ) || q.quotas.find(m => m.name?.toLowerCase().includes("opus")) || q.quotas[0];
-    const flashQuota = q.quotas.find(m => quotaMatchesTerm(m, FLASH_HIGHLIGHT_TERM));
-    const highlights = [sonnetQuota, flashQuota]
-      .filter(Boolean)
-      .filter((quota, index, list) => list.findIndex(item => item.modelKey === quota.modelKey && item.name === quota.name) === index)
-      .map((quota) => ({ quota, pct: getQuotaPercentage(quota) }))
-      .filter(({ pct }) => pct !== null);
-
-    if (highlights.length === 0) return { state: "no-data" };
-
-    const highlightResetAt = highlights
-      .map(({ quota }) => getFutureResetAt(quota))
-      .filter(Boolean)
-      .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0] || null;
-
-    const nextResetAt = highlightResetAt || [...q.quotas]
-      .map((quota) => quota.resetAt)
-      .filter(Boolean)
-      .filter((resetAt) => new Date(resetAt).getTime() > Date.now())
-      .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0] || null;
-
-    return {
-      state: "ready",
-      highlights,
-      accountType: q.accountType || null,
-      nextResetAt,
-      resetCountdown: formatResetTime(nextResetAt),
-      resetDisplay: formatResetTimeDisplay(nextResetAt),
-    };
+    const families = pickQuotaFamilyBars(q.quotas);
+    if (!families.some(({ rows }) => rows.some(({ quota }) => getQuotaPercentage(quota) !== null))) {
+      return { state: "no-data" };
+    }
+    return { state: "ready", families };
   };
 
   const getResolvedAccountType = (acc) => (
@@ -543,38 +511,42 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
       return <span className="text-[10px] text-text-muted">No quota data</span>;
     }
 
-    const { highlights } = meta;
+    // Claude left, Gemini right; one line per window. Stacks on narrow screens.
     return (
-      <div className="flex flex-col gap-1.5 min-w-0">
-        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-          {highlights.map(({ quota, pct }) => {
-            const modelResetAt = getFutureResetAt(quota);
-            const modelResetCountdown = formatResetTime(modelResetAt);
-            const modelResetDisplay = formatResetTimeDisplay(modelResetAt);
-            return (
-              <div
-                key={`${quota.modelKey || quota.name}-${quota.name}`}
-                className="min-w-0 rounded-md border border-border/70 bg-surface/60 px-2 py-1"
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-[10px] text-text-muted truncate">{quota.name}</span>
-                  <span className={`text-[10px] font-medium shrink-0 ${getQuotaColor(pct)}`}>{pct}%</span>
-                </div>
-                <div className="mt-1 h-1.5 rounded-full bg-surface-alt overflow-hidden">
-                  <div className={`h-full rounded-full ${getQuotaBg(pct)}`} style={{ width: `${Math.min(pct, 100)}%` }} />
-                </div>
-                {modelResetCountdown !== "-" && modelResetDisplay ? (
-                  <div className="mt-1 text-[9px] text-text-muted/70 truncate">
-                    ↺ <span className="text-text-muted">{modelResetCountdown}</span>
-                    <span className="opacity-60"> · {modelResetDisplay}</span>
+      <div className="grid grid-cols-1 gap-x-4 gap-y-0.5 sm:grid-cols-2 min-w-0">
+        {meta.families.map(({ family, rows }) => (
+          <div key={family} className="grid grid-cols-[3.75rem_1fr_2.25rem_3.25rem] items-center gap-x-2 min-w-0">
+            {rows.map(({ window, quota }) => {
+              const pct = getQuotaPercentage(quota);
+              const resetAt = getFutureResetAt(quota);
+              const title = quota
+                ? [
+                    quota.name,
+                    quota.total > 0 && `${quota.used.toLocaleString()} / ${quota.total.toLocaleString()} used`,
+                    resetAt && `resets ${formatResetTimeDisplay(resetAt)}`,
+                  ].filter(Boolean).join(" · ")
+                : `No ${family} ${window} quota for this account`;
+              return (
+                <div key={window} className="contents" title={title}>
+                  <span className={`text-[10px] truncate ${pct === null ? "text-text-muted/50" : "text-text-muted"}`}>
+                    {family} {window}
+                  </span>
+                  <div className="h-1 rounded-full bg-border/60 overflow-hidden">
+                    {pct !== null && (
+                      <div className={`h-full rounded-full ${getQuotaBg(pct)}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                    )}
                   </div>
-                ) : (
-                  <div className="mt-1 text-[9px] text-text-muted/50">Reset unavailable</div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                  <span className={`text-[10px] font-medium text-right tabular-nums ${pct === null ? "text-text-muted/50" : getQuotaColor(pct)}`}>
+                    {pct === null ? "—" : `${pct}%`}
+                  </span>
+                  <span className="text-[9px] text-text-muted/70 tabular-nums truncate">
+                    {resetAt ? `↺ ${formatCompactCountdown(resetAt)}` : ""}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
     );
   };
@@ -955,6 +927,7 @@ export default function TokenSwapPoolCard({ tool, connections = [], serverRunnin
                           onChange={(nextChecked) => toggleAccountActive(acc.id, nextChecked)}
                         />
                       </div>
+
                     </div>
                     <div className="mt-2 pl-6">
                       {renderAccountQuota(acc.id)}
