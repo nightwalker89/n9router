@@ -48,8 +48,8 @@ describe("vision pattern ordering is not over-broad", () => {
     }
   });
 
-  it("keeps Qwen coder and older max variants text-only", () => {
-    for (const model of ["qwen3.8-coder-plus", "qwen-max", "qwen3.6-max-preview"]) {
+  it("keeps Qwen coder variants text-only", () => {
+    for (const model of ["qwen3.8-coder-plus"]) {
       expect(getCapabilitiesForModel(null, model).vision).toBe(false);
     }
   });
@@ -60,15 +60,17 @@ describe("vision pattern ordering is not over-broad", () => {
     expect(getCapabilitiesForModel(null, "qwen3.5-plus").vision).toBe(true);
   });
 
-  it("does not change thinking format or limits when lifting the vision flag", () => {
-    const glm = getCapabilitiesForModel("commandcode", "z-ai/glm-5.3-flash");
-    expect(glm.thinkingFormat).toBe("zai");
-    expect(glm.contextWindow).toBe(200000);
-
-    const max = getCapabilitiesForModel("commandcode", "Qwen/Qwen3.8-Max");
-    expect(max.thinkingFormat).toBe("qwen");
-    expect(max.contextWindow).toBe(1000000);
-    expect(max.maxOutput).toBe(65536);
+  it("routes CommandCode vision models through the /alpha/generate thinking path", () => {
+    // Every CommandCode model shares one wire format, so family thinking formats
+    // and limits do not apply there; only the vision flag varies per model.
+    for (const model of ["z-ai/glm-5.3-flash", "Qwen/Qwen3.8-Max"]) {
+      expect(getCapabilitiesForModel("commandcode", model)).toMatchObject({
+        vision: true,
+        reasoning: true,
+        thinkingFormat: "commandcode",
+        contextWindow: 1000000,
+      });
+    }
   });
 });
 

@@ -25,7 +25,17 @@ const nextConfig = {
       "open-sse/rtk/**/*",
     ],
   },
-  serverExternalPackages: [],
+  // `open` must stay external. It derives its own directory from `import.meta.url`, and
+  // webpack replaces that with the absolute path of the BUILD machine as a string literal.
+  // A release built on macOS therefore ships `file:///Users/.../open/index.js`, which
+  // `fileURLToPath` rejects on Windows ("File URL path must be absolute" — no drive
+  // letter). That throw happens at module scope, so every consumer of `open` dies on
+  // import — including xAI/Grok token refresh, which loads the OAuth service that imports
+  // it. Keeping it external preserves the real `import.meta.url` at runtime.
+  // @aws-sdk/credential-providers must stay external for the same class of reason: it reads
+  // ~/.aws/config and the SSO token cache from disk at runtime and resolves its credential
+  // plugins by dynamic require, neither of which survives bundling.
+  serverExternalPackages: ["open", "@aws-sdk/credential-providers"],
   turbopack: {
     root: tracingRoot,
   },
@@ -86,6 +96,10 @@ const nextConfig = {
       {
         source: "/responses",
         destination: "/api/v1/responses",
+      },
+      {
+        source: "/systemone",
+        destination: "/api/v1/systemone",
       },
       {
         source: "/v1beta/:path*",

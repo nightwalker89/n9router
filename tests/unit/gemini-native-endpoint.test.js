@@ -22,6 +22,7 @@ vi.mock("@/sse/services/auth.js", () => ({
 
 vi.mock("@/lib/localDb", () => ({
   getSettings: mocks.getSettings,
+  getApiKeyByKey: async () => null,
 }));
 
 const { GET } = await import("../../src/app/api/v1beta/models/route.js");

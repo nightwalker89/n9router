@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import Toggle from "@/shared/components/Toggle";
 import KeyLimitsEditor from "./KeyLimitsEditor";
+import KeyAccessControls from "./KeyAccessControls";
 
 function fmtN(n) {
   if (n == null) return "—";
@@ -89,6 +90,8 @@ function maskKey(k) {
  *   copy(value, id)
  *   handleToggleKey(keyId, checked)
  *   handleDeleteKey(keyId)
+ *   handleUpdateKeyAccess(keyId, access) - save {restricted, allow}
+ *   onRequestRestrict() - confirm before turning restriction on
  *   editingLimits     - id of key whose limits panel is open (or null)
  *   keyUsage          - {[keyId]: usageResponse}
  *   limitDraft        - {inputTokens5h, inputTokens24h, cost5h, cost24h}
@@ -107,6 +110,8 @@ export default function ApiKeyRow({
   handleToggleKey,
   handleDeleteKey,
   handleRenameKey,
+  handleUpdateKeyAccess,
+  onRequestRestrict,
   editingLimits,
   keyUsage,
   limitDraft,
@@ -208,6 +213,11 @@ export default function ApiKeyRow({
           </p>
           {inactive && <p className="text-xs text-orange-500 mt-1">Paused</p>}
           <CompactQuota limits={key.limits} usageData={keyUsage[key.id]} />
+          <KeyAccessControls
+            apiKey={key}
+            onChange={(access) => handleUpdateKeyAccess(key.id, access)}
+            onRequestRestrict={onRequestRestrict}
+          />
         </div>
 
         {/* Right: actions */}

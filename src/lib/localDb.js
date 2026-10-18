@@ -64,6 +64,8 @@ const DEFAULT_SETTINGS = {
   periodicDbBackupsEnabled: true,
   cavemanEnabled: false,
   cavemanLevel: "full",
+  // Per-provider user header overrides applied at dispatch: { [providerId]: { headers: {..} } }
+  providerOverrides: {},
 };
 
 function cloneDefaultData() {
@@ -319,6 +321,10 @@ export async function deleteProviderNode(id) {
   if (index === -1) return null;
 
   const [removed] = db.data.providerNodes.splice(index, 1);
+  // Custom models registered under the node die with it.
+  if (Array.isArray(db.data.customModels)) {
+    db.data.customModels = db.data.customModels.filter((m) => m.providerAlias !== id);
+  }
   await safeWrite(db);
   return removed;
 }
@@ -408,7 +414,7 @@ export async function getProviderConnectionById(id) {
   return db.data.providerConnections.find(c => c.id === id) || null;
 }
 
-export async function createProviderConnection(data) {
+export async function createProviderConnection({ allowOverwrite, ...data }) {
   const db = await getDb();
   const now = new Date().toISOString();
 
@@ -425,6 +431,20 @@ export async function createProviderConnection(data) {
   }
 
   if (existingIndex !== -1) {
+    // A name collision on an apikey connection used to silently replace the
+    // stored apiKey. Callers that mean "update this one" pass allowOverwrite;
+    // an explicit false gets a typed error naming the row instead. #4311
+    if (allowOverwrite === false) {
+      const existing = db.data.providerConnections[existingIndex];
+      const err = new Error(
+        `A connection named "${existing.name}" already exists for provider "${data.provider}". ` +
+        `Pass allowOverwrite: true to replace it.`
+      );
+      err.code = "PROVIDER_NAME_CONFLICT";
+      err.existingId = existing.id;
+      err.existingName = existing.name;
+      throw err;
+    }
     db.data.providerConnections[existingIndex] = {
       ...db.data.providerConnections[existingIndex],
       ...data,
@@ -563,7 +583,7 @@ export async function getCustomModels() {
   return db.data.customModels || [];
 }
 
-export async function addCustomModel({ providerAlias, id, type = "llm", name, caps }) {
+export async function addCustomModel({ providerAlias, id, type = "llm", name, caps, transport }) {
   const db = await getDb();
   if (!db.data.customModels) db.data.customModels = [];
   const existingIndex = db.data.customModels.findIndex(
@@ -575,6 +595,7 @@ export async function addCustomModel({ providerAlias, id, type = "llm", name, ca
     type,
     name: name || id,
     ...(caps ? { caps } : {}),
+    ...(transport ? { transport } : {}),
   };
   if (existingIndex >= 0) {
     db.data.customModels[existingIndex] = {
@@ -736,6 +757,13 @@ export async function updateApiKey(id, data) {
   return db.data.apiKeys[index];
 }
 
+// Used by the /v1 handlers to read the presented key's access settings.
+export async function getApiKeyByKey(key) {
+  if (!key) return null;
+  const db = await getDb();
+  return db.data.apiKeys.find(k => k.key === key) || null;
+}
+
 export async function validateApiKey(key) {
   const db = await getDb();
   const found = db.data.apiKeys.find(k => k.key === key);
@@ -786,6 +814,17 @@ export function mergeWithDefaults(raw) {
         merged[key] = defVal;
       }
     }
+  }
+  // The legacy free mimo vision fallback was retired; point saved adapters at its successor.
+  if (merged.capacityAdapter && typeof merged.capacityAdapter === "object") {
+    merged.capacityAdapter = Object.fromEntries(
+      Object.entries(merged.capacityAdapter).map(([capKey, entry]) => [
+        capKey,
+        Array.isArray(entry?.models)
+          ? { ...entry, models: entry.models.map((m) => (m === "oc/mimo-v2.5-free" ? "oc/mimo-v2.6-flash-free" : m)) }
+          : entry,
+      ])
+    );
   }
   return merged;
 }

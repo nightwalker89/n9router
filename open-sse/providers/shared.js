@@ -22,7 +22,7 @@ export function mapStainlessArch() {
 
 // Anthropic API version (single source — reused across claude-format providers/executors)
 export const ANTHROPIC_API_VERSION = "2023-06-01";
-export const CLAUDE_CLI_VERSION = "2.1.258";
+export const CLAUDE_CLI_VERSION = "2.1.280";
 
 // Shared Claude-compatible API headers (reused across claude-format providers)
 export const CLAUDE_API_HEADERS = {
@@ -62,10 +62,24 @@ const ANTHROPIC_BETA_BASE = [
 const ANTHROPIC_BETA_HEAVY_AGENT = ["advanced-tool-use-2025-11-20", "effort-2025-11-24"];
 
 // Heavy-agent beta flags are gated to opus/sonnet — cheaper models don't need them.
-export function selectAnthropicBeta(model = "") {
-  const flags = [...ANTHROPIC_BETA_BASE];
+// `redact-thinking` asks Anthropic to return signature-only thinking blocks, which
+// is right for clients that never render thinking but blanks the summaries a
+// client explicitly requested with `thinking.display: "summarized"`.
+const ANTHROPIC_BETA_REDACT_THINKING = "redact-thinking-2026-02-12";
+
+export function wantsThinkingSummaries(body) {
+  return body?.thinking?.display === "summarized";
+}
+
+export function selectAnthropicBeta(model = "", body = null) {
+  const flags = ANTHROPIC_BETA_BASE.filter((flag) => flag !== ANTHROPIC_BETA_REDACT_THINKING || !wantsThinkingSummaries(body));
   if (/^claude-(opus|sonnet)/.test(model)) flags.push(...ANTHROPIC_BETA_HEAVY_AGENT);
   return flags.join(",");
+}
+
+export function mergeAnthropicBeta(...values) {
+  const flags = values.flatMap((v) => (typeof v === "string" ? v.split(",") : [])).map((f) => f.trim()).filter(Boolean);
+  return [...new Set(flags)].join(",");
 }
 
 // Shared baseUrls
@@ -75,10 +89,10 @@ export const KIMI_CODING_BASE_URL = "https://api.kimi.com/coding/v1/messages";
 export const OPENAI_COMPAT_BASE = "https://api.openai.com/v1";
 export const ANTHROPIC_COMPAT_BASE = "https://api.anthropic.com/v1";
 
-// Official Antigravity IDE Desktop 2.11.0 fingerprint captured from macOS arm64.
+// Official Antigravity IDE Desktop 2.22.0 fingerprint captured from macOS arm64.
 // Keep this static even when 9router runs on Linux: the provider profile is
 // intentionally matching the IDE client, not the server host.
-export const ANTIGRAVITY_IDE_VERSION = "2.11.0";
+export const ANTIGRAVITY_IDE_VERSION = "2.22.0";
 export const ANTIGRAVITY_IDE_BASE_URL = "https://daily-cloudcode-pa.googleapis.com";
 export const ANTIGRAVITY_IDE_USER_AGENT = `antigravity/ide/${ANTIGRAVITY_IDE_VERSION} darwin/arm64`;
 

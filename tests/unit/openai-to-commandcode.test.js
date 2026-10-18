@@ -100,7 +100,7 @@ describe("openaiToCommandCodeRequest — image parts", () => {
 
     expect(out.params.messages[0].content).toEqual([
       { type: "text", text: "what is this?" },
-      { type: "image", image: DATA_URL },
+      { type: "image", image: DATA_URL, mimeType: "image/png", mediaType: "image/png" },
     ]);
   });
 
@@ -112,7 +112,7 @@ describe("openaiToCommandCodeRequest — image parts", () => {
     }, true);
 
     expect(out.params.messages[0].content).toEqual([
-      { type: "image", image: "data:image/jpeg;base64,ZZZ" },
+      { type: "image", image: "data:image/jpeg;base64,ZZZ", mimeType: "image/jpeg", mediaType: "image/jpeg" },
     ]);
   });
 
@@ -123,7 +123,7 @@ describe("openaiToCommandCodeRequest — image parts", () => {
       messages: [{ role: "user", content: [{ type: "image_url", image_url: DATA_URL }] }],
     }, true);
 
-    expect(out.params.messages[0].content).toEqual([{ type: "image", image: DATA_URL }]);
+    expect(out.params.messages[0].content).toEqual([{ type: "image", image: DATA_URL, mimeType: "image/png", mediaType: "image/png" }]);
   });
 
   it("MUST wrap bare base64 in a data URI using the stated media type", () => {
@@ -134,7 +134,7 @@ describe("openaiToCommandCodeRequest — image parts", () => {
     }, true);
 
     expect(out.params.messages[0].content).toEqual([
-      { type: "image", image: "data:image/jpeg;base64,QUJD" },
+      { type: "image", image: "data:image/jpeg;base64,QUJD", mimeType: "image/jpeg", mediaType: "image/jpeg" },
     ]);
   });
 
@@ -251,5 +251,59 @@ describe("openaiToCommandCodeRequest — tools schema conversion", () => {
       messages: [{ role: "user", content: "hi" }],
     }, true);
     expect(out.params.tools).toBeUndefined();
+  });
+});
+
+describe("openaiToCommandCodeRequest — native image blocks", () => {
+  const PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const DATA_URI = `data:image/png;base64,${PNG_B64}`;
+
+  it("maps OpenAI image_url data URI to CommandCode {type:image,image,mimeType}", () => {
+    const out = openaiToCommandCodeRequest(MODEL, {
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: "what color?" },
+          { type: "image_url", image_url: { url: DATA_URI } },
+        ],
+      }],
+    }, true);
+
+    expect(out.params.messages[0].content).toEqual([
+      { type: "text", text: "what color?" },
+      { type: "image", image: DATA_URI, mimeType: "image/png", mediaType: "image/png" },
+    ]);
+  });
+
+  it("maps Claude/OpenAI base64 image source to a data-URI image block", () => {
+    const out = openaiToCommandCodeRequest(MODEL, {
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: "image/png", data: PNG_B64 } },
+        ],
+      }],
+    }, true);
+
+    expect(out.params.messages[0].content).toEqual([
+      { type: "image", image: DATA_URI, mimeType: "image/png", mediaType: "image/png" },
+    ]);
+  });
+
+  it("does not stub dropped images as [image omitted]", () => {
+    const out = openaiToCommandCodeRequest(MODEL, {
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: "see this" },
+          { type: "image_url", image_url: { url: DATA_URI } },
+        ],
+      }],
+    }, true);
+
+    const texts = out.params.messages[0].content
+      .filter((b) => b.type === "text")
+      .map((b) => b.text);
+    expect(texts).not.toContain("[image omitted]");
   });
 });

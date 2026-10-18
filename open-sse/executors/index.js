@@ -1,5 +1,6 @@
 import { AntigravityExecutor } from "./antigravity.js";
 import { AzureExecutor } from "./azure.js";
+import { BedrockExecutor } from "./bedrock.js";
 import { GeminiCLIExecutor } from "./gemini-cli.js";
 import { GithubExecutor } from "./github.js";
 import { IFlowExecutor } from "./iflow.js";
@@ -11,6 +12,7 @@ import { CursorExecutor } from "./cursor.js";
 import { VertexExecutor } from "./vertex.js";
 import { OpenCodeExecutor } from "./opencode.js";
 import { OpenCodeGoExecutor } from "./opencode-go.js";
+import { OpenCodeZenExecutor } from "./opencode-zen.js";
 import { GrokWebExecutor } from "./grok-web.js";
 import { GrokCliExecutor } from "./grok-cli.js";
 import { PerplexityWebExecutor } from "./perplexity-web.js";
@@ -25,6 +27,7 @@ import TraeExecutor from "./trae.js";
 import ZedExecutor from "./zed.js";
 import WindsurfExecutor from "./windsurf.js";
 import { DefaultExecutor } from "./default.js";
+import { MinimaxCodeExecutor } from "./minimax-code.js";
 import { DevinCliExecutor } from "./devin-cli.js";
 
 const executors = {
@@ -34,6 +37,7 @@ const executors = {
   github: new GithubExecutor(),
   iflow: new IFlowExecutor(),
   qoder: new QoderExecutor(),
+  "qoder-cn": new QoderExecutor("qoder-cn"),
   kiro: new KiroExecutor(),
   kimchi: new KimchiExecutor(),
   codex: new CodexExecutor(),
@@ -43,6 +47,7 @@ const executors = {
   "vertex-partner": new VertexExecutor("vertex-partner"),
   opencode: new OpenCodeExecutor(),
   "opencode-go": new OpenCodeGoExecutor(),
+  "opencode-zen": new OpenCodeZenExecutor(),
   "grok-web": new GrokWebExecutor(),
   "grok-cli": new GrokCliExecutor(),
   gcli: new GrokCliExecutor(), // Alias
@@ -59,7 +64,16 @@ const executors = {
   trae: new TraeExecutor(),
   zed: new ZedExecutor(),
   windsurf: new WindsurfExecutor(),
+  "minimax-code": new MinimaxCodeExecutor("minimax-code"),
+  "minimax-code-global": new MinimaxCodeExecutor("minimax-code-global"),
   "devin-cli": new DevinCliExecutor(),
+  bedrock: new BedrockExecutor(),
+  br: new BedrockExecutor(), // Alias for bedrock
+  // Second Bedrock entry for xAI's Grok, which speaks OpenAI Chat Completions rather than the
+  // Anthropic Messages format. Same executor, different registry transport format — the pattern
+  // vertex / vertex-partner already uses.
+  "bedrock-xai": new BedrockExecutor("bedrock-xai"),
+  brx: new BedrockExecutor("bedrock-xai"), // Alias for bedrock-xai
 };
 
 const defaultCache = new Map();
@@ -77,6 +91,7 @@ export function hasSpecializedExecutor(provider) {
 export { BaseExecutor } from "./base.js";
 export { AntigravityExecutor } from "./antigravity.js";
 export { AzureExecutor } from "./azure.js";
+export { BedrockExecutor } from "./bedrock.js";
 export { GeminiCLIExecutor } from "./gemini-cli.js";
 export { GithubExecutor } from "./github.js";
 export { IFlowExecutor } from "./iflow.js";
@@ -89,6 +104,7 @@ export { VertexExecutor } from "./vertex.js";
 export { DefaultExecutor } from "./default.js";
 export { OpenCodeExecutor } from "./opencode.js";
 export { OpenCodeGoExecutor } from "./opencode-go.js";
+export { OpenCodeZenExecutor } from "./opencode-zen.js";
 export { GrokWebExecutor } from "./grok-web.js";
 export { GrokCliExecutor } from "./grok-cli.js";
 export { PerplexityWebExecutor } from "./perplexity-web.js";

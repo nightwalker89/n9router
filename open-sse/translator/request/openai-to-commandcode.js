@@ -5,6 +5,7 @@
  *  - params.system: STRING at top level (Anthropic-style; system messages NOT allowed in messages[])
  *  - params.messages[*].role ∈ {"user","assistant","tool"}
  *  - params.messages[*].content: Array of content blocks (NEVER a string)
+ *  - image_url / image source → {type:"image", image:"data:...;base64,...", mimeType}
  *  - tool_use blocks (assistant): {type:"tool-call", toolCallId, toolName, input}
  *  - tool_result blocks (role=user): {type:"tool-result", toolCallId, toolName, output}
  *  - image blocks (role=user): {type:"image", image:"data:<mime>;base64,<data>"}
@@ -21,8 +22,9 @@
 import { register } from "../index.js";
 import { FORMATS } from "../formats.js";
 import { randomUUID } from "crypto";
-import { ROLE, OPENAI_BLOCK } from "../schema/index.js";
+import { ROLE, OPENAI_BLOCK, CLAUDE_BLOCK } from "../schema/index.js";
 import { DEFAULT_MAX_TOKENS } from "../../config/runtimeConfig.js";
+import { parseDataUri, encodeDataUri } from "../concerns/image.js";
 
 function flattenText(content) {
   if (content == null) return "";
@@ -38,8 +40,13 @@ function flattenText(content) {
   return String(content);
 }
 
-// OpenAI/Claude-shaped image part -> AI SDK v5 image part. Returns null when no
-// usable source is present, so the caller can fall back to the text placeholder.
+// OpenAI/Claude-shaped image part -> native CommandCode image block
+// {type:"image", image, mimeType, mediaType}. Returns null when no usable source
+// is present, so the caller can fall back to the text placeholder.
+function imageBlock(image, mime) {
+  return mime ? { type: OPENAI_BLOCK.IMAGE, image, mimeType: mime, mediaType: mime } : { type: OPENAI_BLOCK.IMAGE, image };
+}
+
 function toImagePart(part) {
   // `image_url` is either {url} or a flat string. Both shapes occur here — see
   // prefetch.js, which rewrites a flat string in place, so a prefetched remote
@@ -48,18 +55,20 @@ function toImagePart(part) {
   const imageUrl = typeof part?.image_url === "string" ? part.image_url : part?.image_url?.url;
   const direct = imageUrl ?? part?.image ?? part?.url;
   if (typeof direct === "string" && direct) {
+    if (/^https?:/.test(direct)) return imageBlock(direct);
+    if (direct.startsWith("data:")) return imageBlock(direct, parseDataUri(direct)?.mimeType);
     // Upstream does accept bare base64 with no mediaType (verified), but when the
     // caller states a type, keep it rather than making upstream sniff the bytes.
-    const isUri = /^(data:|https?:)/.test(direct);
-    const mime = part?.mediaType || part?.media_type || "image/png";
-    return { type: OPENAI_BLOCK.IMAGE, image: isUri ? direct : `data:${mime};base64,${direct}` };
+    const mime = part?.mimeType || part?.mediaType || part?.media_type || "image/png";
+    return imageBlock(encodeDataUri(mime, direct), mime);
   }
   const src = part?.source;
-  if (src?.type === "base64" && src.data) {
-    return { type: OPENAI_BLOCK.IMAGE, image: `data:${src.media_type || "image/png"};base64,${src.data}` };
+  if (src?.type === "base64" && typeof src.data === "string" && src.data) {
+    const mime = src.media_type || "image/png";
+    return imageBlock(encodeDataUri(mime, src.data), mime);
   }
   if (src?.type === "url" && typeof src.url === "string" && src.url) {
-    return { type: OPENAI_BLOCK.IMAGE, image: src.url };
+    return imageBlock(src.url);
   }
   return null;
 }
@@ -75,7 +84,7 @@ function toContentBlocks(content) {
       } else if (part && typeof part === "object") {
         if (part.type === OPENAI_BLOCK.TEXT && typeof part.text === "string") {
           blocks.push({ type: OPENAI_BLOCK.TEXT, text: part.text });
-        } else if (part.type === OPENAI_BLOCK.IMAGE_URL || part.type === OPENAI_BLOCK.IMAGE) {
+        } else if (part.type === OPENAI_BLOCK.IMAGE_URL || part.type === OPENAI_BLOCK.IMAGE || part.type === CLAUDE_BLOCK.IMAGE) {
           blocks.push(toImagePart(part) || { type: OPENAI_BLOCK.TEXT, text: "[image omitted]" });
         } else if (typeof part.text === "string") {
           blocks.push({ type: OPENAI_BLOCK.TEXT, text: part.text });
@@ -123,6 +132,10 @@ function convertMessages(messages = []) {
 
     if (role === ROLE.ASSISTANT) {
       const blocks = [];
+      const rc = m.reasoning_content || m.thought || m.reasoning;
+      if (rc || (Array.isArray(m.tool_calls) && m.tool_calls.length > 0)) {
+        blocks.push({ type: "reasoning", text: rc || " " });
+      }
       const text = flattenText(m.content);
       if (text) blocks.push({ type: OPENAI_BLOCK.TEXT, text });
       if (Array.isArray(m.tool_calls)) {

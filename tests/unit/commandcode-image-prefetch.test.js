@@ -60,7 +60,7 @@ describe("prefetchRemoteImages — commandcode target", () => {
 
     const out = openaiToCommandCodeRequest("m", body, true);
     expect(out.params.messages[0].content).toEqual([
-      { type: "image", image: "data:image/png;base64,STUBBED" },
+      { type: "image", image: "data:image/png;base64,STUBBED", mimeType: "image/png", mediaType: "image/png" },
     ]);
   });
 

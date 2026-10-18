@@ -25,10 +25,10 @@ describe("Antigravity usage headers", () => {
     // fallback (production reports no gemini-3.8-flash bucket here) + retrieveUserQuotaSummary
     expect(proxyAwareFetch).toHaveBeenCalledTimes(4);
     for (const [url, options] of proxyAwareFetch.mock.calls) {
-      expect(options.headers["User-Agent"]).toBe("antigravity/ide/2.11.0 darwin/arm64");
+      expect(options.headers["User-Agent"]).toBe("antigravity/ide/2.22.0 darwin/arm64");
       expect(options.headers).not.toHaveProperty("x-request-source");
       if (String(url).includes(":fetchAvailableModels")) {
-        expect(options.headers["X-Client-Version"]).toBe("2.11.0");
+        expect(options.headers["X-Client-Version"]).toBe("2.22.0");
       }
     }
   });

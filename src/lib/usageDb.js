@@ -903,8 +903,8 @@ export async function getUsageStats(period = "all") {
 
 /**
  * Get time-series chart data for a given period
- * @param {"24h"|"7d"|"30d"|"60d"} period
- * @returns {Promise<Array<{label: string, tokens: number, cost: number}>>}
+ * @param {"today"|"24h"|"7d"|"30d"|"60d"|"all"} period
+ * @returns {Promise<Array<{label: string, tokens: number, cost: number, requests: number}>>}
  */
 export async function getChartData(period = "7d") {
   const db = await getUsageDb();
@@ -921,7 +921,7 @@ export async function getChartData(period = "7d") {
     const labelFn = (ts) => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
     const buckets = Array.from({ length: bucketCount }, (_, i) => {
       const ts = startTime + i * bucketMs;
-      return { label: labelFn(ts), tokens: 0, cost: 0 };
+      return { label: labelFn(ts), tokens: 0, cost: 0, requests: 0 };
     });
 
     for (const entry of history) {
@@ -931,6 +931,7 @@ export async function getChartData(period = "7d") {
       if (idx >= 0 && idx < bucketCount) {
         buckets[idx].tokens += (entry.tokens?.prompt_tokens || 0) + (entry.tokens?.completion_tokens || 0);
         buckets[idx].cost += entry.cost || 0;
+        buckets[idx].requests += 1;
       }
     }
     return buckets;
@@ -944,7 +945,7 @@ export async function getChartData(period = "7d") {
     const startTime = now - bucketCount * bucketMs;
     const buckets = Array.from({ length: bucketCount }, (_, i) => {
       const ts = startTime + i * bucketMs;
-      return { label: labelFn(ts), tokens: 0, cost: 0 };
+      return { label: labelFn(ts), tokens: 0, cost: 0, requests: 0 };
     });
 
     for (const entry of history) {
@@ -953,14 +954,25 @@ export async function getChartData(period = "7d") {
       const idx = Math.min(Math.floor((entryTime - startTime) / bucketMs), bucketCount - 1);
       buckets[idx].tokens += (entry.tokens?.prompt_tokens || 0) + (entry.tokens?.completion_tokens || 0);
       buckets[idx].cost += entry.cost || 0;
+      buckets[idx].requests += 1;
     }
     return buckets;
   }
 
-  // 7d/30d/60d: bucket by day from dailySummary (local dates)
-  const bucketCount = period === "7d" ? 7 : period === "30d" ? 30 : 60;
   const today = new Date();
   const labelFn = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  // all: one bucket per day from the earliest recorded day through today
+  let bucketCount = period === "7d" ? 7 : period === "30d" ? 30 : 60;
+  if (period === "all") {
+    const dateKeys = Object.keys(dailySummary).sort();
+    if (!dateKeys.length) return [];
+    const earliest = new Date(dateKeys[0] + "T00:00:00");
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    bucketCount = Math.max(1, Math.round((startOfToday - earliest) / 86400000) + 1);
+  }
+
+  // 7d/30d/60d/all: bucket by day from dailySummary (local dates)
 
   const buckets = Array.from({ length: bucketCount }, (_, i) => {
     const d = new Date(today);
@@ -971,6 +983,7 @@ export async function getChartData(period = "7d") {
       label: labelFn(d),
       tokens: dayData ? (dayData.promptTokens || 0) + (dayData.completionTokens || 0) : 0,
       cost: dayData ? (dayData.cost || 0) : 0,
+      requests: dayData ? (dayData.requests || 0) : 0,
     };
   });
 
