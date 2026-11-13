@@ -37,16 +37,30 @@ function isModuleMissing(error) {
   return code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND";
 }
 
+export function extractNpmErrorReason(stderr) {
+  const lines = String(stderr || "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const errLines = lines
+    .map((l) => l.match(/^npm (?:ERR!|error)\s+(.+)$/)?.[1])
+    .filter(Boolean);
+  const descriptive = errLines.find(
+    (l) => !/^(A complete log of this run|code |syscall |path |dest |errno )/i.test(l)
+  );
+  return descriptive || errLines[0] || lines.pop() || "unknown npm error";
+}
+
 function npmInstall(pkg, version) {
   const cwd = getRuntimeDir();
   fs.mkdirSync(cwd, { recursive: true });
   // Anchor npm to the runtime dir so it can't adopt a parent package.json as install root.
   const manifest = path.join(cwd, "package.json");
   if (!fs.existsSync(manifest)) {
-    fs.writeFileSync(manifest, JSON.stringify({ name: "9router-runtime", private: true }, null, 2));
+    fs.writeFileSync(manifest, JSON.stringify({ name: "n9router-runtime", private: true }, null, 2));
   }
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  const args = ["install", "--no-audit", "--no-fund", "--prefer-online", `${pkg}@${version}`];
+  const args = ["install", "--global=false", "--no-audit", "--no-fund", "--prefer-online", `${pkg}@${version}`];
   return new Promise((resolve) => {
     const child = spawn(npm, args, { cwd, stdio: ["ignore", "pipe", "pipe"], shell: process.platform === "win32" });
     let stderr = "";
@@ -60,7 +74,7 @@ async function installIntoRuntime(pkg, version) {
   const dir = getRuntimeDir();
   const res = await npmInstall(pkg, version);
   if (!res.ok) {
-    const reason = (res.stderr.match(/npm ERR! ?(.+)/) || [])[1] || res.stderr.split("\n").filter(Boolean).pop() || "unknown npm error";
+    const reason = extractNpmErrorReason(res.stderr);
     throw new Error(
       `${pkg} is missing and the on-demand install failed (${String(reason).slice(0, 160)}) — ` +
       `install it manually: cd "${dir}" && npm install ${pkg}@${version}`
