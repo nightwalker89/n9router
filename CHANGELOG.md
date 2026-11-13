@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.4.63 (2026-11-13)
+
+### Upstream merge
+- **9router v0.5.119**: Merged upstream through v0.5.119 (138 commits from upstream master).
+- **Web-Cookie & Video Providers**: Added browser-captured web-cookie providers (`grok-web`, `muse-web`, `uc-web`, `veoaifree-web`) with persistent Login via Browser capture and shared browser pool.
+- **Models & Providers**: Added Smart Router (`System One`), Claude Fable 5.2, Gemini 4 Carbon & Argon quotas, GPT-6.1 Terra, SenseNova, `synthetic.new`, Runcrate, Ollama Local TTS/embeddings, and Codex OAuth STT.
+
+### n9router fixes & preservation
+- **Fork Storage & Features**: Rejected upstream SQLite state-DB migration and `better-sqlite3`; preserved `lowdb` (`~/.n9router/db.json`), `node:sqlite` rate limiting, Antigravity Token Swap, Payload Guard, usage reports, Cursor BYOK, MITM `DATA_DIR` propagation, and sudo whitespace support.
+- **Lazy Runtime & Data Dir**: Fixed `~/.n9router/runtime` path branding, local `--global=false` npm installs (`n9router-runtime`), and npm v10+ error parsing (`lazyRuntime.js`, `writableDataDir.js`).
+- **Grok Web Cloudflare & Auth**: Matched dynamic local Chrome User-Agent / `Sec-Ch-Ua` hints (`grokTlsClient.js`, `grok-web.js`), added live browser session verification and Cloudflare challenge classification (`webIdentity.js`, `webLogin.js`, `web-login/route.js`).
+- **Agent Skills**: Updated `skills/9router-video/SKILL.md` for sync web and async video providers and registered Video Generation in Dashboard Skills.
+
 ## v0.4.62 (2026-10-18)
 
 ### Upstream merge
