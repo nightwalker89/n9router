@@ -40,6 +40,11 @@ const nextConfig = {
     root: tracingRoot,
   },
   outputFileTracingRoot: tracingRoot,
+  outputFileTracingIncludes: {
+    // serverExternalPackages keeps undici external; dynamic import("undici")
+    // alone doesn't pull it into the trace, so force-ship the real package.
+    "*": ["./node_modules/undici/**/*"],
+  },
   outputFileTracingExcludes: {
     "*": ["./gitbook/**/*"],
   },

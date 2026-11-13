@@ -64,6 +64,9 @@ const DEFAULT_SETTINGS = {
   periodicDbBackupsEnabled: true,
   cavemanEnabled: false,
   cavemanLevel: "full",
+  // User-authored system prompt, injected independently of the built-in savers.
+  customPromptEnabled: false,
+  customPrompt: "",
   // Per-provider user header overrides applied at dispatch: { [providerId]: { headers: {..} } }
   providerOverrides: {},
 };

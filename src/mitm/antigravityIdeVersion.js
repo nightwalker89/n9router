@@ -6,7 +6,7 @@ const {
   normalizeAntigravityIdeVersion,
 } = require("./mitmSettings");
 
-const ANTIGRAVITY_IDE_VERSION = "2.22.0";
+const ANTIGRAVITY_IDE_VERSION = "2.24.0";
 const ANTIGRAVITY_IDE_VERSION_OVERRIDE_ENABLED = true;
 
 function loadAntigravityIdeVersionSettings(dbFile) {

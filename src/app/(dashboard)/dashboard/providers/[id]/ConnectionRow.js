@@ -181,12 +181,13 @@ export default function ConnectionRow({
   const rowAuthType = connection.authType || (isOAuth ? "oauth" : "apikey");
   const isOAuthConnection = rowAuthType === "oauth";
   const isCookieConnection = rowAuthType === "cookie";
-  const authIcon = isCookieConnection ? "cookie" : isOAuthConnection ? "lock" : "key";
-  const authLabel = isOAuthConnection ? "OAuth" : isCookieConnection ? "Cookie" : "API Key";
+  const isLeaseConnection = rowAuthType === "mcode-lease";
+  const authIcon = isLeaseConnection ? "desktop_windows" : isCookieConnection ? "cookie" : isOAuthConnection ? "lock" : "key";
+  const authLabel = isLeaseConnection ? "Desktop Lease" : isOAuthConnection ? "OAuth" : isCookieConnection ? "Cookie" : "API Key";
   const isEmail = (v) => typeof v === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
   const displayName = isOAuthConnection
     ? (isEmail(connection.email) ? connection.email : (isEmail(connection.name) ? connection.name : (connection.name || connection.email || connection.displayName || "OAuth Account")))
-    : (connection.name || connection.email || connection.displayName || "API Key");
+    : (connection.name || connection.email || connection.displayName || (isLeaseConnection ? "Desktop Lease" : isCookieConnection ? "Cookie Account" : "API Key"));
   const secondaryEmail = getBestEffortEmail(connection);
   const accountIdentifier = getAccountIdentifier(connection);
 

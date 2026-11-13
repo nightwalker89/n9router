@@ -28,6 +28,7 @@ function getDataDir() {
 
 const DATA_DIR = getDataDir();
 const MITM_DIR = path.join(DATA_DIR, "mitm");
+try { fs.mkdirSync(MITM_DIR, { recursive: true }); } catch {}
 
 // Windows: MITM uses %APPDATA%\n9router\mitm (same as db.json), but some setups only have
 // certs under %USERPROFILE%\.n9router\mitm (Unix-style path). Copy once so server.js can load rootCA.*.

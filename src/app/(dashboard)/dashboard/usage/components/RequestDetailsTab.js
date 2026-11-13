@@ -8,6 +8,7 @@ import Pagination from "@/shared/components/Pagination";
 import ApiKeyBadge from "@/shared/components/ApiKeyBadge";
 import { cn } from "@/shared/utils/cn";
 import { AI_PROVIDERS, getProviderByAlias } from "@/shared/constants/providers";
+import { getInputTokens, getOutputTokens, getCachedTokens, getCacheCreationTokens } from "./tokenDisplay";
 
 let providerNameCache = null;
 let providerNodesCache = null;
@@ -83,26 +84,6 @@ function CollapsibleSection({ title, children, defaultOpen = false, icon = null 
   );
 }
 
-function getCacheCreationTokens(tokens) {
-  return tokens?.cache_creation_input_tokens || 0;
-}
-
-function getInputTokens(tokens) {
-  const prompt = tokens?.prompt_tokens || tokens?.input_tokens || 0;
-  // Canonical storage keeps prompt cache-inclusive. Legacy Claude rows may have
-  // stored prompt cache-exclusive; fall back to cache when it's larger so old
-  // rows don't under-report input.
-  const cache = getCachedTokens(tokens);
-  return prompt < cache ? cache : prompt;
-}
-
-function getCachedTokens(tokens) {
-  return tokens?.cache_read_input_tokens || tokens?.cached_tokens || tokens?.prompt_tokens_details?.cached_tokens || 0;
-}
-
-function getOutputTokens(tokens) {
-  return tokens?.completion_tokens || tokens?.output_tokens || 0;
-}
 
 export default function RequestDetailsTab() {
   const [details, setDetails] = useState([]);

@@ -16,6 +16,23 @@ COPY . ./
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
+# https://github.com/decolua/9router/issues/5245
+# wreq-js and playwright-core are lazy runtime dependencies (loaded by
+# lazyRuntime.js via createRequire). Next standalone tracing does not include
+# them, so OpenCode Free fails with HTTP 502 ("resolve is undefined").
+# Install them (with their native bindings/transitive deps) in an isolated dir
+# so the runner stage can copy them into /app/node_modules.
+RUN --mount=type=cache,target=/root/.npm \
+    mkdir -p /opt/lazy-runtime && cd /opt/lazy-runtime && \
+    npm init -y >/dev/null && \
+    npm install --no-save \
+      --fetch-retries=5 \
+      --fetch-retry-factor=2 \
+      --fetch-retry-mintimeout=10000 \
+      --fetch-retry-maxtimeout=120000 \
+      --fetch-timeout=300000 \
+      wreq-js playwright-core
+
 FROM ${BUN_IMAGE} AS runner
 WORKDIR /app
 
@@ -42,13 +59,16 @@ COPY --from=builder /app/node_modules/node-forge ./node_modules/node-forge
 COPY --from=builder /app/node_modules/next ./node_modules/next
 # node-machine-id is createRequire-loaded at runtime; tracing omits it.
 COPY --from=builder /app/node_modules/node-machine-id ./node_modules/node-machine-id
+# wreq-js + playwright-core (and deps) are lazy-loaded at runtime and omitted by
+# tracing. See https://github.com/decolua/9router/issues/5245
+COPY --from=builder /opt/lazy-runtime/node_modules/. ./node_modules/
 
 RUN mkdir -p /app/data && chown -R bun:bun /app && \
   mkdir -p /app/data-home && chown bun:bun /app/data-home && \
   ln -sf /app/data-home /root/.n9router 2>/dev/null || true
 
 # Fix permissions at runtime (handles mounted volumes and custom DATA_DIR)
-RUN apk --no-cache add su-exec
+RUN apk --no-cache add su-exec ffmpeg
 COPY <<'EOF' /entrypoint.sh
 #!/bin/sh
 # Create and fix permissions for DATA_DIR (may differ from /app/data)
