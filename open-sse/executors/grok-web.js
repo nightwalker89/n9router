@@ -101,6 +101,17 @@ function generateStatsigId() {
   return btoa(msg);
 }
 
+function resolveGrokClientHints(credentials) {
+  const userAgent = credentials?.providerSpecificData?.userAgent || credentials?.userAgent || GROK_TLS_USER_AGENT;
+  const chromeMajor = String(userAgent).match(/Chrome\/(\d+)/)?.[1] || "155";
+  const secChUaPlatform = /Windows/i.test(userAgent) ? '"Windows"' : /Linux/i.test(userAgent) ? '"Linux"' : '"macOS"';
+  return {
+    userAgent,
+    secChUa: `"Chromium";v="${chromeMajor}", "Not(A:Brand";v="24", "Google Chrome";v="${chromeMajor}"`,
+    secChUaPlatform,
+  };
+}
+
 function randomHex(bytes) {
   const arr = new Uint8Array(bytes);
   crypto.getRandomValues(arr);
@@ -396,6 +407,7 @@ export class GrokWebExecutor extends BaseExecutor {
       },
     };
 
+    const { userAgent, secChUa, secChUaPlatform } = resolveGrokClientHints(credentials);
     const traceId = randomHex(16);
     const spanId = randomHex(8);
     const headers = {
@@ -408,13 +420,13 @@ export class GrokWebExecutor extends BaseExecutor {
       Origin: "https://grok.com",
       Pragma: "no-cache",
       Referer: "https://grok.com/",
-      "Sec-Ch-Ua": '"Chromium";v="146", "Not(A:Brand";v="24"',
+      "Sec-Ch-Ua": secChUa,
       "Sec-Ch-Ua-Mobile": "?0",
-      "Sec-Ch-Ua-Platform": '"macOS"',
+      "Sec-Ch-Ua-Platform": secChUaPlatform,
       "Sec-Fetch-Dest": "empty",
       "Sec-Fetch-Mode": "cors",
       "Sec-Fetch-Site": "same-origin",
-      "User-Agent": GROK_TLS_USER_AGENT,
+      "User-Agent": userAgent,
       "x-statsig-id": generateStatsigId(),
       "Browser-Id": crypto.randomUUID(),
       "x-xai-request-id": crypto.randomUUID(),
@@ -507,6 +519,7 @@ export class GrokWebExecutor extends BaseExecutor {
       throw new Error("Grok Web requires the grok.com Cookie header (sso) pasted into the connection");
     }
 
+    const { userAgent, secChUa, secChUaPlatform } = resolveGrokClientHints(credentials);
     const results = [];
     for (let i = 0; i < iterations; i++) {
       if (signal?.aborted) throw new Error("aborted");
@@ -514,10 +527,10 @@ export class GrokWebExecutor extends BaseExecutor {
       const headers = {
         "Content-Type": "application/json",
         Accept: "text/event-stream",
-        "User-Agent": GROK_TLS_USER_AGENT,
-        "Sec-Ch-Ua": '"Chromium";v="146", "Not(A:Brand";v="24"',
+        "User-Agent": userAgent,
+        "Sec-Ch-Ua": secChUa,
         "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"macOS"',
+        "Sec-Ch-Ua-Platform": secChUaPlatform,
         Origin: "https://grok.com",
         Referer: "https://grok.com/",
         "Browser-Id": requestId,
@@ -575,7 +588,7 @@ export class GrokWebExecutor extends BaseExecutor {
         }
         const dl = await grokTlsFetch(videoUrl.startsWith("http") ? videoUrl : `https://assets.grok.com/${videoUrl}`, {
           method: "GET",
-          headers: { "User-Agent": GROK_TLS_USER_AGENT, Referer: "https://grok.com/", Cookie: cookieHeader },
+          headers: { "User-Agent": userAgent, Referer: "https://grok.com/", Cookie: cookieHeader },
           timeoutMs: 120000,
           signal,
         });
@@ -601,7 +614,7 @@ export class GrokWebExecutor extends BaseExecutor {
       }
       const dl = await grokTlsFetch(`https://assets.grok.com/${finalChunk.imageUrl}`, {
         method: "GET",
-        headers: { "User-Agent": GROK_TLS_USER_AGENT, Referer: "https://grok.com/", Cookie: cookieHeader },
+        headers: { "User-Agent": userAgent, Referer: "https://grok.com/", Cookie: cookieHeader },
         timeoutMs: 60000,
         signal,
       });

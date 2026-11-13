@@ -6,9 +6,15 @@
 // web session). A probe answers three things — ok / rejected / unknown — so a
 // flaky network never flips a healthy connection to "error".
 import https from "node:https";
-import { extractCookieValue, normalizeSessionCookieHeader, normalizeCookieHeaderInput } from "../utils/webCookieAuth.js";
+import { buildGrokCookieHeader, extractCookieValue, normalizeSessionCookieHeader, normalizeCookieHeaderInput } from "../utils/webCookieAuth.js";
 import { normalizeGeminiValidationCookie } from "../utils/geminiCookies.js";
 import { grokTlsFetch, GROK_TLS_USER_AGENT } from "./grokTlsClient.js";
+
+function isCloudflareChallengeResponse(status, cfMitigated, bodyText) {
+  if (status !== 403 && status !== 503) return false;
+  if (typeof cfMitigated === "string" && /challenge/i.test(cfMitigated)) return true;
+  return typeof bodyText === "string" && /just a moment|attention required|cf-mitigated/i.test(bodyText);
+}
 
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
@@ -122,19 +128,40 @@ const PROBES = {
     return OK(email);
   },
 
-  async "grok-web"(credential) {
-    const cookie = [extractCookieValue(credential, "sso") ? `sso=${extractCookieValue(credential, "sso")}` : ""]
-      .filter(Boolean).join("; ");
-    if (!cookie) return REJECTED("Missing sso cookie");
-    const headers = { Cookie: credential, "User-Agent": GROK_TLS_USER_AGENT, Accept: "application/json", Origin: "https://grok.com", Referer: "https://grok.com/" };
+  async "grok-web"(credential, options = {}) {
+    const normalized = normalizeCookieHeaderInput(credential);
+    const grokCookie = buildGrokCookieHeader(normalized);
+    if (!grokCookie) return REJECTED("Missing sso cookie");
+    const cookieHeader = normalized.includes("=") ? normalized : grokCookie;
+    const userAgent = options?.userAgent || GROK_TLS_USER_AGENT;
+    const chromeMajor = String(userAgent).match(/Chrome\/(\d+)/)?.[1] || "155";
+    const secChUaPlatform = /Windows/i.test(userAgent) ? '"Windows"' : /Linux/i.test(userAgent) ? '"Linux"' : '"macOS"';
+    const headers = {
+      Cookie: cookieHeader,
+      "User-Agent": userAgent,
+      Accept: "application/json",
+      "Accept-Language": "en-US,en;q=0.9",
+      Origin: "https://grok.com",
+      Referer: "https://grok.com/",
+      "Sec-Ch-Ua": `"Chromium";v="${chromeMajor}", "Not(A:Brand";v="24", "Google Chrome";v="${chromeMajor}"`,
+      "Sec-Ch-Ua-Mobile": "?0",
+      "Sec-Ch-Ua-Platform": secChUaPlatform,
+      "Sec-Fetch-Dest": "empty",
+      "Sec-Fetch-Mode": "cors",
+      "Sec-Fetch-Site": "same-origin",
+    };
     let res = null;
     try {
       const tls = await grokTlsFetch("https://grok.com/api/auth/session", { method: "GET", headers, timeoutMs: TIMEOUT_MS });
-      res = { status: tls.status, ok: tls.ok, text: await tls.text().catch(() => "") };
-    } catch {
-      res = await request("https://grok.com/api/auth/session", { headers });
+      const cfMitigated = tls.headers?.get?.("cf-mitigated") || "";
+      res = { status: tls.status, ok: tls.ok, cfMitigated, text: await tls.text().catch(() => "") };
+    } catch (error) {
+      return UNKNOWN(error?.message || "Grok TLS probe unavailable");
     }
     if (!res.status) return UNKNOWN(res.error);
+    if (isCloudflareChallengeResponse(res.status, res.cfMitigated, res.text)) {
+      return UNKNOWN("Cloudflare challenge blocked Grok session check");
+    }
     if (res.status === 401 || res.status === 403) return REJECTED("sso cookie is invalid or expired");
     if (!res.ok) return UNKNOWN(`Grok returned HTTP ${res.status}`);
     let json = null;
@@ -224,11 +251,11 @@ export function hasWebIdentityProbe(providerId) {
  * Probe a web-cookie credential.
  * @returns {Promise<{ok: boolean, status: "valid"|"invalid"|"unknown", email?: string, error?: string}>}
  */
-export async function fetchWebIdentity(providerId, credential) {
+export async function fetchWebIdentity(providerId, credential, options = {}) {
   const probe = PROBES[providerId];
   if (!probe) return UNKNOWN("No identity probe for this provider");
   try {
-    const result = await probe(credential);
+    const result = await probe(credential, options);
     return { email: "", ...result };
   } catch (error) {
     return UNKNOWN(error?.message || String(error));

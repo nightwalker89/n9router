@@ -27,11 +27,11 @@ export async function GET(request) {
   if (session.status === "success" && !session.savedConnectionId) {
     try {
       const config = getWebLoginConfig(provider);
-      const identity = await fetchWebIdentity(provider, session.credential);
+      const identity = await fetchWebIdentity(provider, session.credential, { userAgent: session.userAgent });
       // A login that just finished in the browser is authoritative: an
       // "invalid" verdict here means the probe endpoint rejected the request
       // shape, not that the user's session is stale.
-      if (identity.status === "invalid") {
+      if (identity.status === "invalid" && !session.browserVerified) {
         session.status = "error";
         session.error = identity.error || "The captured session was rejected";
         return NextResponse.json({
@@ -43,12 +43,13 @@ export async function GET(request) {
       }
 
       const providerName = AI_PROVIDERS[provider]?.name || provider;
-      const email = identity.email || "";
+      const email = identity.email || session.accountEmail || "";
       const name = email || providerName;
       session.accountEmail = email;
       const providerSpecificData = {
         authMethod: "web-login",
         ...(config?.credentialFrom === "localStorageValue" ? { tokenSource: "localStorage" } : {}),
+        ...(session.userAgent ? { userAgent: session.userAgent } : {}),
       };
 
       // Re-login refreshes the credential in place. Match by account email so a

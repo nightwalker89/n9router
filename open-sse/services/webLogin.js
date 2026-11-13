@@ -188,6 +188,33 @@ async function launchLoginBrowser(chromium, dir, executablePath) {
   }
 }
 
+async function probeGrokBrowserSession(context, fallbackPage, session) {
+  try {
+    const pages = context.pages();
+    const targetPage =
+      pages.find((p) => {
+        try { return new URL(p.url()).origin === "https://grok.com"; } catch { return false; }
+      }) || fallbackPage;
+    if (!targetPage) return;
+    const ua = await targetPage.evaluate(() => navigator.userAgent).catch(() => "");
+    if (typeof ua === "string" && ua) session.userAgent = ua;
+    if (!/^https:\/\/([^/]+\.)?grok\.com\b/i.test(targetPage.url())) return;
+    const data = await targetPage.evaluate(async () => {
+      const res = await fetch("/api/auth/session", { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    });
+    if (data?.status === "authenticated") {
+      session.browserVerified = true;
+      if (typeof data?.session?.email === "string" && data.session.email) {
+        session.accountEmail = data.session.email;
+      }
+    }
+  } catch {
+    // Best-effort only: server-side probe / save still handles cookie capture
+  }
+}
+
 async function runLogin(session, config) {
   const { chromium } = await loadRuntimeDep("playwright-core");
   const executablePath = resolveSystemChromeExecutable();
@@ -225,6 +252,9 @@ async function runLogin(session, config) {
         session.credential = val;
       } else {
         session.credential = found.cookieHeader;
+      }
+      if (session.providerId === "grok-web") {
+        await probeGrokBrowserSession(context, page, session);
       }
       session.status = "success";
       return;
