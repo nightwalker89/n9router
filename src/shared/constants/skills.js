@@ -33,6 +33,13 @@ export const SKILLS = [
     icon: "image",
   },
   {
+    id: "9router-video",
+    name: "Video Generation",
+    description: "Text-to-video & image-to-video via xAI Grok Imagine, Vertex Veo, OpenRouter, Grok Web…",
+    endpoint: "/v1/videos/generations",
+    icon: "movie",
+  },
+  {
     id: "9router-tts",
     name: "Text-to-Speech",
     description: "OpenAI / ElevenLabs / Edge / Google / Deepgram voices.",
