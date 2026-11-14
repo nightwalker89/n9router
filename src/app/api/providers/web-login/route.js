@@ -5,6 +5,9 @@ import { startWebLogin, getWebLoginStatus, cancelWebLogin, listWebLoginProfiles 
 import { getWebLoginConfig, listWebLoginProviders } from "open-sse/services/webLoginConfig.js";
 import { fetchWebIdentity } from "open-sse/services/webIdentity.js";
 
+// Polls share the same session object; only one may persist its credential.
+const pendingSaves = new WeakMap();
+
 /**
  * Interactive web login: open a headed browser at the provider's login page,
  * let the user log in by hand, harvest cookies/localStorage, auto-create the
@@ -25,82 +28,88 @@ export async function GET(request) {
   }
 
   if (session.status === "success" && !session.savedConnectionId) {
-    try {
-      const config = getWebLoginConfig(provider);
-      const identity = await fetchWebIdentity(provider, session.credential, { userAgent: session.userAgent });
-      // A login that just finished in the browser is authoritative: an
-      // "invalid" verdict here means the probe endpoint rejected the request
-      // shape, not that the user's session is stale.
-      if (identity.status === "invalid" && !session.browserVerified) {
-        session.status = "error";
-        session.error = identity.error || "The captured session was rejected";
-        return NextResponse.json({
-          provider,
-          status: session.status,
-          profile: session.profile || null,
-          error: session.error,
-        });
-      }
+    let saving = pendingSaves.get(session);
+    if (!saving) {
+      saving = (async () => {
+        try {
+          const config = getWebLoginConfig(provider);
+          const identity = await fetchWebIdentity(provider, session.credential, { userAgent: session.userAgent });
+          // A login that just finished in the browser is authoritative: an
+          // "invalid" verdict here means the probe endpoint rejected the request
+          // shape, not that the user's session is stale.
+          if (identity.status === "invalid" && !session.browserVerified) {
+            session.status = "error";
+            session.error = identity.error || "The captured session was rejected";
+            return;
+          }
 
-      const providerName = AI_PROVIDERS[provider]?.name || provider;
-      const email = identity.email || session.accountEmail || "";
-      const name = email || providerName;
-      session.accountEmail = email;
-      const providerSpecificData = {
-        authMethod: "web-login",
-        ...(config?.credentialFrom === "localStorageValue" ? { tokenSource: "localStorage" } : {}),
-        ...(session.userAgent ? { userAgent: session.userAgent } : {}),
-      };
+          const providerName = AI_PROVIDERS[provider]?.name || provider;
+          const email = identity.email || session.accountEmail || "";
+          const name = email || providerName;
+          session.accountEmail = email;
+          const providerSpecificData = {
+            authMethod: "web-login",
+            ...(config?.credentialFrom === "localStorageValue" ? { tokenSource: "localStorage" } : {}),
+            ...(session.userAgent ? { userAgent: session.userAgent } : {}),
+          };
 
-      // Re-login refreshes the credential in place. Match by account email so a
-      // second Google account keeps its own row; providers that expose no email
-      // fall back to the single web-login row this button created.
-      const webLoginRows = (await getProviderConnections({ provider }))
-        .filter((c) => c.providerSpecificData?.authMethod === "web-login")
-        .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
-      const existing = email
-        ? webLoginRows.find((c) => c.email === email)
-        : webLoginRows.length === 1 ? webLoginRows[0] : null;
+          // Re-login refreshes the credential in place. Match by account email so a
+          // second Google account keeps its own row; providers that expose no email
+          // fall back to the single web-login row this button created.
+          const webLoginRows = (await getProviderConnections({ provider }))
+            .filter((c) => c.providerSpecificData?.authMethod === "web-login")
+            .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+          const existing = email
+            ? webLoginRows.find((c) => c.email === email)
+            : webLoginRows.length === 1 ? webLoginRows[0] : null;
 
-      if (existing) {
-        const updated = await updateProviderConnection(existing.id, {
-          apiKey: session.credential,
-          name,
-          email: email || existing.email || null,
-          providerSpecificData: { ...existing.providerSpecificData, ...providerSpecificData },
-          testStatus: "active",
-          lastError: null,
-          lastErrorAt: null,
-          isActive: true,
-        });
-        session.savedConnectionId = updated?.id || existing.id;
-        // Same account logged in twice used to leave a stale duplicate row.
-        for (const duplicate of webLoginRows) {
-          if (duplicate.id === existing.id || duplicate.email !== email || !email) continue;
-          await deleteProviderConnection(duplicate.id);
+          if (existing) {
+            const updated = await updateProviderConnection(existing.id, {
+              apiKey: session.credential,
+              name,
+              email: email || existing.email || null,
+              providerSpecificData: { ...existing.providerSpecificData, ...providerSpecificData },
+              testStatus: "active",
+              lastError: null,
+              lastErrorAt: null,
+              isActive: true,
+            });
+            session.savedConnectionId = updated?.id || existing.id;
+            // Same account logged in twice used to leave a stale duplicate row.
+            for (const duplicate of webLoginRows) {
+              if (duplicate.id === existing.id || duplicate.email !== email || !email) continue;
+              await deleteProviderConnection(duplicate.id);
+            }
+          } else {
+            const connection = await createProviderConnection({
+              provider,
+              authType: "cookie",
+              name,
+              email: email || null,
+              apiKey: session.credential,
+              priority: 1,
+              providerSpecificData,
+              isActive: true,
+              // Harvested from a live logged-in session, so the credential is known good.
+              testStatus: "active",
+              allowOverwrite: false,
+            });
+            session.savedConnectionId = connection.id;
+          }
+          session.credential = undefined; // drop the secret once persisted
+        } catch (error) {
+          session.status = "error";
+          session.error = error?.code === "PROVIDER_NAME_CONFLICT"
+            ? `A connection named "${error.existingName}" already exists — edit or delete it first`
+            : error?.message || "Failed to save connection";
         }
-      } else {
-        const connection = await createProviderConnection({
-          provider,
-          authType: "cookie",
-          name,
-          email: email || null,
-          apiKey: session.credential,
-          priority: 1,
-          providerSpecificData,
-          isActive: true,
-          // Harvested from a live logged-in session, so the credential is known good.
-          testStatus: "active",
-          allowOverwrite: false,
-        });
-        session.savedConnectionId = connection.id;
-      }
-      session.credential = undefined; // drop the secret once persisted
-    } catch (error) {
-      session.status = "error";
-      session.error = error?.code === "PROVIDER_NAME_CONFLICT"
-        ? `A connection named "${error.existingName}" already exists — edit or delete it first`
-        : error?.message || "Failed to save connection";
+      })();
+      pendingSaves.set(session, saving);
+    }
+    try {
+      await saving;
+    } finally {
+      if (pendingSaves.get(session) === saving) pendingSaves.delete(session);
     }
   }
 

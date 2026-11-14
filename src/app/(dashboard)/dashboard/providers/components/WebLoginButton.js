@@ -99,7 +99,10 @@ export default function WebLoginButton({ providerId, onConnected, size = "sm" })
 
   const poll = useCallback(() => {
     stopPolling();
+    let inFlight = false;
     timerRef.current = setInterval(async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const res = await fetch(`/api/providers/web-login?provider=${encodeURIComponent(providerId)}`, { cache: "no-store" });
         const data = await res.json();
@@ -123,6 +126,8 @@ export default function WebLoginButton({ providerId, onConnected, size = "sm" })
         }
       } catch {
         // transient network hiccup — keep polling
+      } finally {
+        inFlight = false;
       }
     }, 2000);
   }, [providerId, onConnected, stopPolling]);

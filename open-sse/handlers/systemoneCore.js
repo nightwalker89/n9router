@@ -36,6 +36,7 @@ export async function handleSystemoneCore({
   credentials,
   log,
   onRequestSuccess,
+  signal,
 }) {
   const { provider, model } = modelInfo;
   const cfg = PROVIDER_MEDIA[provider]?.systemoneConfig;
@@ -85,13 +86,13 @@ export async function handleSystemoneCore({
 
   let providerResponse;
   try {
+    signal?.throwIfAborted();
+    const connectSignal = AbortSignal.timeout(FETCH_CONNECT_TIMEOUT_MS);
     providerResponse = await fetch(targetUrl, {
       method: "POST",
       headers,
       body: JSON.stringify(requestBody),
-      ...(typeof AbortSignal?.timeout === "function"
-        ? { signal: AbortSignal.timeout(FETCH_CONNECT_TIMEOUT_MS) }
-        : {}),
+      signal: signal ? AbortSignal.any([signal, connectSignal]) : connectSignal,
     });
   } catch (error) {
     const errMsg = formatProviderError(error, provider, model, HTTP_STATUS.BAD_GATEWAY);

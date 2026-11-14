@@ -48,8 +48,21 @@ export async function resolveSmartChoice({
   const criteria = buildChoiceCriteria(models);
   if (Object.keys(criteria).length === 0) return null;
 
-  try {
+  const controller = new AbortController();
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const error = new Error(`System One router timed out after ${timeoutMs}ms`);
+      controller.abort(error);
+      reject(error);
+    }, timeoutMs);
+  });
+
+  // Shared credential refreshes may finish in the background. Check the deadline
+  // after each stage so a late refresh cannot dispatch another upstream request.
+  const evaluate = async () => {
     const modelInfo = await getModelInfo(targetModel);
+    controller.signal.throwIfAborted();
     if (!modelInfo?.provider) {
       log?.warn?.("COMBO", `smart-router: unrecognized router model "${targetModel}"`);
       return null;
@@ -57,12 +70,14 @@ export async function resolveSmartChoice({
 
     const { provider, model } = modelInfo;
     const credentials = await getProviderCredentials(provider, new Set(), model);
+    controller.signal.throwIfAborted();
     if (!credentials || credentials.allRateLimited) {
       log?.warn?.("COMBO", `smart-router: no credentials available for router provider "${provider}"`);
       return null;
     }
 
     const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
+    controller.signal.throwIfAborted();
     const systemoneBody = {
       model,
       state,
@@ -75,25 +90,15 @@ export async function resolveSmartChoice({
       },
     };
 
-    let timeoutId;
-    const timeoutPromise = new Promise((_, reject) => {
-      timeoutId = setTimeout(() => reject(new Error(`System One router timed out after ${timeoutMs}ms`)), timeoutMs);
-    });
-
-    const corePromise = handleSystemoneCore({
+    const result = await handleSystemoneCore({
       body: systemoneBody,
       modelInfo: { provider, model },
       credentials: refreshedCredentials,
       log,
       onRequestSuccess: () => {},
+      signal: controller.signal,
     });
-
-    let result;
-    try {
-      result = await Promise.race([corePromise, timeoutPromise]);
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    controller.signal.throwIfAborted();
 
     if (!result?.success || !result.response) {
       log?.warn?.("COMBO", `smart-router: evaluation failed (${result?.status || "error"})`);
@@ -101,6 +106,7 @@ export async function resolveSmartChoice({
     }
 
     const json = await result.response.json();
+    controller.signal.throwIfAborted();
     const route = parseSystemOneRouteAnswer(json);
     if (!route || !route.choice) {
       log?.warn?.("COMBO", "smart-router: response missing valid route choice");
@@ -108,8 +114,14 @@ export async function resolveSmartChoice({
     }
 
     return route;
+  };
+
+  try {
+    return await Promise.race([evaluate(), timeoutPromise]);
   } catch (err) {
     log?.warn?.("COMBO", `smart-router: evaluation aborted (${err?.message || String(err)})`);
     return null;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

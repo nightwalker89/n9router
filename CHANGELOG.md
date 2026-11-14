@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.4.65 (2026-11-14)
+
+- **Prompt caching:** Preserved DashScope cache markers during OpenAI translation.
+- **Browser login:** Prevented concurrent polls from saving a connection twice or reporting a false failure.
+- **Smart routing:** Applied the timeout to credential refresh and response parsing, cancelled upstream work, and prevented late dispatch.
+
 ## v0.4.64 (2026-11-14)
 
 - **MITM startup:** Fixed missing `dbFileSafety.js` in npm packages by preserving MITM tracing includes alongside upstream `undici` files and copying the helper to the correct `src/lib` path.

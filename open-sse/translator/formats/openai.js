@@ -4,8 +4,9 @@ import { ROLE, OPENAI_BLOCK, CLAUDE_BLOCK, VALID_OPENAI_CONTENT_TYPES, VALID_OPE
 // Re-export valid-type lists (moved to schema/blocks.js) to keep existing importers working.
 export { VALID_OPENAI_CONTENT_TYPES, VALID_OPENAI_MESSAGE_TYPES };
 
-function normalizeOpenAIContent(content) {
+function normalizeOpenAIContent(content, preserveCacheControl = false) {
   if (content.length === 0) return "";
+  if (preserveCacheControl && content.some(block => block.cache_control)) return content;
   if (content.every((block) => block.type === "text")) {
     return content.map((block) => block.text || "").join("\n");
   }
@@ -62,7 +63,7 @@ export function filterToOpenAIFormat(body, opts = {}) {
         filteredContent.push({ type: OPENAI_BLOCK.TEXT, text: "" });
       }
       
-      return { ...msg, content: normalizeOpenAIContent(filteredContent) };
+      return { ...msg, content: normalizeOpenAIContent(filteredContent, keepCache) };
     }
     
     return msg;
