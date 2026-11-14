@@ -23,6 +23,8 @@ const nextConfig = {
       "src/shared/constants/**/*",
       "src/lib/dbFileSafety.js",
       "open-sse/rtk/**/*",
+      // undici is loaded dynamically and must ship as a real package.
+      "./node_modules/undici/**/*",
     ],
   },
   // `open` must stay external. It derives its own directory from `import.meta.url`, and
@@ -40,11 +42,6 @@ const nextConfig = {
     root: tracingRoot,
   },
   outputFileTracingRoot: tracingRoot,
-  outputFileTracingIncludes: {
-    // serverExternalPackages keeps undici external; dynamic import("undici")
-    // alone doesn't pull it into the trace, so force-ship the real package.
-    "*": ["./node_modules/undici/**/*"],
-  },
   outputFileTracingExcludes: {
     "*": ["./gitbook/**/*"],
   },

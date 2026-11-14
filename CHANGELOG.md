@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.4.64 (2026-11-14)
+
+- **MITM startup:** Fixed missing `dbFileSafety.js` in npm packages by preserving MITM tracing includes alongside upstream `undici` files and copying the helper to the correct `src/lib` path.
+- **Regression coverage:** Added isolated package-loading checks to catch missing MITM runtime dependencies before release.
+
 ## v0.4.63 (2026-11-13)
 
 ### Upstream merge

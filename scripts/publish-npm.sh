@@ -171,8 +171,9 @@ npm run build
 info "Copying MITM server (child-process — not traced by Next.js)..."
 mkdir -p .next/standalone/src/mitm
 cp -r src/mitm/. .next/standalone/src/mitm/
-mkdir -p .next/standalone/lib
-cp src/lib/dbFileSafety.js .next/standalone/lib/dbFileSafety.js
+# tokenPool.js resolves ../lib relative to src/mitm, so preserve src/lib.
+mkdir -p .next/standalone/src/lib
+cp src/lib/dbFileSafety.js .next/standalone/src/lib/dbFileSafety.js
 
 info "Cleaning standalone — removing sensitive and packaging-breaking files..."
 # .gitignore traced here by Next.js causes npm's recursive ignore-walk to
